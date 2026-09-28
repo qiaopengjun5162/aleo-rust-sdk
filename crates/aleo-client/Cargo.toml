@@ -10,6 +10,7 @@ aleo-execution = { path = "../aleo-execution" }
 aleo-network = { path = "../aleo-network" }
 aleo-program = { path = "../aleo-program" }
 anyhow.workspace = true
+reqwest.workspace = true
 serde_json.workspace = true
 snarkvm.workspace = true
 tokio.workspace = true

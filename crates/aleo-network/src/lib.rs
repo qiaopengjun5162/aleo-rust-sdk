@@ -109,6 +109,55 @@ impl AleoHttpClient {
         }
         anyhow::bail!("Timed out waiting for confirmation of {}", tx_id)
     }
+
+    // ── On-chain state queries ──────────────────────────────────────────
+
+    /// Query a mapping value: `GET /mapping/{program_id}/{mapping_name}/{key}`.
+    ///
+    /// Returns the raw JSON value string, or `None` if the key does not exist
+    /// in the mapping (404).
+    pub async fn fetch_mapping_value(
+        &self,
+        program_id: &str,
+        mapping_name: &str,
+        key: &str,
+    ) -> Result<Option<String>> {
+        let url = format!("{}/mapping/{}/{}/{}", self.base_url, program_id, mapping_name, key);
+        tracing::info!("GET {url}");
+
+        let resp = self.inner.get(&url).headers(Self::headers()).send().await?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            anyhow::bail!("Mapping query failed ({}): {}", resp.status(), resp.text().await?);
+        }
+        let text = resp.text().await?;
+        Ok(Some(text.trim_matches('"').to_string()))
+    }
+
+    /// Fetch the current block height.
+    pub async fn fetch_block_height(&self) -> Result<u32> {
+        let url = format!("{}/block/height/latest", self.base_url);
+        let text = self.inner.get(&url).headers(Self::headers()).send().await?.text().await?;
+        Ok(text.trim().parse()?)
+    }
+
+    /// Fetch latest state root only (no extra height query).
+    pub async fn fetch_state_root_only(&self) -> Result<<TestnetV0 as Network>::StateRoot> {
+        let url = format!("{}/stateRoot/latest", self.base_url);
+        let text = self.inner.get(&url).headers(Self::headers()).send().await?.text().await?;
+        <TestnetV0 as Network>::StateRoot::from_str(text.trim_matches('"'))
+            .context("Failed to parse state root")
+    }
+
+    /// Fetch unspent records by view key: `GET /find/records/{view_key}`.
+    pub async fn fetch_records(&self, view_key: &str) -> Result<String> {
+        let url = format!("{}/find/records/{}", self.base_url, view_key);
+        let text = self.inner.get(&url).headers(Self::headers()).send().await?.text().await?;
+        Ok(text)
+    }
 }
 
 /// Custom query returning a fixed state root (bypasses ureq/WAF).

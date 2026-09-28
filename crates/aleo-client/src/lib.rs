@@ -28,7 +28,7 @@ use aleo_program::AleoProgram;
 use anyhow::Result;
 use snarkvm::console::program::ProgramID;
 use snarkvm::ledger::block::Transaction;
-use snarkvm::prelude::{PrivateKey, Response, TestRng, TestnetV0};
+use snarkvm::prelude::{Network, PrivateKey, Response, TestRng, TestnetV0};
 use snarkvm::synthesizer::process::Trace;
 
 /// High-level Aleo client that orchestrates the full lifecycle.
@@ -224,5 +224,36 @@ impl AleoClient {
     pub async fn broadcast(&self, tx: &Transaction<TestnetV0>) -> Result<String> {
         let tx_json = serde_json::to_string(tx)?;
         self.network.broadcast_transaction(tx_json).await
+    }
+
+    // ── On-chain queries ────────────────────────────────────────────────
+
+    /// Query the public balance of the current account from `credits.aleo`.
+    ///
+    /// Queries the `account` mapping of the credits program. Returns `None`
+    /// if the account has never received credits (no mapping entry).
+    pub async fn get_balance(&self) -> Result<Option<u64>> {
+        let addr = self.require_account()?.address_str();
+        let val = self.network.fetch_mapping_value("credits.aleo", "account", &addr).await?;
+        match val {
+            Some(s) => Ok(Some(s.trim().parse::<u64>()?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Fetch unspent records for the current account's view key.
+    pub async fn fetch_unspent_records(&self) -> Result<String> {
+        let account = self.require_account()?;
+        self.network.fetch_records(&account.view_key.to_string()).await
+    }
+
+    /// Fetch the current block height.
+    pub async fn get_block_height(&self) -> Result<u32> {
+        self.network.fetch_block_height().await
+    }
+
+    /// Fetch latest state root.
+    pub async fn get_state_root(&self) -> Result<<TestnetV0 as Network>::StateRoot> {
+        self.network.fetch_state_root_only().await
     }
 }
