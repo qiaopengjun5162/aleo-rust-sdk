@@ -13,7 +13,7 @@
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
 //!     let mut rng = TestRng::default();
-//!     let client = AleoClient::new("https://api.explorer.provable.com/v1")?;
+//!     let client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
 //!
 //!     let account = AleoAccount::new_random(&mut rng)?;
 //!     println!("Address: {}", account.address_str());
