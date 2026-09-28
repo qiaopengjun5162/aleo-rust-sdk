@@ -1,13 +1,14 @@
 /// Aleo Network — RPC client for interacting with Aleo blockchain nodes.
 ///
 /// Uses Provable's v2 REST API for GET endpoints (block height, state root, programs)
-/// and JSON-RPC (testnetbeta.aleorpc.com) for mapping/records queries.
+/// and JSON-RPC (`testnetbeta.aleorpc.com`) for mapping/records queries.
 ///
-/// Features:
-/// - Browser-like fingerprint to bypass Cloudflare WAF on public endpoints
-/// - Fetch programs, state roots, broadcast transactions
-/// - JSON-RPC for mapping values and records
-/// - Poll for transaction confirmation
+/// ## API Discovery
+///
+/// During development we found that Provable v1 REST endpoints (the old Aleo SDK)
+/// are all dead. The current approach:
+/// - `v2/testnet` REST: block height, state root, program source, transaction broadcast
+/// - JSON-RPC: mapping values, records query
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -27,13 +28,13 @@ const JSON_RPC_URL: &str = "https://testnetbeta.aleorpc.com";
 /// HTTP client with browser-like headers for Aleo network interaction.
 #[derive(Clone, Debug)]
 pub struct AleoHttpClient {
-    /// Base URL for REST endpoints (e.g. https://api.explorer.provable.com/v2/testnet)
+    /// Base URL for REST endpoints (e.g. `https://api.explorer.provable.com/v2/testnet`)
     pub base_url: String,
     inner: reqwest::Client,
 }
 
 impl AleoHttpClient {
-    /// Create a new client for the given node URL.
+    /// Create a new client pointing at an Aleo node.
     pub fn new(base_url: &str) -> Result<Self> {
         let inner = reqwest::Client::builder()
             .http1_only()
@@ -67,14 +68,14 @@ impl AleoHttpClient {
         let v: Value = serde_json::from_str(&text).context("Failed to parse JSON-RPC response")?;
 
         if let Some(err) = v.get("error") {
-            anyhow::bail!("JSON-RPC error ({}): {}", method, err);
+            anyhow::bail!("JSON-RPC error ({method}): {err}");
         }
         v.get("result").cloned().context("JSON-RPC response missing result")
     }
 
     /// Fetch a program from the network (REST GET).
     pub async fn fetch_program(&self, program_id: &str) -> Result<Program<TestnetV0>> {
-        let url = format!("{}/program/{}", self.base_url, program_id);
+        let url = format!("{}/program/{program_id}", self.base_url);
         tracing::info!("GET {url}");
         let text = self.inner.get(&url).headers(Self::headers()).send().await?.text().await?;
 
@@ -91,7 +92,6 @@ impl AleoHttpClient {
             .context("Failed to parse state root")?;
 
         let height = self.fetch_block_height().await?;
-
         Ok((state_root, height))
     }
 
@@ -108,14 +108,14 @@ impl AleoHttpClient {
         let body = resp.text().await.unwrap_or_default();
 
         if !status.is_success() {
-            anyhow::bail!("Broadcast rejected ({}): {}", status, body);
+            anyhow::bail!("Broadcast rejected ({status}): {body}");
         }
         Ok(body)
     }
 
     /// Poll for confirmation (up to 30 attempts, 5s apart).
     pub async fn wait_for_confirmation(&self, tx_id: &str) -> Result<()> {
-        let check_url = format!("{}/transaction/{}", self.base_url, tx_id);
+        let check_url = format!("{}/transaction/{tx_id}", self.base_url);
         tracing::info!("Waiting for confirmation... (polling every 5s)");
 
         for _ in 1..=30 {
@@ -124,7 +124,7 @@ impl AleoHttpClient {
             match self.inner.get(&check_url).headers(Self::headers()).send().await {
                 Ok(res) if res.status().is_success() => {
                     tracing::info!("Confirmed on chain!");
-                    tracing::info!("🔗 https://testnet.explorer.provable.com/transaction/{}", tx_id);
+                    tracing::info!("🔗 https://testnet.explorer.provable.com/transaction/{tx_id}");
                     return Ok(());
                 }
                 _ => {
@@ -133,14 +133,14 @@ impl AleoHttpClient {
                 }
             }
         }
-        anyhow::bail!("Timed out waiting for confirmation of {}", tx_id)
+        anyhow::bail!("Timed out waiting for confirmation of {tx_id}")
     }
 
     // ── On-chain state queries ──────────────────────────────────────────
 
     /// Query a mapping value via JSON-RPC `getMappingValue`.
     ///
-    /// Returns `None` if the key does not exist in the mapping (validator error).
+    /// Returns `None` if the key does not exist in the mapping.
     pub async fn fetch_mapping_value(
         &self,
         program_id: &str,
@@ -160,7 +160,6 @@ impl AleoHttpClient {
             Ok(Value::String(s)) => Ok(Some(s)),
             Ok(v) => Ok(Some(v.to_string())),
             Err(e) => {
-                // JSON-RPC error likely means key doesn't exist
                 tracing::warn!("Mapping query note (key may not exist): {e}");
                 Ok(None)
             }
@@ -183,19 +182,14 @@ impl AleoHttpClient {
     }
 
     /// Fetch unspent records by view key via JSON-RPC.
-    ///
-    /// Calls `records/isOwner` — the closest available method for
-    /// fetching records owned by a view key within a recent block range.
-    pub async fn fetch_records(&self, _view_key: &str) -> Result<String> {
-        // `records/isOwner` takes program_id, block_range_start, block_range_end
-        // For simplicity, query a wide range
+    pub async fn fetch_records(&self, view_key: &str) -> Result<String> {
         let height = self.fetch_block_height().await?;
         let start = if height > 1000 { height - 1000 } else { 0 };
 
         let result = self.json_rpc(
             "records/isOwner",
             vec![
-                Value::String(_view_key.to_string()),
+                Value::String(view_key.to_string()),
                 Value::Number(serde_json::Number::from(start)),
                 Value::Number(serde_json::Number::from(height)),
             ],
@@ -205,7 +199,7 @@ impl AleoHttpClient {
     }
 }
 
-/// Custom query returning a fixed state root (bypasses ureq/WAF).
+/// Custom query returning a fixed state root (bypasses ureq/WAF issues).
 #[derive(Clone, Debug)]
 pub struct FixedStateRootQuery<N: Network> {
     pub state_root: N::StateRoot,

@@ -1,19 +1,14 @@
-[workspace]
-resolver = "2"
-members = [
-    "crates/aleo-account",
-    "crates/aleo-program",
-    "crates/aleo-execution",
-    "crates/aleo-network",
-    "crates/aleo-client",
-]
-
-[workspace.package]
+[package]
+name = "aleo-rust-sdk"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Rust SDK for interacting with the Aleo blockchain — accounts, programs, execution, network queries, and transaction broadcasting"
+repository = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
+keywords = ["aleo", "blockchain", "zero-knowledge", "sdk", "snarkvm"]
+categories = ["cryptography", "web-programming::http-client"]
 
-[workspace.dependencies]
+[dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
 reqwest = { version = "0.12", features = ["json"] }
@@ -23,8 +18,24 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# snarkVM — the heavy dependency
+# snarkVM — the core zero-knowledge dependency
 snarkvm = { git = "https://github.com/ProvableHQ/snarkVM.git", rev = "465f847882a347a0559b1db23ad4ff9996f1fd22", features = [
     "synthesizer",
     "ledger",
 ] }
+
+[lib]
+name = "aleo_rust_sdk"
+path = "src/lib.rs"
+
+[[example]]
+name = "testnet_query"
+path = "examples/testnet_query.rs"
+
+[[example]]
+name = "testnet_transfer"
+path = "examples/testnet_transfer.rs"
+
+[[example]]
+name = "simple_execute"
+path = "examples/simple_execute.rs"

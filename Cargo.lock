@@ -18,63 +18,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "aleo-account"
+name = "aleo-rust-sdk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "serde",
- "snarkvm",
-]
-
-[[package]]
-name = "aleo-client"
-version = "0.1.0"
-dependencies = [
- "aleo-account",
- "aleo-execution",
- "aleo-network",
- "aleo-program",
- "anyhow",
+ "async-trait",
  "reqwest 0.12.28",
+ "serde",
  "serde_json",
  "snarkvm",
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "aleo-execution"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "snarkvm",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "aleo-network"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "snarkvm",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "aleo-program"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "snarkvm",
 ]
 
 [[package]]

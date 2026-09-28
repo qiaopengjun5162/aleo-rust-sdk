@@ -1,8 +1,8 @@
 /// Aleo Execution — authorization, proving, and transaction packaging pipeline.
 ///
-/// 1. Authorize — build authorization for a function call
-/// 2. Execute — run locally, getting response + trace
-/// 3. Prove + package — prepare trace, prove execution + fee, verify, package into Transaction
+/// 1. **Authorize** — build authorization for a function call
+/// 2. **Execute** — run locally, getting response + trace
+/// 3. **Prove + package** — prepare trace, prove execution + fee, verify, package into `Transaction`
 
 use anyhow::{Context, Result};
 use snarkvm::algorithms::snark::varuna::VarunaVersion;
@@ -100,7 +100,7 @@ impl ExecutionEngine<TestnetV0> {
         query: &impl QueryTrait<TestnetV0>,
         rng: &mut TestRng,
     ) -> Result<Transaction<TestnetV0>> {
-        let locator = format!("{}/{}", program_id, function_name);
+        let locator = format!("{program_id}/{function_name}");
 
         // Prove execution
         let mut exec_trace = trace;
