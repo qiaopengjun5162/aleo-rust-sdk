@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+.DS_Store
+.env
+*.swp
+*.swo
+.idea/
+*.iml

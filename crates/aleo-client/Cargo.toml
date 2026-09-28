@@ -1,0 +1,28 @@
+[package]
+name = "aleo-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+aleo-account = { path = "../aleo-account" }
+aleo-execution = { path = "../aleo-execution" }
+aleo-network = { path = "../aleo-network" }
+aleo-program = { path = "../aleo-program" }
+anyhow.workspace = true
+serde_json.workspace = true
+snarkvm.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+
+[lib]
+name = "aleo_client"
+path = "src/lib.rs"
+
+[[example]]
+name = "simple_execute"
+path = "examples/simple_execute.rs"
+required-features = []

@@ -1,0 +1,10 @@
+chain_width = 80
+max_width = 100
+tab_spaces = 4
+newline_style = "Unix"
+use_small_heuristics = "Max"
+reorder_imports = true
+reorder_modules = true
+remove_nested_parens = true
+normalize_doc_attributes = true
+format_strings = false

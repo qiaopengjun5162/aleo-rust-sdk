@@ -1,0 +1,37 @@
+fail_fast: false
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-byte-order-marker
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        description: Format Rust code.
+        entry: bash -c 'cargo fmt'
+        language: rust
+        files: \.rs$
+        args: []
+      - id: cargo-clippy
+        name: cargo clippy
+        description: Lint Rust code.
+        entry: bash -c 'cargo clippy --all-targets -- -D warnings'
+        language: rust
+        files: \.rs$
+        pass_filenames: false
+      - id: typos
+        name: typos
+        description: Check spelling.
+        entry: bash -c 'typos'
+        language: rust
+        files: \.*$
+        pass_filenames: false
