@@ -1,8 +1,8 @@
-/// Aleo Execution — authorization, proving, and transaction packaging pipeline.
-///
-/// 1. **Authorize** — build authorization for a function call
-/// 2. **Execute** — run locally, getting response + trace
-/// 3. **Prove + package** — prepare trace, prove execution + fee, verify, package into `Transaction`
+//! Aleo Execution — authorization, proving, and transaction packaging pipeline.
+//!
+//! 1. **Authorize** — build authorization for a function call
+//! 2. **Execute** — run locally, getting response + trace
+//! 3. **Prove + package** — prepare trace, prove execution + fee, verify, package into `Transaction`
 
 use anyhow::{Context, Result};
 use indexmap::IndexMap;
@@ -28,11 +28,11 @@ mod fee_keys {
     use snarkvm::synthesizer::snark::{ProvingKey, VerifyingKey};
 
     pub fn load_pk() -> Result<ProvingKey<snarkvm::prelude::TestnetV0>, anyhow::Error> {
-        Ok(ProvingKey::from_bytes_le(&FeePublicV0Prover::load_bytes()?)?)
+        ProvingKey::from_bytes_le(&FeePublicV0Prover::load_bytes()?)
     }
 
     pub fn load_vk() -> Result<VerifyingKey<snarkvm::prelude::TestnetV0>, anyhow::Error> {
-        Ok(VerifyingKey::from_bytes_le(&FeePublicV0Verifier::load_bytes()?)?)
+        VerifyingKey::from_bytes_le(&FeePublicV0Verifier::load_bytes()?)
     }
 }
 
@@ -160,7 +160,7 @@ impl ExecutionEngine<TestnetV0> {
             let pid = *transition.program_id();
             if !execution_stacks.contains_key(&pid) {
                 let stack = guard
-                    .get_stack(&pid)
+                    .get_stack(pid)
                     .context("Missing stack for verification")?;
                 execution_stacks.insert(pid, stack.clone());
             }

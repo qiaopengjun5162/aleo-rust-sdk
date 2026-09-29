@@ -1,14 +1,14 @@
-/// Aleo Network — RPC client for interacting with Aleo blockchain nodes.
-///
-/// Uses Provable's v2 REST API for GET endpoints (block height, state root, programs)
-/// and JSON-RPC (`testnetbeta.aleorpc.com`) for mapping/records queries.
-///
-/// ## API Discovery
-///
-/// During development we found that Provable v1 REST endpoints (the old Aleo SDK)
-/// are all dead. The current approach:
-/// - `v2/testnet` REST: block height, state root, program source, transaction broadcast
-/// - JSON-RPC: mapping values, records query
+//! Aleo Network — RPC client for interacting with Aleo blockchain nodes.
+//!
+//! Uses Provable's v2 REST API for GET endpoints (block height, state root, programs)
+//! and JSON-RPC (`testnetbeta.aleorpc.com`) for mapping/records queries.
+//!
+//! ## API Discovery
+//!
+//! During development we found that Provable v1 REST endpoints (the old Aleo SDK)
+//! are all dead. The current approach:
+//! - `v2/testnet` REST: block height, state root, program source, transaction broadcast
+//! - JSON-RPC: mapping values, records query
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -184,7 +184,7 @@ impl AleoHttpClient {
     /// Fetch unspent records by view key via JSON-RPC.
     pub async fn fetch_records(&self, view_key: &str) -> Result<String> {
         let height = self.fetch_block_height().await?;
-        let start = if height > 1000 { height - 1000 } else { 0 };
+        let start = height.saturating_sub(1000);
 
         let result = self.json_rpc(
             "records/isOwner",
@@ -209,7 +209,7 @@ pub struct FixedStateRootQuery<N: Network> {
 #[async_trait(?Send)]
 impl<N: Network> QueryTrait<N> for FixedStateRootQuery<N> {
     fn current_state_root(&self) -> Result<N::StateRoot> {
-        Ok(self.state_root.clone())
+        Ok(self.state_root)
     }
     fn current_block_height(&self) -> Result<u32> {
         Ok(self.block_height)
@@ -221,7 +221,7 @@ impl<N: Network> QueryTrait<N> for FixedStateRootQuery<N> {
         Ok(Vec::new())
     }
     async fn current_state_root_async(&self) -> Result<N::StateRoot> {
-        Ok(self.state_root.clone())
+        Ok(self.state_root)
     }
     async fn current_block_height_async(&self) -> Result<u32> {
         Ok(self.block_height)

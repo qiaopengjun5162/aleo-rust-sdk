@@ -46,6 +46,7 @@
 
 pub mod account;
 pub mod client;
+pub mod error;
 pub mod execution;
 pub mod network;
 pub mod program;
@@ -53,6 +54,7 @@ pub mod program;
 // Re-export the main types at the crate root for convenience
 pub use account::AleoAccount;
 pub use client::AleoClient;
+pub use error::AleoError;
 pub use execution::ExecutionEngine;
 pub use network::{AleoHttpClient, FixedStateRootQuery};
 pub use program::AleoProgram;

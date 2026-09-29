@@ -24,6 +24,7 @@ snarkvm = { version = "4.10.0", default-features = true, features = [
     "ledger",
     "synthesizer",
 ] }
+thiserror = "2.0.21"
 
 [lib]
 name = "aleo_rust_sdk"

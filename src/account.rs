@@ -1,7 +1,7 @@
-/// Aleo Account — key management for Aleo blockchain accounts.
-///
-/// Wraps snarkVM account primitives with a safe, ergonomic API.
-/// Key chain: `PrivateKey → ViewKey → ComputeKey → Address`.
+//! Aleo Account — key management for Aleo blockchain accounts.
+//!
+//! Wraps snarkVM account primitives with a safe, ergonomic API.
+//! Key chain: `PrivateKey → ViewKey → ComputeKey → Address`.
 
 use anyhow::Result;
 use snarkvm::prelude::{
