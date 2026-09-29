@@ -5,67 +5,82 @@
 /// 3. **Prove + package** — prepare trace, prove execution + fee, verify, package into `Transaction`
 
 use anyhow::{Context, Result};
+use indexmap::IndexMap;
 use snarkvm::algorithms::snark::varuna::VarunaVersion;
 use snarkvm::circuit::AleoTestnetV0;
-use snarkvm::console::program::ProgramID;
+use snarkvm::console::program::{Identifier, ProgramID};
 use snarkvm::ledger::block::Transaction;
-use snarkvm::parameters::testnet::{FeePublicV0Prover, FeePublicV0Verifier};
 use snarkvm::prelude::{
-    ConsensusVersion, FromBytes as _, Identifier, InclusionVersion, Network, PrivateKey, Process,
+    ConsensusVersion, InclusionVersion, Network, PrivateKey, Process,
     Program, Response, TestRng, TestnetV0,
 };
-use snarkvm::synthesizer::process::Trace;
-use snarkvm::synthesizer::snark::{ProvingKey, VerifyingKey};
-use std::marker::PhantomData;
+use snarkvm::synthesizer::process::{Stack, Trace};
 use std::str::FromStr;
+use std::sync::Arc;
 
-/// Custom query trait abstraction for state root fetching.
+/// Custom query trait for state root fetching.
 pub use snarkvm::ledger::query::QueryTrait;
+
+/// Fee key loader — injects V0 proving/verifying keys for testnet fee_public.
+mod fee_keys {
+    use snarkvm::parameters::testnet::{FeePublicV0Prover, FeePublicV0Verifier};
+    use snarkvm::prelude::FromBytes as _;
+    use snarkvm::synthesizer::snark::{ProvingKey, VerifyingKey};
+
+    pub fn load_pk() -> Result<ProvingKey<snarkvm::prelude::TestnetV0>, anyhow::Error> {
+        Ok(ProvingKey::from_bytes_le(&FeePublicV0Prover::load_bytes()?)?)
+    }
+
+    pub fn load_vk() -> Result<VerifyingKey<snarkvm::prelude::TestnetV0>, anyhow::Error> {
+        Ok(VerifyingKey::from_bytes_le(&FeePublicV0Verifier::load_bytes()?)?)
+    }
+}
 
 /// Execution engine wrapping a snarkVM `Process`.
 pub struct ExecutionEngine<N: Network> {
     pub process: Process<N>,
-    _network: PhantomData<N>,
 }
 
 impl ExecutionEngine<TestnetV0> {
-    /// Initialize a new process, loading credits + a user program.
-    ///
-    /// Optionally injects V0 fee keys (required for testnet deployments).
-    pub fn new(program: &Program<TestnetV0>, inject_v0_fee_keys: bool) -> Result<Self> {
-        let mut process = Process::<TestnetV0>::load()?;
+    /// Initialize a new process using `Process::load()` (credits loaded by default).
+    pub fn new() -> Result<Self> {
+        let process = Process::<TestnetV0>::load()?;
+        Ok(Self { process })
+    }
 
-        let credits_program = Program::<TestnetV0>::credits()?;
-        process.add_program(&credits_program)?;
-        process.add_program(program)?;
+    /// Initialize with explicit V0 fee keys injected.
+    pub fn new_with_v0_fee_keys() -> Result<Self> {
+        let mut engine = Self::new()?;
+        engine.inject_v0_fee_keys()?;
+        Ok(engine)
+    }
 
-        if inject_v0_fee_keys {
-            tracing::info!("Loading V0 fee keys from testnet parameters...");
-            let fee_pk = ProvingKey::<TestnetV0>::from_bytes_le(&FeePublicV0Prover::load_bytes()?)
-                .context("Failed to deserialize V0 fee proving key")?;
-            let fee_vk =
-                VerifyingKey::<TestnetV0>::from_bytes_le(&FeePublicV0Verifier::load_bytes()?)
-                    .context("Failed to deserialize V0 fee verifying key")?;
+    /// Inject V0 fee proving/verifying keys for testnet fee_public support.
+    pub fn inject_v0_fee_keys(&mut self) -> Result<()> {
+        tracing::info!("Loading V0 fee keys from testnet parameters...");
+        let fee_pk = fee_keys::load_pk().context("Failed to deserialize V0 fee proving key")?;
+        let fee_vk = fee_keys::load_vk().context("Failed to deserialize V0 fee verifying key")?;
 
-            let credits_id = credits_program.id();
-            let fee_fn = Identifier::<TestnetV0>::from_str("fee_public")?;
-            process.insert_proving_key(credits_id, &fee_fn, fee_pk)?;
-            process.insert_verifying_key(credits_id, &fee_fn, fee_vk)?;
-            tracing::info!("V0 fee keys injected");
-        }
-
-        Ok(Self { process, _network: PhantomData })
+        let credits_id = ProgramID::<TestnetV0>::from_str("credits.aleo")?;
+        let fee_fn = Identifier::<TestnetV0>::from_str("fee_public")?;
+        let guard = self.process.lock();
+        guard.insert_proving_key(&credits_id, &fee_fn, fee_pk)?;
+        guard.insert_verifying_key(&credits_id, &fee_fn, fee_vk)?;
+        drop(guard);
+        tracing::info!("V0 fee keys injected");
+        Ok(())
     }
 
     /// Add a program to the engine.
-    pub fn add_program(&mut self, program: &Program<TestnetV0>) -> Result<()> {
-        self.process.add_program(program)?;
+    pub fn add_program(&self, program: &Program<TestnetV0>) -> Result<()> {
+        // `add_program` is on ProcessExclusiveGuard, accessed via lock()
+        self.process.lock().add_program(program)?;
         Ok(())
     }
 
     /// Authorize and execute locally. Returns response + trace.
     pub fn authorize_and_execute(
-        &mut self,
+        &self,
         private_key: &PrivateKey<TestnetV0>,
         program_id: &ProgramID<TestnetV0>,
         function_name: &str,
@@ -73,9 +88,10 @@ impl ExecutionEngine<TestnetV0> {
         rng: &mut TestRng,
     ) -> Result<(Response<TestnetV0>, Trace<TestnetV0>)> {
         tracing::info!("Authorizing...");
+        let fn_id = Identifier::<TestnetV0>::from_str(function_name)?;
         let authorization = self
             .process
-            .authorize::<AleoTestnetV0, _>(private_key, *program_id, function_name, inputs.into_iter(), rng)
+            .authorize::<AleoTestnetV0, _>(private_key, *program_id, fn_id, inputs.into_iter(), rng)
             .context("Authorization failed")?;
 
         tracing::info!("Executing locally...");
@@ -90,7 +106,7 @@ impl ExecutionEngine<TestnetV0> {
     /// Prove execution + fee, verify, package into `Transaction`.
     #[allow(clippy::too_many_arguments)]
     pub fn prove_and_package(
-        &mut self,
+        &self,
         trace: Trace<TestnetV0>,
         private_key: &PrivateKey<TestnetV0>,
         program_id: &ProgramID<TestnetV0>,
@@ -104,7 +120,9 @@ impl ExecutionEngine<TestnetV0> {
 
         // Prove execution
         let mut exec_trace = trace;
-        exec_trace.prepare(query).context("Failed to prepare execution trace")?;
+        exec_trace
+            .prepare(query)
+            .context("Failed to prepare execution trace")?;
         let execution = exec_trace
             .prove_execution::<AleoTestnetV0, _>(&locator, VarunaVersion::V2, rng)
             .context("Failed to generate execution proof")?;
@@ -113,7 +131,13 @@ impl ExecutionEngine<TestnetV0> {
         let execution_id = execution.to_execution_id()?;
         let fee_authorization = self
             .process
-            .authorize_fee_public::<AleoTestnetV0, _>(private_key, base_fee, priority_fee, execution_id, rng)
+            .authorize_fee_public::<AleoTestnetV0, _>(
+                private_key,
+                base_fee,
+                priority_fee,
+                execution_id,
+                rng,
+            )
             .context("Failed to authorize fee")?;
 
         let (_fee_response, mut fee_trace) = self
@@ -121,21 +145,38 @@ impl ExecutionEngine<TestnetV0> {
             .execute::<AleoTestnetV0, _>(fee_authorization, rng)
             .context("Failed to execute fee")?;
 
-        fee_trace.prepare(query).context("Failed to prepare fee trace")?;
+        fee_trace
+            .prepare(query)
+            .context("Failed to prepare fee trace")?;
         let fee = fee_trace
             .prove_fee::<AleoTestnetV0, _>(VarunaVersion::V2, rng)
             .context("Failed to generate fee proof")?;
 
-        // Local verification
+        // Build execution_stacks for verification (needed by 4.10 API)
+        let mut execution_stacks: IndexMap<ProgramID<TestnetV0>, Arc<Stack<TestnetV0>>> =
+            IndexMap::new();
+        let guard = self.process.lock();
+        for transition in execution.transitions() {
+            let pid = *transition.program_id();
+            if !execution_stacks.contains_key(&pid) {
+                let stack = guard
+                    .get_stack(&pid)
+                    .context("Missing stack for verification")?;
+                execution_stacks.insert(pid, stack.clone());
+            }
+        }
+        drop(guard);
+
+        // Local verification (associated function in 4.10)
         tracing::info!("Verifying proofs locally...");
-        self.process
-            .verify_execution(
-                ConsensusVersion::V14,
-                VarunaVersion::V2,
-                InclusionVersion::V0,
-                &execution,
-            )
-            .context("Local execution verification FAILED")?;
+        Process::<TestnetV0>::verify_execution(
+            ConsensusVersion::V14,
+            VarunaVersion::V2,
+            InclusionVersion::V0,
+            &execution,
+            &execution_stacks,
+        )
+        .context("Local execution verification FAILED")?;
 
         self.process
             .verify_fee(

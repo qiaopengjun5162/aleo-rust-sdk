@@ -11,6 +11,7 @@ categories = ["cryptography", "web-programming::http-client"]
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
+indexmap = { version = "2", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -19,9 +20,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # snarkVM — the core zero-knowledge dependency
-snarkvm = { git = "https://github.com/ProvableHQ/snarkVM.git", rev = "465f847882a347a0559b1db23ad4ff9996f1fd22", features = [
-    "synthesizer",
+snarkvm = { version = "4.10.0", default-features = true, features = [
     "ledger",
+    "synthesizer",
 ] }
 
 [lib]

@@ -101,8 +101,10 @@ impl AleoClient {
 
         let pid = ProgramID::<TestnetV0>::from_str(program_id)?;
 
-        // Initialize a fresh execution engine
-        let mut engine = ExecutionEngine::new(program.inner(), false)?;
+        // Initialize a fresh execution engine (loads credits automatically)
+        let engine = ExecutionEngine::new()?;
+        // Register the user program
+        engine.add_program(program.inner())?;
 
         let (response, _trace) = engine.authorize_and_execute(
             &account.private_key,
@@ -135,8 +137,10 @@ impl AleoClient {
         // Fetch program from network
         let program = self.network.fetch_program(&program_id.to_string()).await?;
 
-        // Initialize engine
-        let mut engine = ExecutionEngine::new(&program, true)?;
+        // Initialize engine with V0 fee keys for testnet
+        let engine = ExecutionEngine::new_with_v0_fee_keys()?;
+        // Register the user program
+        engine.add_program(&program)?;
 
         // Authorize + execute locally
         let (_response, trace) = engine.authorize_and_execute(
