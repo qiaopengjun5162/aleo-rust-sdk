@@ -8,11 +8,11 @@ use std::str::FromStr;
 
 /// A loaded Aleo program for TestnetV0.
 #[derive(Clone, Debug)]
-pub struct AleoProgram<N: snarkvm::prelude::Network> {
-    pub(crate) program: Program<N>,
+pub struct AleoProgram {
+    pub(crate) program: Program<TestnetV0>,
 }
 
-impl AleoProgram<TestnetV0> {
+impl AleoProgram {
     /// Load a program from a `.aleo` file on disk.
     pub fn from_local_file(path: &str) -> Result<Self> {
         let source = std::fs::read_to_string(path).context(format!("Failed to read {path}"))?;

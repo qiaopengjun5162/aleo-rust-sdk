@@ -11,7 +11,7 @@ use snarkvm::circuit::AleoTestnetV0;
 use snarkvm::console::program::{Identifier, ProgramID};
 use snarkvm::ledger::block::Transaction;
 use snarkvm::prelude::{
-    ConsensusVersion, InclusionVersion, Network, PrivateKey, Process,
+    ConsensusVersion, InclusionVersion, PrivateKey, Process,
     Program, Response, TestRng, TestnetV0,
 };
 use snarkvm::synthesizer::process::{Stack, Trace};
@@ -37,11 +37,11 @@ mod fee_keys {
 }
 
 /// Execution engine wrapping a snarkVM `Process`.
-pub struct ExecutionEngine<N: Network> {
-    pub process: Process<N>,
+pub struct ExecutionEngine {
+    pub process: Process<TestnetV0>,
 }
 
-impl ExecutionEngine<TestnetV0> {
+impl ExecutionEngine {
     /// Initialize a new process using `Process::load()` (credits loaded by default).
     pub fn new() -> Result<Self> {
         let process = Process::<TestnetV0>::load()?;

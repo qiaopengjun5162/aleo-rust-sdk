@@ -20,24 +20,24 @@ pub struct AleoAccount {
 
 impl AleoAccount {
     /// Derive the full key chain from a private key.
-    fn from_private_key(private_key: PrivateKey<TestnetV0>) -> Self {
-        let view_key = ViewKey::try_from(&private_key).expect("view key derivation");
-        let compute_key = ComputeKey::try_from(&private_key).expect("compute key derivation");
-        let address = Address::try_from(&compute_key).expect("address derivation");
-        Self { private_key, view_key, compute_key, address }
+    fn from_private_key(private_key: PrivateKey<TestnetV0>) -> Result<Self> {
+        let view_key = ViewKey::try_from(&private_key).map_err(|e| anyhow::anyhow!("View key derivation failed: {e}"))?;
+        let compute_key = ComputeKey::try_from(&private_key).map_err(|e| anyhow::anyhow!("Compute key derivation failed: {e}"))?;
+        let address = Address::try_from(&compute_key).map_err(|e| anyhow::anyhow!("Address derivation failed: {e}"))?;
+        Ok(Self { private_key, view_key, compute_key, address })
     }
 
     /// Create an account from a private key string (bech32).
     pub fn from_private_key_str(key_str: &str) -> Result<Self> {
         let private_key = PrivateKey::from_str(key_str)
             .map_err(|e| anyhow::anyhow!("Invalid private key: {}", e))?;
-        Ok(Self::from_private_key(private_key))
+        Self::from_private_key(private_key)
     }
 
     /// Generate a new random account.
     pub fn new_random(rng: &mut TestRng) -> Result<Self> {
         let private_key = PrivateKey::new(rng)?;
-        Ok(Self::from_private_key(private_key))
+        Self::from_private_key(private_key)
     }
 
     /// Return the address as a bech32 string.

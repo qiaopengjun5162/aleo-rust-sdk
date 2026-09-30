@@ -33,7 +33,7 @@ use snarkvm::prelude::{Network, PrivateKey, TestRng, TestnetV0};
 pub struct AleoClient {
     pub network: AleoHttpClient,
     account: Option<crate::account::AleoAccount>,
-    program: Option<AleoProgram<TestnetV0>>,
+    program: Option<AleoProgram>,
 }
 
 impl AleoClient {
@@ -69,12 +69,12 @@ impl AleoClient {
     }
 
     /// Directly set a program (e.g. from `AleoProgram::credits()`).
-    pub fn set_program(&mut self, program: AleoProgram<TestnetV0>) {
+    pub fn set_program(&mut self, program: AleoProgram) {
         self.program = Some(program);
     }
 
     /// Get a reference to the stored program, or error if not set.
-    pub fn require_program(&self) -> Result<&AleoProgram<TestnetV0>> {
+    pub fn require_program(&self) -> Result<&AleoProgram> {
         self.program.as_ref().ok_or_else(|| {
             anyhow::anyhow!("No program loaded. Call load_program_from_source() first.")
         })
