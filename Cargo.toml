@@ -26,6 +26,10 @@ snarkvm = { version = "4.10.0", default-features = true, features = [
 ] }
 thiserror = "2.0.21"
 
+[dev-dependencies]
+wiremock = "0.6"
+tempfile = "3"
+
 [lib]
 name = "aleo_rust_sdk"
 path = "src/lib.rs"

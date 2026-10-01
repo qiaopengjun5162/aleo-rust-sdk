@@ -43,6 +43,12 @@ impl AleoClient {
         Ok(Self { network, account: None, program: None })
     }
 
+    /// Create a client with a custom RPC URL (for testing with wiremock).
+    pub fn new_with_rpc(rest_url: &str, rpc_url: &str) -> Result<Self> {
+        let network = AleoHttpClient::new_with_rpc(rest_url, rpc_url)?;
+        Ok(Self { network, account: None, program: None })
+    }
+
     // ── Account management ──────────────────────────────────────────────
 
     /// Set the account from a private key string.

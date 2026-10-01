@@ -1,0 +1,48 @@
+use aleo_rust_sdk::{AleoHttpClient, FixedStateRootQuery, ExecutionEngine, AleoClient, AleoAccount};
+use snarkvm::console::types::Field;
+use snarkvm::ledger::query::QueryTrait;
+use snarkvm::prelude::{FromStr as _, Network, TestnetV0, TestRng};
+use wiremock::{Mock, MockServer, ResponseTemplate, matchers::{method, path, path_regex}};
+
+/// Cover async FixedStateRootQuery methods (network.rs 234-245)
+#[tokio::test]
+async fn test_fixed_state_root_query_async_methods() {
+    let sr = <TestnetV0 as Network>::StateRoot::from_str(
+        "sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s",
+    )
+    .unwrap();
+    let q: FixedStateRootQuery<TestnetV0> = FixedStateRootQuery {
+        state_root: sr,
+        block_height: 42,
+    };
+
+    let async_root = q.current_state_root_async().await.unwrap();
+    assert_eq!(async_root, sr);
+
+    let async_height = q.current_block_height_async().await.unwrap();
+    assert_eq!(async_height, 42);
+
+    let f = Field::from_str("1field").unwrap();
+    let async_path = q.get_state_path_for_commitment_async(&f).await;
+    assert!(async_path.is_err());
+
+    let async_paths = q.get_state_paths_for_commitments_async(&[f]).await.unwrap();
+    assert!(async_paths.is_empty());
+}
+
+/// Cover wait_for_confirmation success path (network.rs 137-139)
+#[tokio::test]
+async fn test_wait_for_confirmation_success() {
+    let mock_server = MockServer::start().await;
+    let base_url = mock_server.uri();
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"/transaction/.+"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("confirmed"))
+        .mount(&mock_server)
+        .await;
+
+    let client = AleoHttpClient::new_with_rpc(&base_url, &format!("{}/jsonrpc", base_url)).unwrap();
+    client.wait_for_confirmation("tx_abc123").await.unwrap();
+}
+

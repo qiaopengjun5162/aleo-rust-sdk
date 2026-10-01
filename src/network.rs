@@ -30,19 +30,30 @@ const JSON_RPC_URL: &str = "https://testnetbeta.aleorpc.com";
 pub struct AleoHttpClient {
     /// Base URL for REST endpoints (e.g. `https://api.explorer.provable.com/v2/testnet`)
     pub base_url: String,
+    /// JSON-RPC endpoint (e.g. `https://testnetbeta.aleorpc.com`)
+    rpc_url: String,
     inner: reqwest::Client,
 }
 
 impl AleoHttpClient {
-    /// Create a new client pointing at an Aleo node.
+    /// Create a new client pointing at an Aleo node (default RPC endpoint).
     pub fn new(base_url: &str) -> Result<Self> {
+        Self::new_with_rpc(base_url, JSON_RPC_URL)
+    }
+
+    /// Create a client with a custom RPC URL (useful for testing with wiremock).
+    pub fn new_with_rpc(base_url: &str, rpc_url: &str) -> Result<Self> {
         let inner = reqwest::Client::builder()
             .http1_only()
             .danger_accept_invalid_certs(true)
             .timeout(std::time::Duration::from_secs(60))
             .build()
             .context("Failed to build HTTP client")?;
-        Ok(Self { base_url: base_url.trim_end_matches('/').to_string(), inner })
+        Ok(Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            rpc_url: rpc_url.trim_end_matches('/').to_string(),
+            inner,
+        })
     }
 
     fn headers() -> reqwest::header::HeaderMap {
@@ -63,7 +74,7 @@ impl AleoHttpClient {
         let mut headers = Self::headers();
         headers.insert("Content-Type", "application/json".parse().unwrap());
 
-        let resp = self.inner.post(JSON_RPC_URL).headers(headers).json(&body).send().await?;
+        let resp = self.inner.post(&self.rpc_url).headers(headers).json(&body).send().await?;
         let text = resp.text().await?;
         let v: Value = serde_json::from_str(&text).context("Failed to parse JSON-RPC response")?;
 
