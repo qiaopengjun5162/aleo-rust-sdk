@@ -58,10 +58,27 @@ impl AleoHttpClient {
 
     /// Create a client with a custom RPC URL (useful for testing with wiremock).
     pub fn new_with_rpc(base_url: &str, rpc_url: &str) -> Result<Self> {
-        let inner = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .http1_only()
             .danger_accept_invalid_certs(true)
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(120));
+
+        // Respect HTTP_PROXY / HTTPS_PROXY env vars (e.g. Clash at 127.0.0.1:7890).
+        // No manual proxy detection needed — reqwest 0.12 respects these by default
+        // when Proxy::system() is used. We set custom() to control exactly.
+        if let Ok(proxy_url) = std::env::var("HTTP_PROXY")
+            .or_else(|_| std::env::var("http_proxy"))
+            .or_else(|_| std::env::var("HTTPS_PROXY"))
+            .or_else(|_| std::env::var("https_proxy"))
+        {
+            if let Ok(proxy) = reqwest::Proxy::http(&proxy_url)
+                .or_else(|_| reqwest::Proxy::all(&proxy_url))
+            {
+                builder = builder.proxy(proxy);
+            }
+        }
+
+        let inner = builder
             .build()
             .context("Failed to build HTTP client")?;
         Ok(Self {

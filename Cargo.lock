@@ -59,12 +59,14 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "async-trait",
+ "hex",
  "indexmap",
  "pbkdf2",
  "rand 0.8.8",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "snarkvm",
  "tempfile",
  "thiserror 2.0.21",
@@ -1476,7 +1478,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "primeorder",
- "sha2",
+ "sha2 0.11.0",
  "wnaf",
 ]
 
@@ -2459,6 +2461,17 @@ dependencies = [
 
 [[package]]
 name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "sha2"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
@@ -2586,7 +2599,7 @@ dependencies = [
  "rand 0.10.3",
  "rayon",
  "serde",
- "sha2",
+ "sha2 0.11.0",
  "smallvec",
  "snarkvm-curves",
  "snarkvm-fields",
@@ -3327,7 +3340,7 @@ dependencies = [
  "paste",
  "rand 0.10.3",
  "serde_json",
- "sha2",
+ "sha2 0.11.0",
  "snarkvm-curves",
  "snarkvm-utilities",
  "thiserror 2.0.21",

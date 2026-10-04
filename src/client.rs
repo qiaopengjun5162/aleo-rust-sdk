@@ -102,6 +102,10 @@ impl AleoClient {
     /// This is a dry-run: it authorizes and executes the function call
     /// using a temporary process with the loaded program, but does NOT
     /// generate proofs or submit anything to the network.
+    ///
+    /// If a program has been loaded via `load_program_from_source()`, it
+    /// will be registered automatically. For built-in programs (credits.aleo),
+    /// no pre-loading is needed.
     pub fn execute_local(
         &self,
         program_id: &str,
@@ -111,15 +115,16 @@ impl AleoClient {
         use snarkvm::prelude::{FromStr, TestRng};
 
         let account = self.require_account()?;
-        let program = self.require_program()?;
         let mut rng = TestRng::default();
 
         let pid = ProgramID::<TestnetV0>::from_str(program_id)?;
 
-        // Initialize a fresh execution engine (loads credits automatically)
+        // Initialize a fresh execution engine (credits.aleo loaded by default)
         let engine = ExecutionEngine::new()?;
-        // Register the user program
-        engine.add_program(program.inner())?;
+        // Optionally register the user program if one was loaded
+        if let Some(prog) = &self.program {
+            engine.add_program(prog.inner())?;
+        }
 
         let (response, _trace) = engine.authorize_and_execute(
             &account.private_key,
