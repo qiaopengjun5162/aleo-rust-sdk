@@ -6,6 +6,8 @@
 [![Docs](https://img.shields.io/badge/docs.rs-aleo--rust--sdk-blue)](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/)
 [![Rust](https://img.shields.io/badge/rustc-1.85+-orange?logo=rust)](https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html)
 
+[English](README.md) | [中文](README.zh-CN.md)
+
 A comprehensive **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain.
 Provides tools for account management, program loading, local execution, proof generation,
 network querying, and transaction broadcasting.
@@ -129,19 +131,22 @@ git clone https://github.com/qiaopengjun5162/aleo-rust-sdk.git
 cd aleo-rust-sdk
 
 # Build
-make build          # cargo build --all-features
-make build-release  # release build
+just build            # cargo build --all-features
+just build-release    # release build
 
 # Test
-make test           # cargo nextest run --all-features
+just test             # cargo nextest run --all-features
 
 # Lint
-make check          # cargo check --all-features
-make clippy         # cargo clippy -- -D warnings
-make format         # cargo fmt --all -- --check
+just check            # cargo check --all-features
+just clippy           # cargo clippy -- -D warnings
+just format           # cargo fmt --all -- --check
 
 # Coverage
-make coverage       # cargo llvm-cov --all-features --lcov
+just coverage         # cargo llvm-cov --all-features --lcov
+
+# Full check suite
+just all              # format + check + clippy + test
 ```
 
 ## Contributing

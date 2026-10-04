@@ -1,5 +1,10 @@
-.editorconfig
-.pre-commit-config.yaml
-.pre-commit-config.yaml.old
+/target
+**/*.rs.bk
+.DS_Store
+.env
+*.swp
+*.swo
+.idea/
+*.iml
 lcov.info
 *.tar.gz
