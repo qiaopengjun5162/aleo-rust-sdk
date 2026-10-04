@@ -200,9 +200,8 @@ impl AleoClient {
 
         // Serialize and broadcast
         let tx_json = serde_json::to_string(&tx)?;
-        let tx_id = self.network.broadcast_transaction(tx_json).await?;
-
-        Ok(tx_id)
+        let raw = self.network.broadcast_transaction(tx_json).await?;
+        Ok(raw.trim_matches('"').to_string())
     }
 
     // ── Deployment (program publishing) ─────────────────────────────────
@@ -265,9 +264,8 @@ impl AleoClient {
 
         // 7. Serialize and broadcast
         let tx_json = serde_json::to_string(&tx)?;
-        let tx_id = self.network.broadcast_transaction(tx_json).await?;
-
-        Ok(tx_id)
+        let raw = self.network.broadcast_transaction(tx_json).await?;
+        Ok(raw.trim_matches('"').to_string())
     }
 
     // ── On-chain queries ────────────────────────────────────────────────
