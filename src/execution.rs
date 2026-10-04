@@ -227,6 +227,7 @@ impl ExecutionEngine {
     /// `priority_fee_in_microcredits` is an additional fee on top.
     /// `consensus_version` determines which cost formula applies (TestnetV0 uses V14).
     /// `query` supplies the current state root (from [`AleoHttpClient::fetch_state_root`]).
+    #[allow(clippy::too_many_arguments)]
     pub fn build_deployment_transaction<R: Rng + CryptoRng>(
         &self,
         private_key: &PrivateKey<TestnetV0>,

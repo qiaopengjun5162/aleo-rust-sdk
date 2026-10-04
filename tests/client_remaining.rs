@@ -127,10 +127,8 @@ async fn test_deploy_program_end_to_end() {
         return;
     }
 
-    let pk_str = std::env::var("PRIVATE_KEY")
-        .expect("PRIVATE_KEY env var required");
-    let pk = PrivateKey::<TestnetV0>::from_str(&pk_str)
-        .expect("Invalid private key");
+    let pk_str = std::env::var("PRIVATE_KEY").expect("PRIVATE_KEY env var required");
+    let pk = PrivateKey::<TestnetV0>::from_str(&pk_str).expect("Invalid private key");
     let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
     let _ = client.set_account_from_private_key_str(&pk.to_string());
 
@@ -141,15 +139,13 @@ async fn test_deploy_program_end_to_end() {
     );
 
     println!("Deploying with min cost...");
-    let tx_id = client.deploy_program(&source, 0).await
-        .expect("Deploy should succeed");
+    let tx_id = client.deploy_program(&source, 0).await.expect("Deploy should succeed");
     println!("✅ Tx: {tx_id}");
 
     // Skip wait_for_confirmation (it frequently times out on testnet).
     // Verify directly via explorer API instead.
-    let check = client.network.fetch_transaction(&tx_id).await
-        .unwrap_or_else(|e| {
-            panic!("Transaction not found on chain: {e}");
-        });
+    let check = client.network.fetch_transaction(&tx_id).await.unwrap_or_else(|e| {
+        panic!("Transaction not found on chain: {e}");
+    });
     println!("✅ Deploy verified on chain: {}", check);
 }
