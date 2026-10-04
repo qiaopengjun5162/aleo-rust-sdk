@@ -190,6 +190,11 @@ impl AleoClient {
     /// Returns `None` if the account has never received credits (no mapping entry).
     pub async fn get_balance(&self) -> Result<Option<u64>> {
         let addr = self.require_account()?.address_str();
+        // Try REST first (more reliable than JSON-RPC for mapping queries)
+        if let Some(val) = self.network.fetch_mapping_value_rest("credits.aleo", "account", &addr).await? {
+            return Ok(Some(val));
+        }
+        // Fallback: JSON-RPC path
         let val = self.network.fetch_mapping_value("credits.aleo", "account", &addr).await?;
         match val {
             Some(s) => Ok(Some(s.trim().parse::<u64>()?)),

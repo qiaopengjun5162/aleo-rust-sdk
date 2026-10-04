@@ -164,6 +164,31 @@ impl AleoHttpClient {
 
     // ── On-chain state queries ──────────────────────────────────────────
 
+    /// Query a mapping value via REST API (GET /program/{id}/mapping/{name}/{key}).
+    ///
+    /// Returns `None` if the key does not exist (404).
+    pub async fn fetch_mapping_value_rest(
+        &self,
+        program_id: &str,
+        mapping_name: &str,
+        key: &str,
+    ) -> Result<Option<u64>> {
+        let url = format!("{}/program/{program_id}/mapping/{mapping_name}/{key}", self.base_url);
+        let resp = self.inner.get(&url).headers(Self::headers()).send().await?;
+        if resp.status().is_client_error() {
+            return Ok(None); // 404 = no entry
+        }
+        let text = resp.text().await?;
+        let cleaned = text.trim().trim_matches('"').replace("u64", "");
+        match cleaned.parse::<u64>() {
+            Ok(v) => Ok(Some(v)),
+            Err(e) => {
+                tracing::warn!("Failed to parse REST mapping value '{text}': {e}");
+                Ok(None)
+            }
+        }
+    }
+
     /// Query a mapping value via JSON-RPC `getMappingValue`.
     ///
     /// Returns `None` if the key does not exist in the mapping.
