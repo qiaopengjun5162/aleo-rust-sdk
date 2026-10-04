@@ -159,6 +159,15 @@ impl AleoHttpClient {
         Ok(body)
     }
 
+    /// Fetch a transaction by its ID from the explorer API.
+    /// Returns the raw JSON response as a String.
+    pub async fn fetch_transaction(&self, tx_id: &str) -> Result<String> {
+        let url = format!("{}/transaction/{tx_id}", self.base_url);
+        let res = self.inner.get(&url).headers(Self::headers()).send().await?;
+        let body = res.text().await?;
+        Ok(body)
+    }
+
     /// Poll for confirmation (up to 30 attempts, 5s apart).
     pub async fn wait_for_confirmation(&self, tx_id: &str) -> Result<()> {
         let check_url = format!("{}/transaction/{tx_id}", self.base_url);
