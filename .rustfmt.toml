@@ -1,21 +1,7 @@
-# 使用 Rust 2024 版本
 style_edition = "2024"
-# 最大行宽和链式调用宽度
 chain_width = 80
 max_width = 100
-# 对短数组强制换行（长度阈值）
 array_width = 80
-# 使用 4 个空格缩进
 tab_spaces = 4
-# 格式化文档注释中的代码块
-format_code_in_doc_comments = true
-# 按字母顺序重新组织导入
 reorder_imports = true
-imports_granularity = "Crate"
-# 分组导入（标准库、外部 crate 和本地模块）
-group_imports = "StdExternalCrate"
-# 使用默认启发式规则（更平衡，适配 Rust 2024）
 use_small_heuristics = "Default"
-# 规范化注释和换行
-normalize_comments = true
-wrap_comments = true

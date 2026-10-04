@@ -1,6 +1,5 @@
 use aleo_rust_sdk::ExecutionEngine;
 use snarkvm::prelude::{Program, TestnetV0};
-use snarkvm::console::program::ProgramID;
 
 /// Cover new_with_v0_fee_keys (lines 52-57)
 #[test]
@@ -9,7 +8,7 @@ fn test_execution_engine_v0_fee_keys() {
     // Just verify it doesn't panic
     let guard = engine.process.lock();
     let ids = guard.program_ids();
-    assert!(ids.len() >= 1);
+    assert!(!ids.is_empty());
     drop(guard);
 }
 
@@ -29,5 +28,5 @@ fn test_execution_engine_inner_with_credits() {
     let engine = ExecutionEngine::new().unwrap();
     let process_ref = engine.inner();
     let guard = process_ref.lock();
-    assert!(guard.program_ids().len() >= 1);
+    assert!(!guard.program_ids().is_empty());
 }

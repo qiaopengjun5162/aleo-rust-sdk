@@ -1,8 +1,11 @@
-use aleo_rust_sdk::{AleoHttpClient, FixedStateRootQuery, ExecutionEngine, AleoClient, AleoAccount};
+use aleo_rust_sdk::{AleoHttpClient, FixedStateRootQuery};
 use snarkvm::console::types::Field;
 use snarkvm::ledger::query::QueryTrait;
-use snarkvm::prelude::{FromStr as _, Network, TestnetV0, TestRng};
-use wiremock::{Mock, MockServer, ResponseTemplate, matchers::{method, path, path_regex}};
+use snarkvm::prelude::{FromStr as _, Network, TestnetV0};
+use wiremock::{
+    Mock, MockServer, ResponseTemplate,
+    matchers::{method, path_regex},
+};
 
 /// Cover async FixedStateRootQuery methods (network.rs 234-245)
 #[tokio::test]
@@ -68,9 +71,9 @@ async fn test_wait_for_confirmation_timeout_isolated() {
 /// Cover wait_for_confirmation retry path (network.rs 141-144): first call 404, second call 200
 #[tokio::test]
 async fn test_wait_for_confirmation_retry() {
-    use wiremock::Request;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use wiremock::Request;
 
     let mock_server = MockServer::start().await;
     let base_url = mock_server.uri();
@@ -95,4 +98,3 @@ async fn test_wait_for_confirmation_retry() {
     let client = AleoHttpClient::new_with_rpc(&base_url, &format!("{}/jsonrpc", base_url)).unwrap();
     client.wait_for_confirmation("tx_abc123").await.unwrap();
 }
-

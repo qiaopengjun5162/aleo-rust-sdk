@@ -11,7 +11,10 @@ fn test_query_trait_method_coverage() {
     )
     .unwrap();
 
-    let q: FixedStateRootQuery<TestnetV0> = FixedStateRootQuery { state_root: sr, block_height: 42 };
+    let q: FixedStateRootQuery<TestnetV0> = FixedStateRootQuery {
+        state_root: sr,
+        block_height: 42,
+    };
 
     // current_state_root and current_block_height
     let got_root = q.current_state_root().unwrap();

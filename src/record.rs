@@ -132,7 +132,7 @@ impl RecordScanner {
         }
 
         // Sort by amount descending (largest first for coin selection)
-        results.sort_by(|a, b| b.microcredits.cmp(&a.microcredits));
+        results.sort_by_key(|a| std::cmp::Reverse(a.microcredits));
         Ok(results)
     }
 
@@ -173,11 +173,7 @@ impl RecordScanner {
         for (id, entry) in decrypted.data().iter() {
             let key = id.to_string();
             if key == "microcredits" {
-                let amount_str = entry
-                    .to_string()
-                    .replace("u64", "")
-                    .trim()
-                    .to_string();
+                let amount_str = entry.to_string().replace("u64", "").trim().to_string();
                 if let Ok(amount) = amount_str.parse::<u64>() {
                     microcredits = amount;
                 }
@@ -207,8 +203,8 @@ pub struct RecordManager {
 impl RecordManager {
     /// Create a new manager with the given HTTP client and view key.
     pub fn new(client: AleoHttpClient, view_key: &str) -> Result<Self> {
-        let vk =
-            ViewKey::<TestnetV0>::from_str(view_key).map_err(|e| anyhow::anyhow!("Invalid view key: {e}"))?;
+        let vk = ViewKey::<TestnetV0>::from_str(view_key)
+            .map_err(|e| anyhow::anyhow!("Invalid view key: {e}"))?;
         let address = vk.to_address();
         Ok(Self {
             scanner: RecordScanner::new(client),
@@ -221,10 +217,7 @@ impl RecordManager {
     /// Scan the latest blocks (up to 100K) and update the internal cache.
     pub async fn scan(&mut self) -> Result<&[AleoRecord]> {
         let vk_str = self.view_key.to_string();
-        let new_records = self
-            .scanner
-            .scan_recent(&vk_str, 100_000)
-            .await?;
+        let new_records = self.scanner.scan_recent(&vk_str, 100_000).await?;
         self.merge_records(new_records);
         Ok(&self.records)
     }
@@ -247,7 +240,7 @@ impl RecordManager {
             }
         }
         // Keep sorted
-        self.records.sort_by(|a, b| b.microcredits.cmp(&a.microcredits));
+        self.records.sort_by_key(|a| std::cmp::Reverse(a.microcredits));
     }
 
     /// Compute the balance across all cached, unspent `credits.aleo` records.
@@ -292,9 +285,7 @@ impl RecordManager {
             }
         }
 
-        anyhow::bail!(
-            "Insufficient funds: have {total} microcredits, need {amount_microcredits}"
-        );
+        anyhow::bail!("Insufficient funds: have {total} microcredits, need {amount_microcredits}");
     }
 
     /// Get a reference to all cached records.
@@ -389,11 +380,9 @@ mod tests {
 
         // Build a manager with these pre-loaded records
         let view_key = snarkvm::prelude::ViewKey::try_from(&pk).unwrap();
-        let mut mgr = RecordManager {
-            scanner: RecordScanner::new(
-                AleoHttpClient::new("http://localhost:9999").unwrap(),
-            ),
-            view_key: view_key.clone(),
+        let mgr = RecordManager {
+            scanner: RecordScanner::new(AleoHttpClient::new("http://localhost:9999").unwrap()),
+            view_key,
             address: addr,
             records,
         };
@@ -422,18 +411,16 @@ mod tests {
         let view_key = snarkvm::prelude::ViewKey::try_from(&pk).unwrap();
 
         let mgr = RecordManager {
-            scanner: RecordScanner::new(
-                AleoHttpClient::new("http://localhost:9999").unwrap(),
-            ),
-            view_key: view_key.clone(),
+            scanner: RecordScanner::new(AleoHttpClient::new("http://localhost:9999").unwrap()),
+            view_key,
             address: addr,
             records: vec![
                 AleoRecord {
                     program_id: "credits.aleo".into(),
                     owner: addr,
-                    microcredits: 1_000_000,
+                    microcredits: 500_000,
                     data: BTreeMap::new(),
-                    ciphertext: "r1".into(),
+                    ciphertext: "record1".into(),
                     spent: false,
                 },
                 AleoRecord {
@@ -447,7 +434,7 @@ mod tests {
             ],
         };
 
-        assert_eq!(mgr.balance(), 1_500_000);
+        assert_eq!(mgr.balance(), 1_000_000);
     }
 
     #[test]
@@ -458,10 +445,8 @@ mod tests {
 
         let view_key = snarkvm::prelude::ViewKey::try_from(&pk).unwrap();
         let mut mgr = RecordManager {
-            scanner: RecordScanner::new(
-                AleoHttpClient::new("http://localhost:9999").unwrap(),
-            ),
-            view_key: view_key.clone(),
+            scanner: RecordScanner::new(AleoHttpClient::new("http://localhost:9999").unwrap()),
+            view_key,
             address: addr,
             records: vec![AleoRecord {
                 program_id: "credits.aleo".into(),

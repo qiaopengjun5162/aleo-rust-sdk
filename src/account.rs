@@ -50,9 +50,7 @@ use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use anyhow::Result;
 use pbkdf2::pbkdf2_hmac_array;
 use sha2::Sha256;
-use snarkvm::prelude::{
-    Address, ComputeKey, PrivateKey, TestRng, TestnetV0, ViewKey,
-};
+use snarkvm::prelude::{Address, ComputeKey, PrivateKey, TestRng, TestnetV0, ViewKey};
 use std::str::FromStr;
 use zeroize::Zeroize;
 
@@ -79,16 +77,18 @@ pub struct AleoAccount {
 impl AleoAccount {
     /// Derive the full key chain from a private key.
     fn from_private_key(private_key: PrivateKey<TestnetV0>) -> Result<Self> {
-        let view_key =
-            ViewKey::try_from(&private_key)
-                .map_err(|e| anyhow::anyhow!("View key derivation failed: {e}"))?;
-        let compute_key =
-            ComputeKey::try_from(&private_key)
-                .map_err(|e| anyhow::anyhow!("Compute key derivation failed: {e}"))?;
-        let address =
-            Address::try_from(&compute_key)
-                .map_err(|e| anyhow::anyhow!("Address derivation failed: {e}"))?;
-        Ok(Self { private_key, view_key, compute_key, address })
+        let view_key = ViewKey::try_from(&private_key)
+            .map_err(|e| anyhow::anyhow!("View key derivation failed: {e}"))?;
+        let compute_key = ComputeKey::try_from(&private_key)
+            .map_err(|e| anyhow::anyhow!("Compute key derivation failed: {e}"))?;
+        let address = Address::try_from(&compute_key)
+            .map_err(|e| anyhow::anyhow!("Address derivation failed: {e}"))?;
+        Ok(Self {
+            private_key,
+            view_key,
+            compute_key,
+            address,
+        })
     }
 
     /// Create an account from a private key string (bech32).
@@ -227,8 +227,8 @@ fn encrypt_private_key_str(pk_str: &str, password: &str) -> Result<String> {
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     // Encrypt
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| anyhow::anyhow!("AES-GCM init failed: {e}"))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(&key).map_err(|e| anyhow::anyhow!("AES-GCM init failed: {e}"))?;
     let ciphertext = cipher
         .encrypt(nonce, pk_str.as_bytes())
         .map_err(|e| anyhow::anyhow!("Encryption failed: {e}"))?;
@@ -249,12 +249,12 @@ fn encrypt_private_key_str(pk_str: &str, password: &str) -> Result<String> {
 /// Decrypt a ciphertext string back to a private key string.
 fn decrypt_private_key_str(ciphertext: &str, password: &str) -> Result<String> {
     // Strip prefix
-    let hex_data = ciphertext
-        .strip_prefix(CIPHERTEXT_PREFIX)
-        .ok_or_else(|| anyhow::anyhow!("Invalid ciphertext prefix; expected '{CIPHERTEXT_PREFIX}'"))?;
+    let hex_data = ciphertext.strip_prefix(CIPHERTEXT_PREFIX).ok_or_else(|| {
+        anyhow::anyhow!("Invalid ciphertext prefix; expected '{CIPHERTEXT_PREFIX}'")
+    })?;
 
-    let combined = hex::decode(hex_data)
-        .map_err(|e| anyhow::anyhow!("Invalid ciphertext hex: {e}"))?;
+    let combined =
+        hex::decode(hex_data).map_err(|e| anyhow::anyhow!("Invalid ciphertext hex: {e}"))?;
 
     if combined.len() < SALT_LEN + NONCE_LEN {
         anyhow::bail!("Ciphertext too short ({} bytes)", combined.len());
@@ -268,8 +268,8 @@ fn decrypt_private_key_str(ciphertext: &str, password: &str) -> Result<String> {
     let key = derive_key(password, salt);
 
     // Decrypt
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| anyhow::anyhow!("AES-GCM init failed: {e}"))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(&key).map_err(|e| anyhow::anyhow!("AES-GCM init failed: {e}"))?;
     let plaintext = cipher
         .decrypt(nonce, encrypted)
         .map_err(|_| anyhow::anyhow!("Decryption failed (wrong password or corrupted data)"))?;
@@ -354,7 +354,10 @@ mod tests {
 
         // After destroy, the private key should be different
         let destroyed_pk = account.private_key_str();
-        assert_ne!(original_pk, destroyed_pk, "destroy() did not overwrite private key");
+        assert_ne!(
+            original_pk, destroyed_pk,
+            "destroy() did not overwrite private key"
+        );
     }
 
     #[test]
@@ -369,7 +372,7 @@ mod tests {
         // Check hex body has valid length (salt + nonce + at least some encrypted data)
         let hex_body = &ciphertext[CIPHERTEXT_PREFIX.len()..];
         let decoded = hex::decode(hex_body).unwrap();
-        assert!(decoded.len() >= SALT_LEN + NONCE_LEN + 1);
+        assert!(decoded.len() > SALT_LEN + NONCE_LEN);
     }
 
     #[test]

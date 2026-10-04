@@ -1,7 +1,10 @@
 use aleo_rust_sdk::AleoClient;
 use snarkvm::console::program::ProgramID;
 use snarkvm::prelude::{FromStr, PrivateKey, TestRng, TestnetV0};
-use wiremock::{Mock, MockServer, ResponseTemplate, matchers::{method, path}};
+use wiremock::{
+    Mock, MockServer, ResponseTemplate,
+    matchers::{method, path},
+};
 
 #[tokio::test]
 async fn test_client_get_block_height() {
@@ -26,9 +29,11 @@ async fn test_client_get_state_root_from_client() {
 
     Mock::given(method("GET"))
         .and(path("/stateRoot/latest"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(
-            "\"sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s\"",
-        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(
+                "\"sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s\"",
+            ),
+        )
         .mount(&mock_server)
         .await;
 
@@ -60,9 +65,11 @@ async fn test_client_execute_and_broadcast_covers_first_half() {
     // Mock state_root + block_height
     Mock::given(method("GET"))
         .and(path("/stateRoot/latest"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(
-            "\"sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s\"",
-        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(
+                "\"sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s\"",
+            ),
+        )
         .mount(&mock_server)
         .await;
     Mock::given(method("GET"))

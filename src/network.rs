@@ -34,8 +34,7 @@ use std::io::Write;
 use std::str::FromStr;
 
 /// Browser-like User-Agent to bypass Cloudflare WAF.
-const UA: &str =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 /// JSON-RPC endpoint for Aleo testnet (used for mapping/records queries).
 const JSON_RPC_URL: &str = "https://testnetbeta.aleorpc.com";
@@ -71,16 +70,14 @@ impl AleoHttpClient {
             .or_else(|_| std::env::var("HTTPS_PROXY"))
             .or_else(|_| std::env::var("https_proxy"))
         {
-            if let Ok(proxy) = reqwest::Proxy::http(&proxy_url)
-                .or_else(|_| reqwest::Proxy::all(&proxy_url))
+            if let Ok(proxy) =
+                reqwest::Proxy::http(&proxy_url).or_else(|_| reqwest::Proxy::all(&proxy_url))
             {
                 builder = builder.proxy(proxy);
             }
         }
 
-        let inner = builder
-            .build()
-            .context("Failed to build HTTP client")?;
+        let inner = builder.build().context("Failed to build HTTP client")?;
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             rpc_url: rpc_url.trim_end_matches('/').to_string(),
@@ -91,7 +88,10 @@ impl AleoHttpClient {
     fn headers() -> reqwest::header::HeaderMap {
         let mut h = reqwest::header::HeaderMap::new();
         h.insert("User-Agent", UA.parse().unwrap());
-        h.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
+        h.insert(
+            "Accept",
+            "application/json, text/plain, */*".parse().unwrap(),
+        );
         h
     }
 
@@ -140,7 +140,10 @@ impl AleoHttpClient {
 
     /// Broadcast a JSON-serialized transaction (REST POST).
     pub async fn broadcast_transaction(&self, tx_json: String) -> Result<String> {
-        let url = format!("{}/transaction/broadcast?check_transaction=true", self.base_url);
+        let url = format!(
+            "{}/transaction/broadcast?check_transaction=true",
+            self.base_url
+        );
         let mut headers = Self::headers();
         headers.insert("Content-Type", "application/json".parse().unwrap());
         headers.insert("Origin", "https://explorer.provable.com".parse().unwrap());
@@ -190,7 +193,10 @@ impl AleoHttpClient {
         mapping_name: &str,
         key: &str,
     ) -> Result<Option<u64>> {
-        let url = format!("{}/program/{program_id}/mapping/{mapping_name}/{key}", self.base_url);
+        let url = format!(
+            "{}/program/{program_id}/mapping/{mapping_name}/{key}",
+            self.base_url
+        );
         let resp = self.inner.get(&url).headers(Self::headers()).send().await?;
         if resp.status().is_client_error() {
             return Ok(None); // 404 = no entry
@@ -215,14 +221,16 @@ impl AleoHttpClient {
         mapping_name: &str,
         key: &str,
     ) -> Result<Option<String>> {
-        let result = self.json_rpc(
-            "getMappingValue",
-            vec![
-                Value::String(program_id.to_string()),
-                Value::String(mapping_name.to_string()),
-                Value::String(key.to_string()),
-            ],
-        ).await;
+        let result = self
+            .json_rpc(
+                "getMappingValue",
+                vec![
+                    Value::String(program_id.to_string()),
+                    Value::String(mapping_name.to_string()),
+                    Value::String(key.to_string()),
+                ],
+            )
+            .await;
 
         match result {
             Ok(Value::String(s)) => Ok(Some(s)),
@@ -254,14 +262,16 @@ impl AleoHttpClient {
         let height = self.fetch_block_height().await?;
         let start = height.saturating_sub(1000);
 
-        let result = self.json_rpc(
-            "records/isOwner",
-            vec![
-                Value::String(view_key.to_string()),
-                Value::Number(serde_json::Number::from(start)),
-                Value::Number(serde_json::Number::from(height)),
-            ],
-        ).await?;
+        let result = self
+            .json_rpc(
+                "records/isOwner",
+                vec![
+                    Value::String(view_key.to_string()),
+                    Value::Number(serde_json::Number::from(start)),
+                    Value::Number(serde_json::Number::from(height)),
+                ],
+            )
+            .await?;
 
         Ok(serde_json::to_string_pretty(&result)?)
     }
@@ -269,7 +279,13 @@ impl AleoHttpClient {
     /// Fetch all records within a block range via JSON-RPC `records/all`.
     ///
     /// Returns raw record ciphertexts that must be decrypted with a view key.
-    pub async fn fetch_all_records(&self, start: u32, end: u32, page: u32, per_page: u32) -> Result<Value> {
+    pub async fn fetch_all_records(
+        &self,
+        start: u32,
+        end: u32,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Value> {
         let params = serde_json::json!({
             "start": start,
             "end": end,
@@ -287,7 +303,8 @@ impl AleoHttpClient {
 
         let resp = self.inner.post(&self.rpc_url).headers(headers).json(&body).send().await?;
         let text = resp.text().await?;
-        let v: Value = serde_json::from_str(&text).context("Failed to parse records/all response")?;
+        let v: Value =
+            serde_json::from_str(&text).context("Failed to parse records/all response")?;
         if let Some(err) = v.get("error") {
             anyhow::bail!("records/all error: {err}");
         }
@@ -297,10 +314,7 @@ impl AleoHttpClient {
     /// Find unspent `credits.aleo` record ciphertexts owned by the given view key.
     /// Scans recent blocks via `records/all`, decrypts each record, and returns
     /// those containing `credits.aleo` with the owner matching the view key's address.
-    pub async fn find_private_credits_records(
-        &self,
-        view_key: &str,
-    ) -> Result<Vec<(String, u64)>> {
+    pub async fn find_private_credits_records(&self, view_key: &str) -> Result<Vec<(String, u64)>> {
         use snarkvm::console::program::Record;
         use snarkvm::prelude::Ciphertext;
         use std::str::FromStr;
@@ -326,20 +340,24 @@ impl AleoHttpClient {
                     continue;
                 }
                 // Try to parse and decrypt
-                if let Ok(record) = Record::<TestnetV0, Ciphertext<TestnetV0>>::from_str(ciphertext_str) {
+                if let Ok(record) =
+                    Record::<TestnetV0, Ciphertext<TestnetV0>>::from_str(ciphertext_str)
+                {
                     if let Ok(decrypted) = record.decrypt(&vk) {
                         // Check owner matches
                         if *decrypted.owner() == snarkvm::prelude::Owner::Public(owner_addr)
-                            || *decrypted.owner() == snarkvm::prelude::Owner::Private(
-                                snarkvm::prelude::Plaintext::from(
-                                    snarkvm::prelude::Literal::Address(owner_addr),
-                                ),
-                            )
+                            || *decrypted.owner()
+                                == snarkvm::prelude::Owner::Private(
+                                    snarkvm::prelude::Plaintext::from(
+                                        snarkvm::prelude::Literal::Address(owner_addr),
+                                    ),
+                                )
                         {
                             // Extract microcredits from data
                             for (id, entry) in decrypted.data().iter() {
                                 if id.to_string() == "microcredits" {
-                                    let amount_str = entry.to_string().replace("u64", "").trim().to_string();
+                                    let amount_str =
+                                        entry.to_string().replace("u64", "").trim().to_string();
                                     if let Ok(amount) = amount_str.parse::<u64>() {
                                         results.push((ciphertext_str.to_string(), amount));
                                     }
@@ -352,7 +370,7 @@ impl AleoHttpClient {
         }
 
         // Sort by amount descending
-        results.sort_by(|a, b| b.1.cmp(&a.1));
+        results.sort_by_key(|a| std::cmp::Reverse(a.1));
         Ok(results)
     }
 }
@@ -375,7 +393,10 @@ impl<N: Network> QueryTrait<N> for FixedStateRootQuery<N> {
     fn get_state_path_for_commitment(&self, _commitment: &Field<N>) -> Result<StatePath<N>> {
         StatePath::from_str("").or_else(|_| anyhow::bail!("State path not available"))
     }
-    fn get_state_paths_for_commitments(&self, _commitments: &[Field<N>]) -> Result<Vec<StatePath<N>>> {
+    fn get_state_paths_for_commitments(
+        &self,
+        _commitments: &[Field<N>],
+    ) -> Result<Vec<StatePath<N>>> {
         Ok(Vec::new())
     }
     async fn current_state_root_async(&self) -> Result<N::StateRoot> {
@@ -384,10 +405,16 @@ impl<N: Network> QueryTrait<N> for FixedStateRootQuery<N> {
     async fn current_block_height_async(&self) -> Result<u32> {
         Ok(self.block_height)
     }
-    async fn get_state_path_for_commitment_async(&self, _commitment: &Field<N>) -> Result<StatePath<N>> {
+    async fn get_state_path_for_commitment_async(
+        &self,
+        _commitment: &Field<N>,
+    ) -> Result<StatePath<N>> {
         StatePath::from_str("").or_else(|_| anyhow::bail!("State path not available"))
     }
-    async fn get_state_paths_for_commitments_async(&self, _commitments: &[Field<N>]) -> Result<Vec<StatePath<N>>> {
+    async fn get_state_paths_for_commitments_async(
+        &self,
+        _commitments: &[Field<N>],
+    ) -> Result<Vec<StatePath<N>>> {
         Ok(Vec::new())
     }
 }

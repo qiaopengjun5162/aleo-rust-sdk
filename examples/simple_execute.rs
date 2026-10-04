@@ -7,7 +7,6 @@
 /// ```bash
 /// cargo run --example simple_execute
 /// ```
-
 use aleo_rust_sdk::{AleoAccount, AleoClient};
 use snarkvm::prelude::TestRng;
 

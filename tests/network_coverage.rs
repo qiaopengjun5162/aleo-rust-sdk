@@ -173,8 +173,7 @@ async fn test_fetch_mapping_value_not_found() {
 
     Mock::given(method("POST"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json_rpc_error("Mapping key not found")),
+            ResponseTemplate::new(200).set_body_json(json_rpc_error("Mapping key not found")),
         )
         .mount(&mock_server)
         .await;
@@ -194,16 +193,12 @@ async fn test_fetch_mapping_value_non_string_result() {
     // result is a number, not a string
     Mock::given(method("POST"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json_rpc_result(serde_json::json!(42))),
+            ResponseTemplate::new(200).set_body_json(json_rpc_result(serde_json::json!(42))),
         )
         .mount(&mock_server)
         .await;
 
-    let val = client
-        .fetch_mapping_value("credits.aleo", "account", "anykey")
-        .await
-        .unwrap();
+    let val = client.fetch_mapping_value("credits.aleo", "account", "anykey").await.unwrap();
     // non-string values get to_string'd
     assert_eq!(val, Some("42".to_string()));
 }
@@ -232,11 +227,9 @@ async fn test_fetch_records() {
 
     Mock::given(method("POST"))
         .and(body_json(&records_body))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json_rpc_result(
-                serde_json::json!([{"owner": "aleo1test", "value": "100"}]),
-            )),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_rpc_result(
+            serde_json::json!([{"owner": "aleo1test", "value": "100"}]),
+        )))
         .mount(&mock_server)
         .await;
 
@@ -257,10 +250,7 @@ async fn test_broadcast_transaction_success() {
         .mount(&mock_server)
         .await;
 
-    let tx_id = client
-        .broadcast_transaction(r#"{"mock": "tx"}"#.to_string())
-        .await
-        .unwrap();
+    let tx_id = client.broadcast_transaction(r#"{"mock": "tx"}"#.to_string()).await.unwrap();
     assert_eq!(tx_id, "at1mocktxid12345");
 }
 
@@ -275,9 +265,7 @@ async fn test_broadcast_transaction_rejected() {
         .mount(&mock_server)
         .await;
 
-    let result = client
-        .broadcast_transaction(r#"{"mock": "bad"}"#.to_string())
-        .await;
+    let result = client.broadcast_transaction(r#"{"mock": "bad"}"#.to_string()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("400") || err.contains("rejected"));
@@ -325,20 +313,14 @@ async fn test_client_get_balance() {
     Mock::given(method("POST"))
         .and(body_json(&expected_rpc))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json_rpc_result(serde_json::json!("1000000"))),
+            ResponseTemplate::new(200).set_body_json(json_rpc_result(serde_json::json!("1000000"))),
         )
         .mount(&mock_server)
         .await;
 
-    let mut client = aleo_rust_sdk::AleoClient::new_with_rpc(
-        &mock_server.uri(),
-        &mock_server.uri(),
-    )
-    .unwrap();
-    client
-        .set_account_from_private_key_str(&account.private_key_str())
-        .unwrap();
+    let mut client =
+        aleo_rust_sdk::AleoClient::new_with_rpc(&mock_server.uri(), &mock_server.uri()).unwrap();
+    client.set_account_from_private_key_str(&account.private_key_str()).unwrap();
 
     let balance = client.get_balance().await.unwrap();
     assert_eq!(balance, Some(1000000u64));
@@ -347,28 +329,19 @@ async fn test_client_get_balance() {
 #[tokio::test]
 async fn test_client_get_balance_no_account() {
     let mock_server = MockServer::start().await;
-    let client = aleo_rust_sdk::AleoClient::new_with_rpc(
-        &mock_server.uri(),
-        &mock_server.uri(),
-    )
-    .unwrap();
+    let client =
+        aleo_rust_sdk::AleoClient::new_with_rpc(&mock_server.uri(), &mock_server.uri()).unwrap();
 
     let result = client.get_balance().await;
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("No account set"));
+    assert!(result.unwrap_err().to_string().contains("No account set"));
 }
 
 #[tokio::test]
 async fn test_client_get_block_height() {
     let mock_server = MockServer::start().await;
-    let client = aleo_rust_sdk::AleoClient::new_with_rpc(
-        &mock_server.uri(),
-        &mock_server.uri(),
-    )
-    .unwrap();
+    let client =
+        aleo_rust_sdk::AleoClient::new_with_rpc(&mock_server.uri(), &mock_server.uri()).unwrap();
 
     Mock::given(method("GET"))
         .and(path("/block/height/latest"))
@@ -383,11 +356,8 @@ async fn test_client_get_block_height() {
 #[tokio::test]
 async fn test_client_get_state_root() {
     let mock_server = MockServer::start().await;
-    let client = aleo_rust_sdk::AleoClient::new_with_rpc(
-        &mock_server.uri(),
-        &mock_server.uri(),
-    )
-    .unwrap();
+    let client =
+        aleo_rust_sdk::AleoClient::new_with_rpc(&mock_server.uri(), &mock_server.uri()).unwrap();
 
     let root = "sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s";
     Mock::given(method("GET"))
@@ -420,21 +390,15 @@ async fn test_client_fetch_unspent_records() {
     // The JSON-RPC call
     Mock::given(method("POST"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_json(json_rpc_result(
-                serde_json::json!([{"owner": addr}]),
-            )),
+            ResponseTemplate::new(200)
+                .set_body_json(json_rpc_result(serde_json::json!([{"owner": addr}]))),
         )
         .mount(&mock_server)
         .await;
 
-    let mut client = aleo_rust_sdk::AleoClient::new_with_rpc(
-        &mock_server.uri(),
-        &mock_server.uri(),
-    )
-    .unwrap();
-    client
-        .set_account_from_private_key_str(&account.private_key_str())
-        .unwrap();
+    let mut client =
+        aleo_rust_sdk::AleoClient::new_with_rpc(&mock_server.uri(), &mock_server.uri()).unwrap();
+    client.set_account_from_private_key_str(&account.private_key_str()).unwrap();
 
     let result = client.fetch_unspent_records().await.unwrap();
     assert!(result.contains(&addr));
@@ -450,13 +414,9 @@ async fn test_client_execute_local_no_program() {
     let mut rng = TestRng::default();
     let account = AleoAccount::new_random(&mut rng).unwrap();
 
-    let mut client = aleo_rust_sdk::AleoClient::new(
-        "https://api.explorer.provable.com/v2/testnet",
-    )
-    .unwrap();
-    client
-        .set_account_from_private_key_str(&account.private_key_str())
-        .unwrap();
+    let mut client =
+        aleo_rust_sdk::AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+    client.set_account_from_private_key_str(&account.private_key_str()).unwrap();
 
     // No program loaded → should fail with "No program loaded"
     let result = client.execute_local(
@@ -468,19 +428,15 @@ async fn test_client_execute_local_no_program() {
     let err = result.unwrap_err().to_string();
     // Should mention program not loaded (not network call)
     assert!(
-        err.contains("No program loaded")
-            || err.contains("program")
-            || err.contains("load"),
+        err.contains("No program loaded") || err.contains("program") || err.contains("load"),
         "Expected error about missing program, got: {err}"
     );
 }
 
 #[tokio::test]
 async fn test_client_execute_local_no_account() {
-    let mut client = aleo_rust_sdk::AleoClient::new(
-        "https://api.explorer.provable.com/v2/testnet",
-    )
-    .unwrap();
+    let mut client =
+        aleo_rust_sdk::AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
     client.set_program(aleo_rust_sdk::AleoProgram::credits().unwrap());
     let result = client.execute_local(
         "credits.aleo",

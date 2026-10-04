@@ -69,16 +69,17 @@ fn test_execution_engine_new() {
 /// Test that AleoHttpClient can be created.
 #[test]
 fn test_http_client_creation() {
-    let client =
-        AleoHttpClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
-    assert_eq!(client.base_url, "https://api.explorer.provable.com/v2/testnet");
+    let client = AleoHttpClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+    assert_eq!(
+        client.base_url,
+        "https://api.explorer.provable.com/v2/testnet"
+    );
 }
 
 /// Test that AleoClient can be constructed without account.
 #[test]
 fn test_client_new() {
-    let client =
-        AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+    let client = AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
     assert!(
         client.require_account().is_err(),
         "Fresh client should have no account"
@@ -92,18 +93,19 @@ fn test_client_set_account() {
     let account = AleoAccount::new_random(&mut rng).unwrap();
     let pk = account.private_key_str();
 
-    let mut client =
-        AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
     client.set_account_from_private_key_str(&pk).unwrap();
     assert!(client.require_account().is_ok());
-    assert_eq!(client.require_account().unwrap().address_str(), account.address_str());
+    assert_eq!(
+        client.require_account().unwrap().address_str(),
+        account.address_str()
+    );
 }
 
 /// Test program loading in client.
 #[test]
 fn test_client_program_load() {
-    let mut client =
-        AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
     client.load_program_from_source(
         "program hello.aleo;\nfunction f:\n    input r0 as u32.public;\n    output r0 as u32.public;\n",
     ).unwrap();
@@ -114,8 +116,7 @@ fn test_client_program_load() {
 #[test]
 fn test_client_credits_program() {
     let credits = AleoProgram::credits().unwrap();
-    let mut client =
-        AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
     client.set_program(credits);
     assert_eq!(
         client.require_program().unwrap().id().to_string(),

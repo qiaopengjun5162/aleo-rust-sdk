@@ -1,6 +1,6 @@
 use aleo_rust_sdk::{AleoClient, ExecutionEngine, FixedStateRootQuery};
-use snarkvm::prelude::{FromStr as _, Network, Program, ProgramID, PrivateKey, TestRng, TestnetV0};
 use snarkvm::prelude::{Address, ComputeKey};
+use snarkvm::prelude::{FromStr as _, Network, PrivateKey, Program, ProgramID, TestRng, TestnetV0};
 
 /// Real Varuna V2 proof for hello.aleo (u32 addition).
 /// Covers the full prove_and_package pipeline: trace.prepare → prove_execution →
@@ -32,7 +32,10 @@ fn test_real_varuna_prove_hello() {
         "sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s",
     )
     .unwrap();
-    let query = FixedStateRootQuery { state_root, block_height: 42 };
+    let query = FixedStateRootQuery {
+        state_root,
+        block_height: 42,
+    };
 
     // ── Prove + package ──────────────────────────────────────────────
     let tx = engine
@@ -51,7 +54,10 @@ fn test_real_varuna_prove_hello() {
 #[tokio::test]
 #[ignore = "slow: Varuna proving takes 60s"]
 async fn test_execute_and_broadcast_real_prove() {
-    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::{method, path}};
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
+    };
 
     let mock_server = MockServer::start().await;
     let base_url = mock_server.uri();
@@ -68,9 +74,11 @@ async fn test_execute_and_broadcast_real_prove() {
     // Mock state_root + block_height
     Mock::given(method("GET"))
         .and(path("/stateRoot/latest"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(
-            "\"sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s\"",
-        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(
+                "\"sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s\"",
+            ),
+        )
         .mount(&mock_server)
         .await;
     Mock::given(method("GET"))
@@ -82,7 +90,10 @@ async fn test_execute_and_broadcast_real_prove() {
     // Mock broadcast endpoint: returns a tx ID
     Mock::given(method("POST"))
         .and(path("/transaction/broadcast"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("\"at1mocktxid1234567890123456789012345678901234567890\""))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("\"at1mocktxid1234567890123456789012345678901234567890\""),
+        )
         .mount(&mock_server)
         .await;
 
@@ -99,7 +110,11 @@ async fn test_execute_and_broadcast_real_prove() {
         .unwrap();
 
     println!("Broadcasted tx_id: {}", tx_id);
-    assert!(tx_id.contains("at1mocktxid"), "tx_id should contain at1mocktxid, got: {}", tx_id);
+    assert!(
+        tx_id.contains("at1mocktxid"),
+        "tx_id should contain at1mocktxid, got: {}",
+        tx_id
+    );
 }
 
 /// Cover client.rs line 158 (`?` after authorize_and_execute) by making
@@ -107,7 +122,10 @@ async fn test_execute_and_broadcast_real_prove() {
 #[tokio::test]
 #[ignore = "slow: Varuna proving takes 60s"]
 async fn test_execute_and_broadcast_authorize_fails() {
-    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::{method, path}};
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
+    };
 
     let mock_server = MockServer::start().await;
     let base_url = mock_server.uri();
@@ -121,9 +139,11 @@ async fn test_execute_and_broadcast_authorize_fails() {
         .await;
     Mock::given(method("GET"))
         .and(path("/stateRoot/latest"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(
-            "\"sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s\"",
-        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(
+                "\"sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s\"",
+            ),
+        )
         .mount(&mock_server)
         .await;
     Mock::given(method("GET"))
@@ -176,10 +196,22 @@ fn test_prove_multiple_same_program_transitions() {
         "sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s",
     )
     .unwrap();
-    let query = FixedStateRootQuery { state_root, block_height: 42 };
+    let query = FixedStateRootQuery {
+        state_root,
+        block_height: 42,
+    };
 
     let tx = engine
-        .prove_and_package(trace, &pk, &program_id, "transfer_public", 1, 0, &query, &mut rng)
+        .prove_and_package(
+            trace,
+            &pk,
+            &program_id,
+            "transfer_public",
+            1,
+            0,
+            &query,
+            &mut rng,
+        )
         .unwrap();
 
     let tx_json = serde_json::to_string(&tx).unwrap();

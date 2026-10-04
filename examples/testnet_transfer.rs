@@ -16,7 +16,6 @@
 /// ```bash
 /// cargo run --example testnet_transfer
 /// ```
-
 use aleo_rust_sdk::AleoAccount;
 use aleo_rust_sdk::AleoClient;
 use aleo_rust_sdk::AleoProgram;
@@ -31,8 +30,7 @@ async fn main() -> anyhow::Result<()> {
     println!("=== Aleo Testnet Transfer Demo ===\n");
 
     // ── 1. Load account from environment ────────────────────────────────
-    let pk_str = std::env::var("PRIVATE_KEY")
-        .expect("PRIVATE_KEY environment variable required");
+    let pk_str = std::env::var("PRIVATE_KEY").expect("PRIVATE_KEY environment variable required");
     let private_key = PrivateKey::from_str(&pk_str)?;
     let account = AleoAccount::from_private_key_str(&pk_str)?;
     println!("🔑 Account address: {}", account.address_str());
@@ -58,14 +56,16 @@ async fn main() -> anyhow::Result<()> {
     println!("📡 Full pipeline: proving and broadcasting...");
     let program_id = ProgramID::<snarkvm::prelude::TestnetV0>::from_str("credits.aleo")?;
 
-    let tx_id = client.execute_and_broadcast(
-        &private_key,
-        &program_id,
-        "transfer_public",
-        vec![self_addr.as_str(), "1000000u64"],
-        100_000,   // base_fee (0.0001 credits)
-        0,         // priority_fee
-    ).await?;
+    let tx_id = client
+        .execute_and_broadcast(
+            &private_key,
+            &program_id,
+            "transfer_public",
+            vec![self_addr.as_str(), "1000000u64"],
+            100_000, // base_fee (0.0001 credits)
+            0,       // priority_fee
+        )
+        .await?;
 
     println!("\n🎉 Transaction ID: {tx_id}");
     println!("🔗 Explorer: https://testnet.explorer.provable.com/transaction/{tx_id}");

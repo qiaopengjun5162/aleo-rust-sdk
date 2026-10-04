@@ -8,7 +8,6 @@
 /// ```bash
 /// cargo run --example testnet_query
 /// ```
-
 use aleo_rust_sdk::AleoHttpClient;
 
 #[tokio::main]

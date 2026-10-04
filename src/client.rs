@@ -49,13 +49,21 @@ impl AleoClient {
     /// Create a new client pointing at an Aleo node.
     pub fn new(node_url: &str) -> Result<Self> {
         let network = AleoHttpClient::new(node_url)?;
-        Ok(Self { network, account: None, program: None })
+        Ok(Self {
+            network,
+            account: None,
+            program: None,
+        })
     }
 
     /// Create a client with a custom RPC URL (for testing with wiremock).
     pub fn new_with_rpc(rest_url: &str, rpc_url: &str) -> Result<Self> {
         let network = AleoHttpClient::new_with_rpc(rest_url, rpc_url)?;
-        Ok(Self { network, account: None, program: None })
+        Ok(Self {
+            network,
+            account: None,
+            program: None,
+        })
     }
 
     // ── Account management ──────────────────────────────────────────────
@@ -173,12 +181,21 @@ impl AleoClient {
 
         // Fetch state root for proving
         let (state_root, block_height) = self.network.fetch_state_root().await?;
-        let query = FixedStateRootQuery { state_root, block_height };
+        let query = FixedStateRootQuery {
+            state_root,
+            block_height,
+        };
 
         // Prove and package
         let tx = engine.prove_and_package(
-            trace, private_key, program_id, function_name,
-            base_fee, priority_fee, &query, &mut rng,
+            trace,
+            private_key,
+            program_id,
+            function_name,
+            base_fee,
+            priority_fee,
+            &query,
+            &mut rng,
         )?;
 
         // Serialize and broadcast
@@ -196,7 +213,9 @@ impl AleoClient {
     pub async fn get_balance(&self) -> Result<Option<u64>> {
         let addr = self.require_account()?.address_str();
         // Try REST first (more reliable than JSON-RPC for mapping queries)
-        if let Some(val) = self.network.fetch_mapping_value_rest("credits.aleo", "account", &addr).await? {
+        if let Some(val) =
+            self.network.fetch_mapping_value_rest("credits.aleo", "account", &addr).await?
+        {
             return Ok(Some(val));
         }
         // Fallback: JSON-RPC path

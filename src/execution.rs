@@ -22,8 +22,7 @@ use snarkvm::circuit::AleoTestnetV0;
 use snarkvm::console::program::{Identifier, ProgramID};
 use snarkvm::ledger::block::Transaction;
 use snarkvm::prelude::{
-    ConsensusVersion, InclusionVersion, PrivateKey, Process,
-    Program, Response, TestRng, TestnetV0,
+    ConsensusVersion, InclusionVersion, PrivateKey, Process, Program, Response, TestRng, TestnetV0,
 };
 use snarkvm::synthesizer::process::{Stack, Trace};
 use std::str::FromStr;
@@ -131,9 +130,7 @@ impl ExecutionEngine {
 
         // Prove execution
         let mut exec_trace = trace;
-        exec_trace
-            .prepare(query)
-            .context("Failed to prepare execution trace")?;
+        exec_trace.prepare(query).context("Failed to prepare execution trace")?;
         let execution = exec_trace
             .prove_execution::<AleoTestnetV0, _>(&locator, VarunaVersion::V2, rng)
             .context("Failed to generate execution proof")?;
@@ -156,9 +153,7 @@ impl ExecutionEngine {
             .execute::<AleoTestnetV0, _>(fee_authorization, rng)
             .context("Failed to execute fee")?;
 
-        fee_trace
-            .prepare(query)
-            .context("Failed to prepare fee trace")?;
+        fee_trace.prepare(query).context("Failed to prepare fee trace")?;
         let fee = fee_trace
             .prove_fee::<AleoTestnetV0, _>(VarunaVersion::V2, rng)
             .context("Failed to generate fee proof")?;
@@ -170,9 +165,7 @@ impl ExecutionEngine {
         for transition in execution.transitions() {
             let pid = *transition.program_id();
             if !execution_stacks.contains_key(&pid) {
-                let stack = guard
-                    .get_stack(pid)
-                    .context("Missing stack for verification")?;
+                let stack = guard.get_stack(pid).context("Missing stack for verification")?;
                 execution_stacks.insert(pid, stack.clone());
             }
         }

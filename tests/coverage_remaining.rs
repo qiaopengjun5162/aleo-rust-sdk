@@ -41,9 +41,11 @@ fn test_execution_engine_with_fee_keys() {
     let engine = ExecutionEngine::new_with_v0_fee_keys().unwrap();
     let guard = engine.process.lock();
     // Should have credits.aleo loaded
-    assert!(guard
-        .program_ids()
-        .contains(&ProgramID::<TestnetV0>::from_str("credits.aleo").unwrap()));
+    assert!(
+        guard
+            .program_ids()
+            .contains(&ProgramID::<TestnetV0>::from_str("credits.aleo").unwrap())
+    );
 }
 
 /// Test FixedStateRootQuery trait methods (network.rs lines 222-245)
@@ -55,7 +57,7 @@ fn test_fixed_state_root_query() {
     )
     .unwrap();
     let query: FixedStateRootQuery<TestnetV0> = FixedStateRootQuery {
-        state_root: sr.clone(),
+        state_root: sr,
         block_height: 42,
     };
 
@@ -75,22 +77,15 @@ fn test_client_execute_local_real() {
     let mut rng = TestRng::default();
     let account = AleoAccount::new_random(&mut rng).unwrap();
 
-    let mut client =
-        AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
-    client
-        .set_account_from_private_key_str(&account.private_key_str())
-        .unwrap();
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+    client.set_account_from_private_key_str(&account.private_key_str()).unwrap();
     client
         .load_program_from_source(
             "program hello.aleo;\nfunction f:\n    input r0 as u32.public;\n    output r0 as u32.public;\n",
         )
         .unwrap();
 
-    let result = client.execute_local(
-        "hello.aleo",
-        "f",
-        &["42u32".to_string()],
-    );
+    let result = client.execute_local("hello.aleo", "f", &["42u32".to_string()]);
     assert!(result.is_ok());
     let output = result.unwrap();
     assert!(output.contains("Response"));
@@ -102,21 +97,15 @@ fn test_client_execute_credits_transfer() {
     let mut rng = TestRng::default();
     let account = AleoAccount::new_random(&mut rng).unwrap();
 
-    let mut client =
-        AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
-    client
-        .set_account_from_private_key_str(&account.private_key_str())
-        .unwrap();
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+    client.set_account_from_private_key_str(&account.private_key_str()).unwrap();
     client.set_program(AleoProgram::credits().unwrap());
 
     // transfer_public requires a valid address as first arg
     let result = client.execute_local(
         "credits.aleo",
         "transfer_public",
-        &[
-            "aleo1destdestdestdestdestdestdestdestdestdest".to_string(),
-            "1u64".to_string(),
-        ],
+        &["aleo1destdestdestdestdestdestdestdestdestdest".to_string(), "1u64".to_string()],
     );
     // This should either succeed (local execution) or fail with a meaningful error
     // (not "No program loaded" or "No account set")
