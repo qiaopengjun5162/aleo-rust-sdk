@@ -11,7 +11,7 @@
 //! ```no_run
 //! use aleo_rust_sdk::ExecutionEngine;
 //!
-//! let engine = ExecutionEngine::new_v0_fee_keys().unwrap();
+//! let engine = ExecutionEngine::new_with_v0_fee_keys().unwrap();
 //! // see AleoClient::execute_and_broadcast() for a full pipeline example
 //! ```
 
