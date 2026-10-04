@@ -194,6 +194,12 @@ impl AleoClient {
         self.network.fetch_records(&account.view_key.to_string()).await
     }
 
+    /// Find unspent private credits records owned by the current account's view key.
+    pub async fn find_private_credits_records(&self) -> Result<Vec<(String, u64)>> {
+        let account = self.require_account()?;
+        self.network.find_private_credits_records(&account.view_key.to_string()).await
+    }
+
     /// Fetch the current block height.
     pub async fn get_block_height(&self) -> Result<u32> {
         self.network.fetch_block_height().await

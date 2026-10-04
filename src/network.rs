@@ -208,6 +208,96 @@ impl AleoHttpClient {
 
         Ok(serde_json::to_string_pretty(&result)?)
     }
+
+    /// Fetch all records within a block range via JSON-RPC `records/all`.
+    ///
+    /// Returns raw record ciphertexts that must be decrypted with a view key.
+    pub async fn fetch_all_records(&self, start: u32, end: u32, page: u32, per_page: u32) -> Result<Value> {
+        let params = serde_json::json!({
+            "start": start,
+            "end": end,
+            "page": page,
+            "recordsPerRequest": per_page,
+        });
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "records/all",
+            "params": params,
+        });
+        let mut headers = Self::headers();
+        headers.insert("Content-Type", "application/json".parse().unwrap());
+
+        let resp = self.inner.post(&self.rpc_url).headers(headers).json(&body).send().await?;
+        let text = resp.text().await?;
+        let v: Value = serde_json::from_str(&text).context("Failed to parse records/all response")?;
+        if let Some(err) = v.get("error") {
+            anyhow::bail!("records/all error: {err}");
+        }
+        v.get("result").cloned().context("records/all response missing result")
+    }
+
+    /// Find unspent `credits.aleo` record ciphertexts owned by the given view key.
+    /// Scans recent blocks via `records/all`, decrypts each record, and returns
+    /// those containing `credits.aleo` with the owner matching the view key's address.
+    pub async fn find_private_credits_records(
+        &self,
+        view_key: &str,
+    ) -> Result<Vec<(String, u64)>> {
+        use snarkvm::console::program::Record;
+        use snarkvm::prelude::Ciphertext;
+        use std::str::FromStr;
+
+        let vk = snarkvm::prelude::ViewKey::<TestnetV0>::from_str(view_key)?;
+        let owner_addr = vk.to_address();
+
+        let height = self.fetch_block_height().await?;
+        let start = height.saturating_sub(100_000); // scan last ~100K blocks
+        let mut results = Vec::new();
+
+        tracing::info!("Scanning blocks {start}..{height} for private records...");
+        let records = self.fetch_all_records(start, height, 0, 500).await?;
+
+        if let Some(arr) = records.as_array() {
+            for record_entry in arr {
+                let program_id = record_entry["program_id"].as_str().unwrap_or("");
+                if program_id != "credits.aleo" {
+                    continue;
+                }
+                let ciphertext_str = record_entry["record_ciphertext"].as_str().unwrap_or("");
+                if ciphertext_str.is_empty() {
+                    continue;
+                }
+                // Try to parse and decrypt
+                if let Ok(record) = Record::<TestnetV0, Ciphertext<TestnetV0>>::from_str(ciphertext_str) {
+                    if let Ok(decrypted) = record.decrypt(&vk) {
+                        // Check owner matches
+                        if *decrypted.owner() == snarkvm::prelude::Owner::Public(owner_addr)
+                            || *decrypted.owner() == snarkvm::prelude::Owner::Private(
+                                snarkvm::prelude::Plaintext::from(
+                                    snarkvm::prelude::Literal::Address(owner_addr),
+                                ),
+                            )
+                        {
+                            // Extract microcredits from data
+                            for (id, entry) in decrypted.data().iter() {
+                                if id.to_string() == "microcredits" {
+                                    let amount_str = entry.to_string().replace("u64", "").trim().to_string();
+                                    if let Ok(amount) = amount_str.parse::<u64>() {
+                                        results.push((ciphertext_str.to_string(), amount));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort by amount descending
+        results.sort_by(|a, b| b.1.cmp(&a.1));
+        Ok(results)
+    }
 }
 
 /// Custom query returning a fixed state root (bypasses ureq/WAF issues).
