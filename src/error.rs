@@ -1,6 +1,17 @@
-//! Aleo Rust SDK — custom error types.
+//! # Aleo SDK — custom error types.
 //!
-//! Consolidates all SDK errors into a single `AleoError` enum.
+//! Consolidates all SDK errors into a single [`AleoError`] enum with
+//! [`thiserror`](https://docs.rs/thiserror) for ergonomic `Display` and `Error` derives.
+//!
+//! ## Usage
+//!
+//! ```no_run
+//! use aleo_rust_sdk::AleoError;
+//!
+//! fn example() -> Result<(), AleoError> {
+//!     Err(AleoError::Custom("something went wrong".into()))
+//! }
+//! ```
 
 use thiserror::Error;
 

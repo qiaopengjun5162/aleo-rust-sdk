@@ -1,6 +1,20 @@
-//! Aleo Program — load and inspect Aleo programs.
+//! # Aleo Program — load and inspect Aleo programs.
 //!
-//! Wraps snarkVM `Program<TestnetV0>` with ergonomic constructors and queries.
+//! Wraps snarkVM [`Program<TestnetV0>`] with ergonomic constructors and queries.
+//!
+//! ## Usage
+//!
+//! ```no_run
+//! use aleo_rust_sdk::AleoProgram;
+//!
+//! // Load from source string
+//! let program = AleoProgram::from_source("program hello.aleo;\nfunction main:\n    input r0 as u32.public;\n    output r0 as u32.public;\n").unwrap();
+//! println!("Program ID: {}", program.id());
+//!
+//! // Load the built-in credits program
+//! let credits = AleoProgram::credits().unwrap();
+//! assert!(credits.id().to_string().contains("credits.aleo"));
+//! ```
 
 use anyhow::{Context, Result};
 use snarkvm::prelude::{Program, ProgramID, TestnetV0};

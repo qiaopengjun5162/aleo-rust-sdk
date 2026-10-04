@@ -1,12 +1,15 @@
 //! # Aleo Rust SDK
 //!
-//! A comprehensive Rust SDK for interacting with the [Aleo](https://aleo.org) blockchain.
-//! Provides tools for account management, program loading, local execution, proof generation,
-//! network querying, and transaction broadcasting.
+//! A comprehensive **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain.
+//! Provides tools for account management, program loading, local zero-knowledge execution,
+//! proof generation, network querying, and transaction broadcasting.
+//!
+//! Built on top of [snarkVM 4.10.0](https://github.com/ProvableHQ/snarkVM) for zero-knowledge
+//! proving and [reqwest](https://crates.io/crates/reqwest) for async HTTP.
 //!
 //! ## Architecture
 //!
-//! The SDK is organized into five modules, each wrapping a layer of the Aleo stack:
+//! The SDK is organized into five modules:
 //!
 //! | Module | Purpose |
 //! |--------|---------|
@@ -41,8 +44,17 @@
 //!
 //! ## Feature flags
 //!
-//! None yet — all features are built-in. The heavy lifting dependency is
+//! All features are built-in. The heavy lifting dependency is
 //! [snarkVM](https://github.com/ProvableHQ/snarkVM) for zero-knowledge proving.
+//!
+//! ## Related crates
+//!
+//! - [`aleo-cli`](https://crates.io/crates/aleo-cli) — CLI tool built on this SDK
+//! - [`snarkvm`](https://crates.io/crates/snarkvm) — Zero-knowledge VM for Aleo
+//!
+//! ## License
+//!
+//! Licensed under MIT OR Apache-2.0.
 
 pub mod account;
 pub mod client;

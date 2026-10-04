@@ -1,9 +1,18 @@
-//! Aleo Client — the top-level entry point for the SDK.
+//! # Aleo Client — the top-level entry point for the SDK.
 //!
-//! Combines account, program, execution, and network modules into
-//! a single, ergonomic `AleoClient` with a fluent API.
+//! Combines [`account`](crate::account), [`program`](crate::program),
+//! [`execution`](crate::execution), and [`network`](crate::network) modules into
+//! a single, ergonomic [`AleoClient`] with a fluent API.
 //!
-//! # Example
+//! ## Lifecycle
+//!
+//! 1. **Create** — `AleoClient::new(node_url)`
+//! 2. **Set account** — `client.set_account_from_private_key_str(pk)`
+//! 3. **Load program** — `client.load_program_from_source(source)`
+//! 4. **Query** — `client.get_block_height()`, `client.get_balance()`
+//! 5. **Execute** — `client.execute_local(...)` or `client.execute_and_broadcast(...)`
+//!
+//! ## Example
 //!
 //! ```no_run
 //! use aleo_rust_sdk::{AleoClient, AleoAccount};

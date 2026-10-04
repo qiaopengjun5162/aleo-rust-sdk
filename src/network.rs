@@ -1,14 +1,29 @@
-//! Aleo Network — RPC client for interacting with Aleo blockchain nodes.
+//! # Aleo Network — RPC client for interacting with Aleo blockchain nodes.
 //!
-//! Uses Provable's v2 REST API for GET endpoints (block height, state root, programs)
-//! and JSON-RPC (`testnetbeta.aleorpc.com`) for mapping/records queries.
+//! Uses [Provable's v2 REST API](https://api.explorer.provable.com/v2/testnet) for GET
+//! endpoints (block height, state root, programs) and JSON-RPC (`testnetbeta.aleorpc.com`)
+//! for mapping/record queries.
 //!
-//! ## API Discovery
+//! ## Endpoints
 //!
-//! During development we found that Provable v1 REST endpoints (the old Aleo SDK)
-//! are all dead. The current approach:
-//! - `v2/testnet` REST: block height, state root, program source, transaction broadcast
-//! - JSON-RPC: mapping values, records query
+//! | Endpoint | Protocol | Used For |
+//! |----------|----------|----------|
+//! | `api.explorer.provable.com/v2/testnet` | REST | Block height, state root, programs, broadcast |
+//! | `testnetbeta.aleorpc.com` | JSON-RPC | Mapping values, records, `getMappingValue` |
+//!
+//! ## Usage
+//!
+//! ```no_run
+//! use aleo_rust_sdk::AleoHttpClient;
+//!
+//! # async fn run() -> anyhow::Result<()> {
+//! let client = AleoHttpClient::new("https://api.explorer.provable.com/v2/testnet")?;
+//!
+//! let height = client.fetch_block_height().await?;
+//! println!("Block height: {height}");
+//! # Ok(())
+//! # }
+//! ```
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;

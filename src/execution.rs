@@ -1,8 +1,19 @@
-//! Aleo Execution — authorization, proving, and transaction packaging pipeline.
+//! # Aleo Execution — authorization, proving, and transaction packaging pipeline.
+//!
+//! The execution pipeline has three phases:
 //!
 //! 1. **Authorize** — build authorization for a function call
 //! 2. **Execute** — run locally, getting response + trace
 //! 3. **Prove + package** — prepare trace, prove execution + fee, verify, package into `Transaction`
+//!
+//! ## Usage
+//!
+//! ```no_run
+//! use aleo_rust_sdk::ExecutionEngine;
+//!
+//! let engine = ExecutionEngine::new_v0_fee_keys().unwrap();
+//! // see AleoClient::execute_and_broadcast() for a full pipeline example
+//! ```
 
 use anyhow::{Context, Result};
 use indexmap::IndexMap;

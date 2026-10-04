@@ -3,10 +3,14 @@ name = "aleo-rust-sdk"
 version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Rust SDK for interacting with the Aleo blockchain — accounts, programs, execution, network queries, and transaction broadcasting"
+description = "Rust SDK for the Aleo blockchain — accounts, programs, local ZK execution, network queries, transaction broadcasting"
+homepage = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
 repository = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
-keywords = ["aleo", "blockchain", "zero-knowledge", "sdk", "snarkvm"]
+documentation = "https://docs.rs/aleo-rust-sdk"
+readme = "README.md"
+keywords = ["aleo", "blockchain", "zero-knowledge", "sdk", "snarkvm", "privacy", "cryptography"]
 categories = ["cryptography", "web-programming::http-client"]
+rust-version = "1.85"
 
 [dependencies]
 anyhow = "1.0"

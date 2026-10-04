@@ -1,7 +1,32 @@
-//! Aleo Account — key management for Aleo blockchain accounts.
+//! # Aleo Account — key management for Aleo blockchain accounts.
 //!
 //! Wraps snarkVM account primitives with a safe, ergonomic API.
 //! Key chain: `PrivateKey → ViewKey → ComputeKey → Address`.
+//!
+//! ## Key Derivation Chain
+//!
+//! ```text
+//! PrivateKey ──→ ViewKey
+//!      │
+//!      └──→ ComputeKey ──→ Address
+//! ```
+//!
+//! ## Usage
+//!
+//! ```no_run
+//! use aleo_rust_sdk::AleoAccount;
+//! use snarkvm::prelude::TestRng;
+//!
+//! let mut rng = TestRng::default();
+//!
+//! // Generate a random account
+//! let account = AleoAccount::new_random(&mut rng).unwrap();
+//! println!("Address: {}", account.address_str());
+//!
+//! // Recover from a private key string
+//! let recovered = AleoAccount::from_private_key_str("APrivateKey1...").unwrap();
+//! assert_eq!(recovered.address_str(), "aleo1...");
+//! ```
 
 use anyhow::Result;
 use snarkvm::prelude::{
