@@ -205,6 +205,68 @@ impl AleoClient {
         Ok(tx_id)
     }
 
+    // ── Deployment (program publishing) ─────────────────────────────────
+
+    /// Full deployment pipeline: parse → prove → compute fee → fetch state root → build tx → broadcast.
+    ///
+    /// This is the equivalent of JS SDK's `ProgramManager.deploy()`.
+    ///
+    /// `program_source` is the raw `.aleo` program source code.
+    /// `priority_fee_in_microcredits` adds priority over the minimum deployment cost.
+    ///
+    /// Returns the transaction ID on success.
+    pub async fn deploy_program(
+        &self,
+        program_source: &str,
+        priority_fee_in_microcredits: u64,
+    ) -> Result<String> {
+        use snarkvm::prelude::{ConsensusVersion, Program};
+        use std::str::FromStr;
+
+        let account = self.require_account()?;
+        let mut rng = TestRng::default();
+
+        // 1. Parse the program
+        let program = Program::<TestnetV0>::from_str(program_source)
+            .map_err(|e| anyhow::anyhow!("Failed to parse program: {e}"))?;
+
+        // 2. Initialize engine with V0 fee keys
+        let engine = ExecutionEngine::new_with_v0_fee_keys()?;
+        // Register the program so its dependencies are available
+        engine.add_program(&program)?;
+
+        // 3. Generate deployment proof (pure proving, no fee yet)
+        let deployment = engine.deploy_program(&program, &mut rng)?;
+
+        // 4. Compute minimum deployment cost (TestnetV0 uses V14 consensus)
+        let min_cost = engine.deployment_cost_minimum(&deployment, ConsensusVersion::V14)?;
+
+        // 5. Fetch state root for proving
+        let (state_root, block_height) = self.network.fetch_state_root().await?;
+        let query = FixedStateRootQuery {
+            state_root,
+            block_height,
+        };
+
+        // 6. Build full deployment transaction (prove fee + package)
+        let tx = engine.build_deployment_transaction(
+            &account.private_key,
+            &program,
+            &deployment,
+            min_cost,
+            priority_fee_in_microcredits,
+            ConsensusVersion::V14,
+            &query,
+            &mut rng,
+        )?;
+
+        // 7. Serialize and broadcast
+        let tx_json = serde_json::to_string(&tx)?;
+        let tx_id = self.network.broadcast_transaction(tx_json).await?;
+
+        Ok(tx_id)
+    }
+
     // ── On-chain queries ────────────────────────────────────────────────
 
     /// Query the public balance of the current account from `credits.aleo`.

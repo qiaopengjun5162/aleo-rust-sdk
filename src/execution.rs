@@ -19,12 +19,13 @@ use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use snarkvm::algorithms::snark::varuna::VarunaVersion;
 use snarkvm::circuit::AleoTestnetV0;
-use snarkvm::console::program::{Identifier, ProgramID};
-use snarkvm::ledger::block::Transaction;
+use snarkvm::console::program::{Identifier, ProgramID, ProgramOwner};
+use snarkvm::ledger::block::{Deployment, Transaction};
 use snarkvm::prelude::{
-    ConsensusVersion, InclusionVersion, PrivateKey, Process, Program, Response, TestRng, TestnetV0,
+    Address, ConsensusVersion, CryptoRng, InclusionVersion, PrivateKey, Process, Program, Response,
+    Rng, TestRng, TestnetV0,
 };
-use snarkvm::synthesizer::process::{Stack, Trace};
+use snarkvm::synthesizer::process::{Stack, Trace, deployment_cost};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -199,5 +200,97 @@ impl ExecutionEngine {
     /// Reference to the inner `Process`.
     pub fn inner(&self) -> &Process<TestnetV0> {
         &self.process
+    }
+
+    // ── Deployment (program publishing) ─────────────────────────────────
+
+    /// Pure program deployment proof — generates a `Deployment` from source.
+    ///
+    /// This only proves the program circuit. Fee and transaction packaging
+    /// must be done separately via [`build_deployment_transaction`](Self::build_deployment_transaction).
+    pub fn deploy_program<R: Rng + CryptoRng>(
+        &self,
+        program: &Program<TestnetV0>,
+        rng: &mut R,
+    ) -> Result<Deployment<TestnetV0>> {
+        self.process
+            .deploy::<AleoTestnetV0, R>(program, rng)
+            .context("Failed to generate program deployment")
+    }
+
+    /// Full deployment pipeline: prove program → authorize fee → prove fee →
+    /// verify → package into [`Transaction`].
+    ///
+    /// This is the equivalent of JS SDK's `buildDeploymentTransaction`.
+    ///
+    /// `base_fee` is the minimum deployment cost (use [`deployment_cost_minimum`] to compute it).
+    /// `priority_fee_in_microcredits` is an additional fee on top.
+    /// `consensus_version` determines which cost formula applies (TestnetV0 uses V14).
+    /// `query` supplies the current state root (from [`AleoHttpClient::fetch_state_root`]).
+    pub fn build_deployment_transaction<R: Rng + CryptoRng>(
+        &self,
+        private_key: &PrivateKey<TestnetV0>,
+        _program: &Program<TestnetV0>,
+        deployment: &Deployment<TestnetV0>,
+        base_fee: u64,
+        priority_fee_in_microcredits: u64,
+        _consensus_version: ConsensusVersion,
+        query: &impl QueryTrait<TestnetV0>,
+        rng: &mut R,
+    ) -> Result<Transaction<TestnetV0>> {
+        // Ensure the program has functions.
+        if deployment.program().functions().is_empty() {
+            anyhow::bail!("Attempted to create an empty deployment");
+        }
+
+        // Compute deployment ID and owner.
+        // NOTE: Process::deploy returns a deployment with the default program owner
+        // (zero address). We must set it to the actual private key's address (matching
+        // what VM::deploy does) before computing deployment_id, ProgramOwner and cost.
+        let mut deployment = deployment.clone();
+        let addr = Address::try_from(private_key)?;
+        deployment.set_program_owner_raw(Some(addr));
+        deployment.set_program_checksum_raw(Some(deployment.program().to_checksum()));
+
+        let deployment_id = deployment.to_deployment_id()?;
+        let owner = ProgramOwner::new(private_key, deployment_id, rng)?;
+
+        // Authorize the fee.
+        let fee_authorization = self
+            .process
+            .authorize_fee_public::<AleoTestnetV0, R>(
+                private_key,
+                base_fee,
+                priority_fee_in_microcredits,
+                deployment_id,
+                rng,
+            )
+            .context("Failed to authorize deployment fee")?;
+
+        // Execute + prove the fee.
+        let (_, mut fee_trace) = self
+            .process
+            .execute::<AleoTestnetV0, R>(fee_authorization, rng)
+            .context("Failed to execute fee")?;
+
+        fee_trace.prepare(query).context("Failed to prepare fee trace")?;
+
+        let fee = fee_trace
+            .prove_fee::<AleoTestnetV0, R>(VarunaVersion::V2, rng)
+            .context("Failed to prove fee")?;
+
+        // Package into transaction.
+        Transaction::<TestnetV0>::from_deployment(owner, deployment.clone(), fee)
+            .context("Failed to package deployment transaction")
+    }
+
+    /// Compute the minimum deployment cost for a deployment at the given consensus version.
+    pub fn deployment_cost_minimum(
+        &self,
+        deployment: &Deployment<TestnetV0>,
+        _consensus_version: ConsensusVersion,
+    ) -> Result<u64> {
+        let (min_cost, _details) = deployment_cost(&self.process, deployment, _consensus_version)?;
+        Ok(min_cost)
     }
 }
