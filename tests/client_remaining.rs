@@ -116,3 +116,40 @@ async fn test_client_get_balance_none() {
     let balance = client.get_balance().await.unwrap();
     assert!(balance.is_none());
 }
+
+/// End-to-end deployment test: deploys a minimal program to Aleo Testnet.
+///
+/// Requires `ALEO_TEST_DEPLOY=1` env var to opt in (costs ~2 credits).
+#[tokio::test]
+async fn test_deploy_program_end_to_end() {
+    if std::env::var("ALEO_TEST_DEPLOY").is_err() {
+        eprintln!("Skipping e2e deploy: set ALEO_TEST_DEPLOY=1 to run");
+        return;
+    }
+
+    let pk_str = std::env::var("PRIVATE_KEY")
+        .expect("PRIVATE_KEY env var required");
+    let pk = PrivateKey::<TestnetV0>::from_str(&pk_str)
+        .expect("Invalid private key");
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+    let _ = client.set_account_from_private_key_str(&pk.to_string());
+
+    // Unique program ID to avoid conflict
+    let suffix: u64 = rand::random();
+    let source = format!(
+        "program hello_e2e_{suffix}.aleo;\n\nconstructor:\n    add 1u32 2u32 into r0;\n\nfunction hello:\n    input r0 as u32.public;\n    output r0 as u32.public;\n"
+    );
+
+    println!("Deploying with min cost...");
+    let tx_id = client.deploy_program(&source, 0).await
+        .expect("Deploy should succeed");
+    println!("✅ Tx: {tx_id}");
+
+    // Skip wait_for_confirmation (it frequently times out on testnet).
+    // Verify directly via explorer API instead.
+    let check = client.network.fetch_transaction(&tx_id).await
+        .unwrap_or_else(|e| {
+            panic!("Transaction not found on chain: {e}");
+        });
+    println!("✅ Deploy verified on chain: {}", check);
+}

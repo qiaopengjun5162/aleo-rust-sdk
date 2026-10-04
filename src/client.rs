@@ -240,6 +240,9 @@ impl AleoClient {
 
         // 4. Compute minimum deployment cost (TestnetV0 uses V14 consensus)
         let min_cost = engine.deployment_cost_minimum(&deployment, ConsensusVersion::V14)?;
+        // Add a small buffer (5%) to account for node-level overhead that the static cost
+        // calculation doesn't capture. This matches how the on-chain validator counts costs.
+        let base_fee = min_cost.saturating_mul(105) / 100;
 
         // 5. Fetch state root for proving
         let (state_root, block_height) = self.network.fetch_state_root().await?;
@@ -253,7 +256,7 @@ impl AleoClient {
             &account.private_key,
             &program,
             &deployment,
-            min_cost,
+            base_fee,
             priority_fee_in_microcredits,
             ConsensusVersion::V14,
             &query,

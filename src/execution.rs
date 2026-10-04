@@ -244,10 +244,11 @@ impl ExecutionEngine {
         }
 
         // Compute deployment ID and owner.
-        // NOTE: Process::deploy returns a deployment with the default program owner
-        // (zero address). We must set it to the actual private key's address (matching
-        // what VM::deploy does) before computing deployment_id, ProgramOwner and cost.
+        // NOTE: Process::deploy returns a deployment with edition set by Stack::new(process, program),
+        // which gives a non-zero edition. The on-chain validator checks `deployment.edition() == 0` for
+        // new deployments (non-zero edition → amendment path). Reset it to 0 for a fresh deploy.
         let mut deployment = deployment.clone();
+        deployment.set_edition_raw(0);
         let addr = Address::try_from(private_key)?;
         deployment.set_program_owner_raw(Some(addr));
         deployment.set_program_checksum_raw(Some(deployment.program().to_checksum()));
