@@ -38,6 +38,7 @@ A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — 
 | aleo-rust-sdk (program) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/program/index.html) | Program loading, parsing, inspection |
 | aleo-rust-sdk (execution) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/execution/index.html) | Authorize, execute, prove, package transactions |
 | aleo-rust-sdk (network) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/network/index.html) | v2 JSON-RPC + REST HTTP client |
+| aleo-rust-sdk (record) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/record/index.html) | Record discovery, decryption, and coin selection |
 | aleo-rust-sdk (client) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/client/index.html) | High-level `AleoClient` orchestrator |
 
 The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a separate crate that consumes this SDK.
@@ -62,19 +63,19 @@ The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a sepa
 │                    AleoClient                        │
 │   (high-level orchestrator — account, program,       │
 │    execute, prove, broadcast in one place)           │
-├──────────┬──────────┬──────────┬─────────────────────┤
-│  account │  program │ execution│      network        │
-│  │        │         │          │                    │
-│  │        │         │          │  AleoHttpClient     │
-│ PK → VK  │ parse    │ auth     │  ├─ REST (v2)      │
-│ CK → ADDR│ inspect  │ execute  │  ├─ JSON-RPC       │
-│  │        │ from_net │ prove    │  └─ broadcast      │
+├──────────┬──────────┬──────────┬──────────────────────┤
+│  account │  program │ execution│      network         │
+│  │        │         │          │                     │
+│  │        │         │          │  AleoHttpClient      │
+│ PK → VK  │ parse    │ auth     │  ├─ REST (v2)       │
+│ CK → ADDR│ inspect  │ execute  │  ├─ JSON-RPC        │
+│  │        │ from_net │ prove    │  └─ broadcast       │
 │  ▼        │  ▼       │  ▼      │       ▼            │
-│  ────────────────────────────────────────────        │
-│              snarkVM 4.10.0 (Process<TestnetV0>)    │
-│   (Program loading, authorization, execution,         │
-│    proof generation, verification, Transaction)       │
-├──────────────────────────────────────────────────────┤
+├──────────┴──────────┴──────────┴──────────────────────┤
+│  record                                                │
+│  AleoRecord · RecordScanner · RecordManager · CoinSel  │
+├────────────────────────────────────────────────────────┤
+│              snarkVM 4.10.0 (Process<TestnetV0>)       │
 │          reqwest (async HTTP) — tokio runtime         │
 └──────────────────────────────────────────────────────┘
 ```

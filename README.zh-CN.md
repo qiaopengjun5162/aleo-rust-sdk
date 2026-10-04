@@ -38,6 +38,7 @@
 | aleo-rust-sdk (program) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/program/index.html) | 程序加载、解析、检查 |
 | aleo-rust-sdk (execution) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/execution/index.html) | 授权、执行、证明、打包交易 |
 | aleo-rust-sdk (network) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/network/index.html) | v2 JSON-RPC + REST HTTP 客户端 |
+| aleo-rust-sdk (record) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/record/index.html) | 记录发现、解密和币选择 |
 | aleo-rust-sdk (client) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/client/index.html) | 高层 `AleoClient` 编排器 |
 
 CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个独立的 crate，构建在本 SDK 之上。
@@ -61,18 +62,19 @@ CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个�
 ┌─────────────────────────────────────────────────────┐
 │                    AleoClient                        │
 │   （高层编排器 — 账户、程序、执行、证明、广播一站式）      │
-├──────────┬──────────┬──────────┬─────────────────────┤
-│  account │  program │ execution│      network        │
-│  │        │         │          │                    │
-│  │        │         │          │  AleoHttpClient     │
-│ PK → VK  │ 解析     │ 授权     │  ├─ REST (v2)      │
-│ CK → ADDR│ 检查     │ 执行     │  ├─ JSON-RPC       │
-│  │        │ 从网络    │ 证明     │  └─ broadcast      │
+├──────────┬──────────┬──────────┬──────────────────────┤
+│  account │  program │ execution│      network         │
+│  │        │         │          │                     │
+│  │        │         │          │  AleoHttpClient      │
+│ PK → VK  │ 解析     │ 授权     │  ├─ REST (v2)       │
+│ CK → ADDR│ 检查     │ 执行     │  ├─ JSON-RPC        │
+│  │        │ 从网络    │ 证明     │  └─ broadcast       │
 │  ▼        │  ▼       │  ▼      │       ▼            │
-│  ────────────────────────────────────────────        │
-│              snarkVM 4.10.0 (Process<TestnetV0>)    │
-│   （程序加载、授权、执行、证明生成、验证、Transaction）    │
-├──────────────────────────────────────────────────────┤
+├──────────┴──────────┴──────────┴──────────────────────┤
+│  record                                                │
+│  AleoRecord · RecordScanner · RecordManager · 币选择   │
+├────────────────────────────────────────────────────────┤
+│            snarkVM 4.10.0 (Process<TestnetV0>)         │
 │          reqwest (异步 HTTP) — tokio 运行时           │
 └──────────────────────────────────────────────────────┘
 ```

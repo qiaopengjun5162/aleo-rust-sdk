@@ -17,6 +17,7 @@
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
+//! | [`record`] | Record discovery, decryption, and coin selection |
 //! | [`client`] | High-level `AleoClient` orchestrating the full lifecycle |
 //!
 //! ## Quick Start
@@ -62,6 +63,7 @@ pub mod error;
 pub mod execution;
 pub mod network;
 pub mod program;
+pub mod record;
 
 // Re-export the main types at the crate root for convenience
 pub use account::AleoAccount;
