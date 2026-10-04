@@ -8,7 +8,7 @@ homepage = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
 repository = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
 documentation = "https://docs.rs/aleo-rust-sdk"
 readme = "README.md"
-keywords = ["aleo", "blockchain", "zero-knowledge", "sdk", "snarkvm", "privacy", "cryptography"]
+keywords = ["aleo", "blockchain", "zero-knowledge", "sdk", "snarkvm"]
 categories = ["cryptography", "web-programming::http-client"]
 rust-version = "1.85"
 
