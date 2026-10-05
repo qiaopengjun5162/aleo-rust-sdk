@@ -295,4 +295,48 @@ impl ExecutionEngine {
         let (min_cost, _details) = deployment_cost(&self.process, deployment, _consensus_version)?;
         Ok(min_cost)
     }
+
+    // ── Verification ─────────────────────────────────────────────────────
+
+    /// Verify an **execute** transaction's proof.
+    ///
+    /// The program must already be registered in this engine via `add_program()`.
+    pub fn verify_execution_transaction(
+        &self,
+        execution: &snarkvm::ledger::block::Execution<TestnetV0>,
+    ) -> Result<()> {
+        // Build execution stacks from the process
+        let mut execution_stacks: IndexMap<ProgramID<TestnetV0>, Arc<Stack<TestnetV0>>> =
+            IndexMap::new();
+        let guard = self.process.lock();
+        for t in execution.transitions() {
+            let pid = *t.program_id();
+            if !execution_stacks.contains_key(&pid) {
+                let stack = guard.get_stack(pid).context("Missing stack for verification")?;
+                execution_stacks.insert(pid, stack.clone());
+            }
+        }
+        drop(guard);
+
+        Process::<TestnetV0>::verify_execution(
+            ConsensusVersion::V14,
+            VarunaVersion::V2,
+            InclusionVersion::V0,
+            execution,
+            &execution_stacks,
+        )
+        .context("Execution proof verification FAILED")
+    }
+
+    /// Verify a **deploy** transaction's proof.
+    /// Uses an empty engine (no user programs loaded) to avoid edition-zero collision.
+    pub fn verify_deployment_transaction(
+        &self,
+        deployment: &Deployment<TestnetV0>,
+        rng: &mut TestRng,
+    ) -> Result<()> {
+        self.process
+            .verify_deployment::<AleoTestnetV0, _>(ConsensusVersion::V14, deployment, rng)
+            .context("Deployment proof verification FAILED")
+    }
 }

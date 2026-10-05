@@ -363,4 +363,59 @@ impl AleoClient {
     pub async fn get_state_root(&self) -> Result<<TestnetV0 as Network>::StateRoot> {
         self.network.fetch_state_root_only().await
     }
+
+    // ── Verification ─────────────────────────────────────────────────────
+
+    /// Fetch a transaction from the network and verify its proof.
+    ///
+    /// Equivalent to JS SDK's `verifyExecution()` — deserializes the on-chain
+    /// transaction and runs the snarkVM proof verifier locally.
+    ///
+    /// - **Execute** transactions: verifies the execution proof.
+    /// - **Deploy** transactions: verifies the deployment proof.
+    pub async fn verify_execution(&self, tx_id: &str) -> Result<String> {
+        use snarkvm::ledger::block::Transaction;
+
+        // 1. Fetch + deserialize transaction
+        let tx_json = self.network.fetch_transaction(tx_id).await?;
+        let tx: Transaction<TestnetV0> = serde_json::from_str(&tx_json)
+            .map_err(|e| anyhow::anyhow!("Failed to deserialize transaction: {e}"))?;
+
+        match tx {
+            Transaction::Execute(ref _id, ref _exec_id, ref execution, ref _fee) => {
+                // 2. Get the first transition for program/function info
+                let transition = execution.transitions().next()
+                    .ok_or_else(|| anyhow::anyhow!("Execution has no transitions"))?;
+                let program_id = *transition.program_id();
+
+                // 3. Fetch program and build engine
+                let program = self.network.fetch_program(&program_id.to_string()).await?;
+                let engine = ExecutionEngine::new()?;
+                engine.add_program(&program)?;
+
+                // 4. Verify execution proof
+                tracing::info!("Verifying execution proof...");
+                engine.verify_execution_transaction(execution)?;
+
+                Ok(format!(
+                    "✅ Execution proof VERIFIED\n   Program: {}\n   Function: {}\n   Transitions: {}",
+                    program_id,
+                    transition.function_name(),
+                    execution.len(),
+                ))
+            }
+            Transaction::Deploy(ref _id, ref _deploy_id, ref _owner, ref deployment, ref _fee) => {
+                // Verify deployment proof using an empty engine (no user program loaded)
+                tracing::info!("Verifying deployment proof...");
+                let engine = ExecutionEngine::new()?;
+                engine.verify_deployment_transaction(deployment, &mut TestRng::default())?;
+
+                Ok(format!(
+                    "✅ Deployment proof VERIFIED\n   Program: {}",
+                    deployment.program_id(),
+                ))
+            }
+            _ => Ok("⚠️  Transaction type does not contain a proof to verify".to_string()),
+        }
+    }
 }
