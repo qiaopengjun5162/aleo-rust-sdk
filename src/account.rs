@@ -109,7 +109,7 @@ impl AleoAccount {
     /// Generate a new random account and encrypt its private key with a password.
     ///
     /// Returns `(account, ciphertext)` where ciphertext is a portable string
-    /// that can be stored and later recovered with [`from_ciphertext`].
+    /// that can be stored and later recovered with [`AleoAccount::from_ciphertext`].
     ///
     /// Equivalent to JS SDK `PrivateKey.newEncrypted(password)`.
     pub fn new_encrypted(password: &str, rng: &mut TestRng) -> Result<(Self, String)> {

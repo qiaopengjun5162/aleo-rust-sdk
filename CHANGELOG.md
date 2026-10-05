@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.4.0] - 2026-10-05
+
+### Features
+
+- add `prove_execution()` — full pipeline without broadcast, returns Transaction JSON - ([3ea1c15](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/3ea1c15c7ab987b8666ae3f02d4086c2e06bb99b))
+- add `verify_execution()` — fetch any tx from network, deserialize, verify ZK proof locally (execute + deploy supported) - ([ae9cd70](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/ae9cd70571677e5a45e68de3c6f7e93a5ac6b0c2))
+
+### Bug Fixes
+
+- trim tx_id quotes from broadcast response - ([19cefa7](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/19cefa77aaaa7f24a5f245288c3c8e7f70ded27a))
+
 ## [unreleased]
 
 ### Features

@@ -1,9 +1,9 @@
 [package]
 name = "aleo-rust-sdk"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Rust SDK for the Aleo blockchain — accounts, programs, local ZK execution, network queries, transaction broadcasting"
+description = "Rust SDK for the Aleo blockchain — accounts, programs, local/remote execution, ZK proving, on-chain verification"
 homepage = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
 repository = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
 documentation = "https://docs.rs/aleo-rust-sdk"
