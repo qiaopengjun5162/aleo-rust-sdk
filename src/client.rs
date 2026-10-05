@@ -147,6 +147,59 @@ impl AleoClient {
 
     // ── High-level operations ──────────────────────────────────────────
 
+    /// Full pipeline: authorize → execute → prove → return Transaction JSON (no broadcast).
+    ///
+    /// Equivalent to JS SDK `run(_, _, _, proveExecution=true)` without the broadcast step.
+    /// Returns the serialized transaction as a JSON string.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn prove_execution(
+        &self,
+        private_key: &PrivateKey<TestnetV0>,
+        program_id: &ProgramID<TestnetV0>,
+        function_name: &str,
+        inputs: Vec<&str>,
+        base_fee: u64,
+        priority_fee: u64,
+    ) -> Result<String> {
+        let mut rng = TestRng::default();
+
+        // Fetch program from network (needed for non-credits programs)
+        let program = self.network.fetch_program(&program_id.to_string()).await?;
+
+        // Initialize engine with V0 fee keys for testnet
+        let engine = ExecutionEngine::new_with_v0_fee_keys()?;
+        // Register the user program
+        engine.add_program(&program)?;
+
+        let (_response, trace) = engine.authorize_and_execute(
+            private_key,
+            program_id,
+            function_name,
+            inputs,
+            &mut rng,
+        )?;
+
+        // Fetch state root for proving
+        let (state_root, block_height) = self.network.fetch_state_root().await?;
+        let query = FixedStateRootQuery {
+            state_root,
+            block_height,
+        };
+
+        let tx = engine.prove_and_package(
+            trace,
+            private_key,
+            program_id,
+            function_name,
+            base_fee,
+            priority_fee,
+            &query,
+            &mut rng,
+        )?;
+
+        Ok(serde_json::to_string(&tx)?)
+    }
+
     /// Full pipeline: authorize → execute → prove → broadcast.
     ///
     /// Returns the transaction ID on success.
