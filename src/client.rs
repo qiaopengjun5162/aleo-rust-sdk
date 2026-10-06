@@ -31,10 +31,10 @@
 //! ```
 
 use crate::execution::ExecutionEngine;
-use crate::network::{AleoHttpClient, FixedStateRootQuery};
+use crate::network::{AleoHttpClient, ProvableQuery};
 use crate::program::AleoProgram;
 use anyhow::Result;
-use snarkvm::console::program::ProgramID;
+use snarkvm::console::program::{ProgramID, Value};
 use snarkvm::prelude::{Network, PrivateKey, TestRng, TestnetV0};
 
 /// High-level Aleo client that orchestrates the full lifecycle.
@@ -181,10 +181,11 @@ impl AleoClient {
 
         // Fetch state root for proving
         let (state_root, block_height) = self.network.fetch_state_root().await?;
-        let query = FixedStateRootQuery {
+        let query = ProvableQuery::new(
             state_root,
             block_height,
-        };
+            "https://api.provable.com/v2/testnet",
+        );
 
         let tx = engine.prove_and_package(
             trace,
@@ -234,10 +235,73 @@ impl AleoClient {
 
         // Fetch state root for proving
         let (state_root, block_height) = self.network.fetch_state_root().await?;
-        let query = FixedStateRootQuery {
+        let query = ProvableQuery::new(
             state_root,
             block_height,
-        };
+            "https://api.provable.com/v2/testnet",
+        );
+
+        // Prove and package
+        let tx = engine.prove_and_package(
+            trace,
+            private_key,
+            program_id,
+            function_name,
+            base_fee,
+            priority_fee,
+            &query,
+            &mut rng,
+        )?;
+
+        // Serialize and broadcast
+        let tx_json = serde_json::to_string(&tx)?;
+        let raw = self.network.broadcast_transaction(tx_json).await?;
+        Ok(raw.trim_matches('"').to_string())
+    }
+
+    /// Full pipeline with pre-parsed snarkVM `Value` inputs.
+    ///
+    /// Use this when inputs include record ciphertexts — decrypt them first,
+    /// wrap as `Value::Record`, and pass here instead of raw strings.
+    /// Otherwise behaves identically to `execute_and_broadcast`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn execute_and_broadcast_with_values(
+        &self,
+        private_key: &PrivateKey<TestnetV0>,
+        program_id: &ProgramID<TestnetV0>,
+        function_name: &str,
+        values: Vec<Value<TestnetV0>>,
+        base_fee: u64,
+        priority_fee: u64,
+    ) -> Result<String> {
+        use snarkvm::prelude::TestRng;
+
+        let mut rng = TestRng::default();
+
+        // Fetch program from network
+        let program = self.network.fetch_program(&program_id.to_string()).await?;
+
+        // Initialize engine with V0 fee keys for testnet
+        let engine = ExecutionEngine::new_with_v0_fee_keys()?;
+        // Register the user program
+        engine.add_program(&program)?;
+
+        // Authorize + execute locally with pre-parsed values
+        let (_response, trace) = engine.authorize_and_execute_with_values(
+            private_key,
+            program_id,
+            function_name,
+            values,
+            &mut rng,
+        )?;
+
+        // Fetch state root for proving
+        let (state_root, block_height) = self.network.fetch_state_root().await?;
+        let query = ProvableQuery::new(
+            state_root,
+            block_height,
+            "https://api.provable.com/v2/testnet",
+        );
 
         // Prove and package
         let tx = engine.prove_and_package(
@@ -298,10 +362,11 @@ impl AleoClient {
 
         // 5. Fetch state root for proving
         let (state_root, block_height) = self.network.fetch_state_root().await?;
-        let query = FixedStateRootQuery {
+        let query = ProvableQuery::new(
             state_root,
             block_height,
-        };
+            "https://api.provable.com/v2/testnet",
+        );
 
         // 6. Build full deployment transaction (prove fee + package)
         let tx = engine.build_deployment_transaction(

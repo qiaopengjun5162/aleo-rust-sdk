@@ -3,7 +3,25 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
-## [0.4.0] - 2026-10-05
+## [0.5.0] - 2026-10-06
+
+### Features
+
+- add `ProvableQuery` — real-time Merkle path fetching from `api.provable.com/v2/testnet/statePath/{commitment}`, with auto-cached `global_state_root()` for consistent verification - ([...](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/...))
+- add `authorize_and_execute_with_values()` — skip `&str` parsing, accept pre-parsed `Vec<Value>` for record inputs
+- add `execute_and_broadcast_with_values()` — same pattern for the high-level client
+
+### Bug Fixes
+
+- fix `transfer_private` — `verify_batch` failed with `InclusionVersion::V0` does not match V1 assignment from `ConsensusVersion::V14`. Changed all `InclusionVersion` references from V0 to V1.
+- fix `get_state_paths_for_commitments` — early return `Ok(Vec::new())` for empty commitments list (was returning HTTP 502)
+- fix `current_state_root()` — synchronize with the state root encoded in the Merkle path from `StatePath::global_state_root()`
+
+### Breaking Changes
+
+- `ProvableQuery` replaces `FixedStateRootQuery` in `AleoClient` internals; public API unchanged
+
+## [0.4.1] - 2026-10-05
 
 ### Features
 

@@ -19,7 +19,7 @@ use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use snarkvm::algorithms::snark::varuna::VarunaVersion;
 use snarkvm::circuit::AleoTestnetV0;
-use snarkvm::console::program::{Identifier, ProgramID, ProgramOwner};
+use snarkvm::console::program::{Identifier, ProgramID, ProgramOwner, Value};
 use snarkvm::ledger::block::{Deployment, Transaction};
 use snarkvm::prelude::{
     Address, ConsensusVersion, CryptoRng, InclusionVersion, PrivateKey, Process, Program, Response,
@@ -89,7 +89,37 @@ impl ExecutionEngine {
         Ok(())
     }
 
+    /// Authorize and execute locally using pre-parsed snarkVM `Value` inputs.
+    /// Use this variant when inputs include record ciphertexts that must be decrypted first.
+    pub fn authorize_and_execute_with_values(
+        &self,
+        private_key: &PrivateKey<TestnetV0>,
+        program_id: &ProgramID<TestnetV0>,
+        function_name: &str,
+        values: Vec<Value<TestnetV0>>,
+        rng: &mut TestRng,
+    ) -> Result<(Response<TestnetV0>, Trace<TestnetV0>)> {
+        tracing::info!("Authorizing with pre-parsed values...");
+        let fn_id = Identifier::<TestnetV0>::from_str(function_name)?;
+        let authorization = self
+            .process
+            .authorize::<AleoTestnetV0, _>(private_key, *program_id, fn_id, values.into_iter(), rng)
+            .context("Authorization failed")?;
+
+        tracing::info!("Executing locally...");
+        let (response, trace) = self
+            .process
+            .execute::<AleoTestnetV0, _>(authorization, rng)
+            .context("Local execution failed")?;
+
+        tracing::info!("Execution succeeded");
+        Ok((response, trace))
+    }
+
     /// Authorize and execute locally. Returns response + trace.
+    ///
+    /// Inputs are parsed as snarkVM `Value`s — record ciphertexts (e.g. `record1...`)
+    /// are handled correctly, unlike raw string inputs.
     pub fn authorize_and_execute(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -177,7 +207,7 @@ impl ExecutionEngine {
         Process::<TestnetV0>::verify_execution(
             ConsensusVersion::V14,
             VarunaVersion::V2,
-            InclusionVersion::V0,
+            InclusionVersion::V1,
             &execution,
             &execution_stacks,
         )
@@ -187,7 +217,7 @@ impl ExecutionEngine {
             .verify_fee(
                 ConsensusVersion::V14,
                 VarunaVersion::V2,
-                InclusionVersion::V0,
+                InclusionVersion::V1,
                 &fee,
                 execution_id,
             )
@@ -321,7 +351,7 @@ impl ExecutionEngine {
         Process::<TestnetV0>::verify_execution(
             ConsensusVersion::V14,
             VarunaVersion::V2,
-            InclusionVersion::V0,
+            InclusionVersion::V1,
             execution,
             &execution_stacks,
         )

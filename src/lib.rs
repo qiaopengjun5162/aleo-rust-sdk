@@ -70,5 +70,5 @@ pub use account::AleoAccount;
 pub use client::AleoClient;
 pub use error::AleoError;
 pub use execution::ExecutionEngine;
-pub use network::{AleoHttpClient, FixedStateRootQuery};
+pub use network::{AleoHttpClient, FixedStateRootQuery, ProvableQuery};
 pub use program::AleoProgram;

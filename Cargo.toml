@@ -1,6 +1,6 @@
 [package]
 name = "aleo-rust-sdk"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Rust SDK for the Aleo blockchain — accounts, programs, local/remote execution, ZK proving, on-chain verification"
@@ -27,6 +27,7 @@ hex = "0.4"
 aes-gcm = "0.10"
 pbkdf2 = { version = "0.12", features = ["hmac"] }
 sha2 = "0.10"
+ureq = { version = "2", features = ["json"] }
 rand = "0.8"
 
 # snarkVM — the core zero-knowledge dependency
