@@ -202,7 +202,10 @@ impl RecordScanner {
             }
         };
         if !is_owned {
-            tracing::debug!("Owner mismatch: expected {expected_owner}, got {:?}", decrypted.owner());
+            tracing::debug!(
+                "Owner mismatch: expected {expected_owner}, got {:?}",
+                decrypted.owner()
+            );
             return None;
         }
 
@@ -214,11 +217,8 @@ impl RecordScanner {
             if key == "microcredits" {
                 let raw = entry.to_string();
                 // Strip trailing "u64.private" (or just "u64") to get numeric value
-                let amount_str = raw
-                    .replace("u64.private", "")
-                    .replace("u64", "")
-                    .trim()
-                    .to_string();
+                let amount_str =
+                    raw.replace("u64.private", "").replace("u64", "").trim().to_string();
                 if let Ok(amount) = amount_str.parse::<u64>() {
                     microcredits = amount;
                 } else {
@@ -228,7 +228,10 @@ impl RecordScanner {
             data.insert(key, entry.to_string());
         }
 
-        tracing::info!("Decrypted record: owner matches, microcredits={microcredits}, entries={}", data.len());
+        tracing::info!(
+            "Decrypted record: owner matches, microcredits={microcredits}, entries={}",
+            data.len()
+        );
         Some((microcredits, data))
     }
 }

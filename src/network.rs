@@ -489,14 +489,18 @@ impl QueryTrait<TestnetV0> for ProvableQuery {
     fn current_block_height(&self) -> Result<u32> {
         Ok(self.block_height)
     }
-    fn get_state_path_for_commitment(&self, commitment: &Field<TestnetV0>) -> Result<StatePath<TestnetV0>> {
+    fn get_state_path_for_commitment(
+        &self,
+        commitment: &Field<TestnetV0>,
+    ) -> Result<StatePath<TestnetV0>> {
         let url = format!("{}/statePath/{commitment}", self.api_base_url);
         let response = ureq::get(&url)
             .set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             .set("Accept", "application/json")
             .call()
             .map_err(|e| anyhow::anyhow!("Provable statePath GET {url} failed: {e}"))?;
-        let body = response.into_string()
+        let body = response
+            .into_string()
             .map_err(|e| anyhow::anyhow!("Failed to read statePath response from {url}: {e}"))?;
         // Provable returns state path as a quoted string.
         let trimmed = body.trim().trim_matches('"');
@@ -517,13 +521,18 @@ impl QueryTrait<TestnetV0> for ProvableQuery {
             return Ok(Vec::new());
         }
         let cm_strings: Vec<String> = commitments.iter().map(|c| c.to_string()).collect();
-        let url = format!("{}/statePaths?commitments={}", self.api_base_url, cm_strings.join(","));
+        let url = format!(
+            "{}/statePaths?commitments={}",
+            self.api_base_url,
+            cm_strings.join(",")
+        );
         let response = ureq::get(&url)
             .set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             .set("Accept", "application/json")
             .call()
             .map_err(|e| anyhow::anyhow!("Provable statePaths GET {url} failed: {e}"))?;
-        let body = response.into_string()
+        let body = response
+            .into_string()
             .map_err(|e| anyhow::anyhow!("Failed to read statePaths response from {url}: {e}"))?;
         serde_json::from_str(&body)
             .map_err(|e| anyhow::anyhow!("Failed to parse state paths from '{body}': {e}"))

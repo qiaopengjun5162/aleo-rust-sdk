@@ -449,7 +449,9 @@ impl AleoClient {
         match tx {
             Transaction::Execute(ref _id, ref _exec_id, ref execution, ref _fee) => {
                 // 2. Get the first transition for program/function info
-                let transition = execution.transitions().next()
+                let transition = execution
+                    .transitions()
+                    .next()
                     .ok_or_else(|| anyhow::anyhow!("Execution has no transitions"))?;
                 let program_id = *transition.program_id();
 

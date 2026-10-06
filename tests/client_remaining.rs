@@ -145,11 +145,23 @@ async fn test_deploy_program_end_to_end() {
     // Skip wait_for_confirmation (it frequently times out on testnet).
     // Wait a few seconds then verify directly via explorer API instead.
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    let check = client.network.fetch_transaction(&tx_id).await
+    let check = client
+        .network
+        .fetch_transaction(&tx_id)
+        .await
         .unwrap_or_else(|e| panic!("Transaction not found on chain: {e}"));
-    let parsed: serde_json::Value = serde_json::from_str(&check)
-        .expect("fetch_transaction should return valid JSON");
-    assert!(parsed.get("id").is_some(), "Transaction must have an 'id' field");
-    assert_eq!(parsed["type"], "deploy", "Transaction type must be 'deploy'");
-    println!("✅ Deploy verified on chain: tx={tx_id}, type={}", parsed["type"]);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&check).expect("fetch_transaction should return valid JSON");
+    assert!(
+        parsed.get("id").is_some(),
+        "Transaction must have an 'id' field"
+    );
+    assert_eq!(
+        parsed["type"], "deploy",
+        "Transaction type must be 'deploy'"
+    );
+    println!(
+        "✅ Deploy verified on chain: tx={tx_id}, type={}",
+        parsed["type"]
+    );
 }
