@@ -106,28 +106,47 @@ impl RecordScanner {
         let owner_addr = vk.to_address();
 
         tracing::info!("Scanning blocks {start}..{end} for records...");
-        let records_json = self.client.fetch_all_records(start, end, 0, 500).await?;
-
         let mut results = Vec::new();
-        if let Some(arr) = records_json.as_array() {
-            for entry in arr {
-                let program_id = entry["program_id"].as_str().unwrap_or("").to_string();
-                let ciphertext_str = entry["record_ciphertext"].as_str().unwrap_or("");
-                if ciphertext_str.is_empty() {
-                    continue;
+        let per_page = 500;
+        let mut page = 0u32;
+
+        loop {
+            let records_json = self.client.fetch_all_records(start, end, page, per_page).await?;
+            let count = records_json.as_array().map(|a| a.len()).unwrap_or(0);
+            tracing::info!("  page {page}: {count} records");
+
+            if let Some(arr) = records_json.as_array() {
+                for entry in arr {
+                    let program_id = entry["program_id"].as_str().unwrap_or("").to_string();
+                    let ciphertext_str = entry["record_ciphertext"].as_str().unwrap_or("");
+                    if ciphertext_str.is_empty() {
+                        continue;
+                    }
+                    if let Some((microcredits, data)) =
+                        Self::decrypt_record(ciphertext_str, &vk, &owner_addr)
+                    {
+                        results.push(AleoRecord {
+                            program_id,
+                            owner: owner_addr,
+                            microcredits,
+                            data,
+                            ciphertext: ciphertext_str.to_string(),
+                            spent: false,
+                        });
+                    }
                 }
-                if let Some((microcredits, data)) =
-                    Self::decrypt_record(ciphertext_str, &vk, &owner_addr)
-                {
-                    results.push(AleoRecord {
-                        program_id,
-                        owner: owner_addr,
-                        microcredits,
-                        data,
-                        ciphertext: ciphertext_str.to_string(),
-                        spent: false,
-                    });
-                }
+            }
+
+            // Stop if this page returned fewer records than the page size (last page)
+            if count < per_page as usize {
+                break;
+            }
+            page += 1;
+
+            // Safety: max 100 pages (50K records) to avoid infinite loops
+            if page >= 100 {
+                tracing::warn!("Reached max page limit (100) while scanning records");
+                break;
             }
         }
 
@@ -136,10 +155,11 @@ impl RecordScanner {
         Ok(results)
     }
 
-    /// Scan the last `num_blocks` blocks for records owned by the given view key.
+    /// Scan the last `num_blocks` blocks (default 5_000) for records owned by the given view key.
     pub async fn scan_recent(&self, view_key: &str, num_blocks: u32) -> Result<Vec<AleoRecord>> {
         let height = self.client.fetch_block_height().await?;
         let start = height.saturating_sub(num_blocks);
+        tracing::info!("Scanning last {num_blocks} blocks ({start}..{height}) for records...");
         self.scan_blocks(view_key, start, height).await
     }
 
@@ -152,18 +172,37 @@ impl RecordScanner {
         vk: &ViewKey<TestnetV0>,
         expected_owner: &Address<TestnetV0>,
     ) -> Option<(u64, BTreeMap<String, String>)> {
-        let encrypted =
-            Record::<TestnetV0, Ciphertext<TestnetV0>>::from_str(ciphertext_str).ok()?;
-        let decrypted = encrypted.decrypt(vk).ok()?;
+        let encrypted = match Record::<TestnetV0, Ciphertext<TestnetV0>>::from_str(ciphertext_str) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("Record::from_str failed: {e}");
+                return None;
+            }
+        };
+        let decrypted = match encrypted.decrypt(vk) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::debug!("Record::decrypt failed: {e}");
+                return None;
+            }
+        };
 
         // Check owner
         let is_owned = match decrypted.owner() {
             Owner::Public(addr) => addr == expected_owner,
-            Owner::Private(plain) => Address::from_str(&plain.to_string())
-                .map(|addr| &addr == expected_owner)
-                .unwrap_or(false),
+            Owner::Private(plain) => {
+                let addr_str = plain.to_string();
+                match Address::from_str(&addr_str) {
+                    Ok(addr) => &addr == expected_owner,
+                    Err(e) => {
+                        tracing::warn!("Owner parse failed: {e} (plain={addr_str:?})");
+                        false
+                    }
+                }
+            }
         };
         if !is_owned {
+            tracing::debug!("Owner mismatch: expected {expected_owner}, got {:?}", decrypted.owner());
             return None;
         }
 
@@ -173,14 +212,23 @@ impl RecordScanner {
         for (id, entry) in decrypted.data().iter() {
             let key = id.to_string();
             if key == "microcredits" {
-                let amount_str = entry.to_string().replace("u64", "").trim().to_string();
+                let raw = entry.to_string();
+                // Strip trailing "u64.private" (or just "u64") to get numeric value
+                let amount_str = raw
+                    .replace("u64.private", "")
+                    .replace("u64", "")
+                    .trim()
+                    .to_string();
                 if let Ok(amount) = amount_str.parse::<u64>() {
                     microcredits = amount;
+                } else {
+                    tracing::warn!("microcredits parse failed: {amount_str:?}");
                 }
             }
             data.insert(key, entry.to_string());
         }
 
+        tracing::info!("Decrypted record: owner matches, microcredits={microcredits}, entries={}", data.len());
         Some((microcredits, data))
     }
 }
@@ -218,6 +266,14 @@ impl RecordManager {
     pub async fn scan(&mut self) -> Result<&[AleoRecord]> {
         let vk_str = self.view_key.to_string();
         let new_records = self.scanner.scan_recent(&vk_str, 100_000).await?;
+        self.merge_records(new_records);
+        Ok(&self.records)
+    }
+
+    /// Scan the latest `num_blocks` blocks and update the internal cache.
+    pub async fn scan_recent(&mut self, num_blocks: u32) -> Result<&[AleoRecord]> {
+        let vk_str = self.view_key.to_string();
+        let new_records = self.scanner.scan_recent(&vk_str, num_blocks).await?;
         self.merge_records(new_records);
         Ok(&self.records)
     }
