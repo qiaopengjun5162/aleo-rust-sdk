@@ -538,7 +538,7 @@ impl QueryTrait<TestnetV0> for ProvableQuery {
             .map_err(|e| anyhow::anyhow!("Failed to parse state paths from '{body}': {e}"))
     }
     async fn current_state_root_async(&self) -> Result<<TestnetV0 as Network>::StateRoot> {
-        Ok(self.state_root.clone())
+        Ok(self.state_root)
     }
     async fn current_block_height_async(&self) -> Result<u32> {
         Ok(self.block_height)

@@ -11,41 +11,43 @@ repos:
       - id: check-symlinks
       - id: check-yaml
       - id: end-of-file-fixer
+        exclude: \.svg$
       - id: mixed-line-ending
       - id: trailing-whitespace
+        exclude: \.svg$
   - repo: local
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        description: Format files with rustfmt.
-        entry: bash -c 'cargo fmt -- --check'
-        language: rust
-        files: \.rs$
-        args: []
+        description: Format Rust code with rustfmt.
+        entry: bash -c 'cargo fmt --all -- --check'
+        language: system
+        types: [rust]
       - id: cargo-check
         name: cargo check
-        description: Check the package for errors.
-        entry: bash -c 'cargo check --all'
-        language: rust
-        files: \.rs$
+        description: Check Rust code for errors.
+        entry: bash -c 'cargo check --all-features'
+        language: system
+        types: [rust]
         pass_filenames: false
       - id: cargo-clippy
         name: cargo clippy
-        description: Lint rust sources
-        entry: bash -c 'cargo clippy --all-targets --all-features --tests --benches -- -D warnings'
-        language: rust
-        files: \.rs$
+        description: Lint Rust code with clippy.
+        entry: bash -c 'cargo clippy --all-features --tests --benches -- -D warnings'
+        language: system
+        types: [rust]
         pass_filenames: false
       - id: cargo-deny
         name: cargo deny check
-        description: Check cargo dependencies
+        description: Check cargo deny configuration.
         entry: bash -c 'cargo deny check -d'
-        language: rust
-        files: \.rs$
-        args: []
+        language: system
+        types: [rust]
+        pass_filenames: false
       - id: typos
         name: typos
-        description: check typo
+        description: Check for typos in code.
         entry: bash -c 'typos'
-        language: rust
+        language: system
+        types: [rust]
         pass_filenames: false
