@@ -8,9 +8,9 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — account management, program loading, local execution with zero-knowledge proof generation, network querying, and transaction broadcasting.
+A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — account management, program loading, local execution with zero-knowledge proof generation, network querying, transaction broadcasting, and **live Merkle path fetching** for private transfers (via Provable API v2).
 
-> **Why this SDK?** The official [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) has been **archived** and is no longer maintained. This SDK provides an up-to-date implementation using snarkVM 4.10.0 and the current Aleo testnet v2 JSON-RPC endpoints.
+> **Why this SDK?** The official [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) has been **archived** and is no longer maintained. This SDK provides an up-to-date implementation using snarkVM 4.10.0 and the current Aleo testnet endpoints.
 
 ---
 
@@ -26,6 +26,7 @@ A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — 
 - [CLI Tools](#cli-tools)
 - [Related Projects](#related-projects)
 - [Development](#development)
+- [Pre-commit Quality Gates](#pre-commit-quality-gates)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -37,7 +38,7 @@ A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — 
 | aleo-rust-sdk (account) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/account/index.html) | Key chain: `PrivateKey → ViewKey → ComputeKey → Address` |
 | aleo-rust-sdk (program) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/program/index.html) | Program loading, parsing, inspection |
 | aleo-rust-sdk (execution) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/execution/index.html) | Authorize, execute, prove, package transactions |
-| aleo-rust-sdk (network) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/network/index.html) | v2 JSON-RPC + REST HTTP client |
+| aleo-rust-sdk (network) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/network/index.html) | v2 JSON-RPC + REST HTTP client + **ProvableQuery** (live state path) |
 | aleo-rust-sdk (record) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/record/index.html) | Record discovery, decryption, and coin selection |
 | aleo-rust-sdk (client) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/client/index.html) | High-level `AleoClient` orchestrator |
 
@@ -52,6 +53,7 @@ The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a sepa
 | **⚡ Local Execution** | Authorize and execute Aleo program transitions locally **without broadcasting** — ideal for dry-runs and testing. |
 | **🔐 Proof Generation** | Generate zero-knowledge proofs (Varuna V2) for local execution. Fee proving with V0 fee keys for testnet. |
 | **🌐 Network Queries** | Query block height, state root, program source, and mapping values via REST + JSON-RPC. |
+| **🔗 Live State Paths** (v0.5.0+) | `ProvableQuery` fetches real Merkle paths from Provable API v2 (`api.provable.com/v2/testnet/statePath/{commitment}`) — no dummy queries, no 502 errors. |
 | **📋 Record Management** | Fetch, decrypt, and filter private `credits.aleo` records by owner. Scan record ciphertexts across block ranges. |
 | **🚀 Transaction Broadcasting** | Submit serialized transactions to the network and poll for confirmation. |
 | **🏗️ High-level Client** | `AleoClient` orchestrates the full lifecycle: account → program → execute → prove → broadcast. |
@@ -69,7 +71,7 @@ The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a sepa
 │  │        │         │          │  AleoHttpClient      │
 │ PK → VK  │ parse    │ auth     │  ├─ REST (v2)       │
 │ CK → ADDR│ inspect  │ execute  │  ├─ JSON-RPC        │
-│  │        │ from_net │ prove    │  └─ broadcast       │
+│  │        │ from_net │ prove    │  ├─ ProvableQuery   │
 │  ▼        │  ▼       │  ▼      │       ▼            │
 ├──────────┴──────────┴──────────┴──────────────────────┤
 │  record                                                │
@@ -80,13 +82,15 @@ The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a sepa
 └──────────────────────────────────────────────────────┘
 ```
 
+**v0.5.0+ new:** `ProvableQuery` (in the network layer) replaces the dummy `FixedStateRootQuery`. It fetches live Merkle state paths from `api.provable.com/v2/testnet/statePath/{commitment}` using `ureq` (sync HTTP), caches the `global_state_root()` from the response, and returns it in `current_state_root()` — ensuring the state root used for verification matches the root the Merkle path was built against.
+
 ## Installation
 
 Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aleo-rust-sdk = "0.2.0"
+aleo-rust-sdk = "0.5.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -104,7 +108,7 @@ use aleo_rust_sdk::AleoClient;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
+    let client = AleoClient::new("https://api.provable.com/v2/testnet")?;
 
     let height = client.get_block_height().await?;
     let root = client.get_state_root().await?;
@@ -124,7 +128,7 @@ use snarkvm::prelude::TestRng;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut rng = TestRng::default();
-    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
+    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
 
     // Create a random account
     let account = AleoAccount::new_random(&mut rng)?;
@@ -148,7 +152,7 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-### Full end-to-end transfer pipeline
+### Public transfer (simple string inputs)
 
 ```rust
 use aleo_rust_sdk::AleoClient;
@@ -157,23 +161,76 @@ use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
+    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
     client.set_account_from_private_key_str("APrivateKey1...")?;
 
-    let transfer_id = client.execute_and_broadcast(
+    let tx_id = client.execute_and_broadcast(
         &client.require_account()?.private_key,
         &ProgramID::from_str("credits.aleo")?,
-        "transfer_private",
+        "transfer_public",
         vec!["aleo1recipient...", "1000000u64"],
-        1000,   // base fee (microcredits)
-        0,      // priority fee
+        50000,   // base fee (microcredits)
+        0,       // priority fee
     ).await?;
 
-    println!("Transaction: {transfer_id}");
-    println!("🔗 https://testnet.explorer.provable.com/transaction/{transfer_id}");
+    println!("Transaction: {tx_id}");
+    println!("🔗 https://testnet.aleo.info/tx/{tx_id}");
     Ok(())
 }
 ```
+
+### Private transfer (with record decryption)
+
+For private transfers, you must provide **decrypted record values** rather than raw `&str` arguments. Use `execute_and_broadcast_with_values` (v0.5.0+) to pass pre-parsed `Vec<Value>`:
+
+```rust
+use aleo_rust_sdk::AleoClient;
+use snarkvm::{
+    prelude::{TestRng, Network, FromBytes},
+    console::{
+        program::{Value, Record, Ciphertext, Literal, Plaintext, Identifier},
+        account::ViewKey,
+        network::TestnetV0,
+    },
+    utilities::Deserialize,
+};
+use std::str::FromStr;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    client.set_account_from_private_key_str("APrivateKey1...")?;
+
+    // Load records (from file, scan, or cached)
+    let ciphertext = Ciphertext::from_str("record1qyq...")?;
+    let view_key = ViewKey::from_str("AViewKey1...")?;
+
+    // Decrypt the record
+    let record = ciphertext.decrypt(&view_key)?;
+
+    // Build the input values
+    // credits.aleo transfer_private(record, address, u64) -> (record)
+    let values = vec![
+        Value::Record(record),
+        Value::from_str("aleo1recipient...")?,
+        Value::from_str("1000000u64")?,
+    ];
+
+    let tx_id = client.execute_and_broadcast_with_values(
+        &client.require_account()?.private_key,
+        &ProgramID::from_str("credits.aleo")?,
+        "transfer_private",
+        values,
+        50000,
+        0,
+    ).await?;
+
+    println!("Private transfer: {tx_id}");
+    Ok(())
+}
+```
+
+The CLI tool handles this automatically — see the `aleo-cli transfer --mode private` command below.
 
 ## Examples
 
@@ -203,7 +260,7 @@ Planned features (in order of priority):
 
 - [ ] **WASM support** — compile SDK for browser/Node.js via `wasm-pack`
 - [ ] **Transaction history** — fetch and decode historical transactions
-- [ ] **Program deployment** — deploy and upgrade Aleo programs from Rust
+- [ ] **Program deployment helper** — streamline program ID and edition handling
 - [ ] **Mainnet support** — add mainnet configuration alongside testnet
 - [ ] **Record merging** — join multiple small records into a single larger record
 - [ ] **Batch transfers** — send multiple transfers in one transaction
@@ -226,8 +283,23 @@ aleo-cli balance aleo1cu0xk4tt99pgxglpqltzk3tmpgh7qftjwukxcmewzpy0fkqghvgsxu0g03
 # Generate a new Aleo account
 aleo-cli generate
 
-# Send a private transfer
-aleo-cli transfer --amount 1.5 --to aleo1recipient...
+# Send a public transfer
+aleo-cli transfer aleo1ss6e8... 1000000 --mode public
+
+# Send a private transfer (v0.4.0+)
+aleo-cli transfer aleo1ss6e8... 30000 --mode private
+
+# Deploy a program
+aleo-cli deploy /path/to/program.aleo program_name
+
+# Execute and broadcast
+aleo-cli exec credits.aleo transfer_public aleo1ss6e8... 1000u64 --base-fee 50000
+
+# Verify a transaction on-chain
+aleo-cli verify at136grnr...
+
+# Deep ZK proof verification
+aleo-cli verify at136grnr... --deep
 ```
 
 ## Related Projects
@@ -237,6 +309,7 @@ aleo-cli transfer --amount 1.5 --to aleo1recipient...
 | [ProvableHQ/snarkVM](https://github.com/ProvableHQ/snarkVM) | Zero-knowledge VM for the Aleo blockchain (this SDK's core dependency) |
 | [ProvableHQ/snarkOS](https://github.com/ProvableHQ/snarkOS) | Decentralized OS for ZK applications — Aleo node software |
 | [ProvableHQ/sdk](https://github.com/ProvableHQ/sdk) | Official JavaScript/TypeScript SDK for Aleo (NPM: `@provablehq/sdk`) |
+| [Provable API v2 docs](https://docs.explorer.provable.com/docs/api/v2/intro) | REST API reference — block queries, state paths, transaction data |
 | [qiaopengjun5162/aleo-cli](https://github.com/qiaopengjun5162/aleo-cli) | Aleo CLI tool built on this SDK |
 | [AleoNet/workshop](https://github.com/AleoNet/workshop) | Starter guide to building ZK applications on Aleo |
 | [Aleo developer docs](https://developer.aleo.org/) | Official Aleo developer documentation |
@@ -266,11 +339,47 @@ just docs             # cargo doc --no-deps --open
 just all              # format + check + clippy + test
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+## Pre-commit Quality Gates
+
+This project uses [pre-commit](https://pre-commit.com) to enforce code quality on every commit:
+
+```bash
+# Install hooks (one-time after clone)
+pre-commit install --hook-type pre-commit --hook-type commit-msg
+
+# Or run all checks manually
+pre-commit run --all-files
+```
+
+The following 12 checks run automatically before each commit:
+
+| # | Hook | What it checks |
+|---|------|---------------|
+| 1 | fix-byte-order-marker | BOM encoding |
+| 2 | check-case-conflict | Case-sensitive filename conflicts |
+| 3 | check-merge-conflict | Unresolved merge markers |
+| 4 | check-symlinks | Broken symlinks |
+| 5 | check-yaml | YAML syntax validity |
+| 6 | end-of-file-fixer | Files end with newline |
+| 7 | mixed-line-ending | Consistent line endings |
+| 8 | trailing-whitespace | No trailing whitespace |
+| 9 | cargo fmt | Rust formatting (`cargo fmt --check`) |
+| 10 | cargo check | Compilation (`cargo check`) |
+| 11 | cargo clippy | Lint (`cargo clippy -- -D warnings`) |
+| 12 | typos | Spelling errors |
+
+**`language: system`** note: All local hooks use `language: system` (not `language: rust`), which means they run tools from your system PATH. This ensures the hooks actually execute instead of silently skipping.
+
+> **History:** v0.4.1 and earlier had `language: rust` in `.pre-commit-config.yaml`, which caused all hooks to silently skip (pre-commit tried to install them as crates.io packages). This was fixed in v0.5.0 by switching to `language: system` and running `pre-commit install`.
 
 ## Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on reporting bugs, suggesting features, and submitting code changes.
+
+**Before submitting a PR:**
+1. Ensure pre-commit hooks pass (`pre-commit run --all-files`)
+2. Check CI passes (GitHub Actions)
+3. Update CHANGELOG.md following [conventional commits](https://www.conventionalcommits.org/)
 
 ## License
 
