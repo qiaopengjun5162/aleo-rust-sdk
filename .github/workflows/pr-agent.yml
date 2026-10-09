@@ -40,11 +40,10 @@ jobs:
           OPENAI_KEY: ${{ secrets.PR_AGENT_OPENAI_KEY }}
           OPENAI.API_BASE: ${{ secrets.PR_AGENT_OPENAI_API_BASE }}
           PR_AGENT_CONFIG_BRANCH: ${{ github.head_ref || github.ref_name }}
+          PR_AGENT_MODEL: ${{ vars.PR_AGENT_MODEL || 'gpt-5.4-mini' }}
+          PR_AGENT_AUTO_REVIEW: "true"
+          PR_AGENT_AUTO_DESCRIBE: "false"
+          PR_AGENT_AUTO_IMPROVE: "false"
         with:
-          config.model: ${{ vars.PR_AGENT_MODEL || 'gpt-4o' }}
-          config.response_language: "zh-CN"
-          github_action_config.auto_review: "true"
-          github_action_config.auto_describe: "false"
-          github_action_config.auto_improve: "false"
-          pr_description.add_original_user_description: "false"
-          github_action_config.pr_actions: '["opened", "synchronize"]'
+          entryPoint: "review"
+          args: "--pr_url ${{ github.event.pull_request.html_url || github.event.issue.html_url }}"
