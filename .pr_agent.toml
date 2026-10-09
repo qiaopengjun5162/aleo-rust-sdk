@@ -1,0 +1,52 @@
+[config]
+git_provider = "github"
+use_repo_settings_file = true
+publish_output = true
+publish_output_progress = true
+response_language = "zh-CN"
+
+[github]
+publish_as_check_run = false
+ignore_bot_pr = true
+
+[pr_reviewer]
+require_tests_review = true
+require_security_review = true
+require_ticket_analysis_review = true
+require_estimate_effort_to_review = true
+persistent_comment = true
+num_max_findings = 5
+extra_instructions = """
+你是 aleo-rust-sdk 和 aleo-cli 的辅助审查者。所有 review、summary、comment、建议
+都必须使用简体中文，除非引用代码、路径、命令、配置项或错误原文。
+
+重点检查：
+- 新功能是否有 examples/ 示例覆盖；
+- 公开 API 是否添加了文档注释（///）；
+- sealance / stablecoin 模块的 Merkle 树操作是否正确处理了边界情况（空树、单叶子）；
+- 异步函数是否有合理的超时和错误处理；
+- 是否引入了未使用的依赖；
+- 是否在 examples/ 或 tests/ 中遗漏了 `#[cfg(test)]` 或 `#[cfg(feature = "test")]`；
+- breaking change 是否在 PR 描述中明确声明并提供了迁移路径。
+
+不要批准、自动合并，也不要把你的审查当成 CI、branch protection 或 owner review
+的替代品。
+"""
+
+[pr_description]
+use_bullet_points = true
+publish_description_as_comment = true
+publish_description_as_comment_persistent = true
+enable_pr_diagram = false
+extra_instructions = """
+使用简体中文，用具体工程语言总结 PR。说明改动模块、验证命令、是否涉及公开 API
+变更。避免营销式、形式主义或空泛表达。
+"""
+
+[pr_code_suggestions]
+focus_only_on_problems = true
+persistent_comment = true
+suggestions_score_threshold = 7
+extra_instructions = """
+只提出能降低具体风险或提升可维护性的建议。不要建议引入新框架或新语言。
+"""

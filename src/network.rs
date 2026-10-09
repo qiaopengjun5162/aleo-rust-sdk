@@ -382,6 +382,24 @@ impl AleoHttpClient {
         results.sort_by_key(|a| std::cmp::Reverse(a.1));
         Ok(results)
     }
+
+    // ── Stablecoin API methods ──────────────────────────────────────────
+
+    /// Fetch the Merkle tree for a compliant stablecoin (USAD/USDCx) from the Provable API.
+    ///
+    /// Endpoint: `GET /v2/{network}/stablecoin/{stablecoin}/merkle-tree`
+    ///
+    /// Returns the freeze list as an array of decimal strings representing U256 values,
+    /// which can be converted to `Field` via `SealanceMerkleTree::convert_tree_to_fields`.
+    pub async fn fetch_stablecoin_merkle_tree(&self, stablecoin: &str) -> Result<Vec<String>> {
+        let url = format!("{}/stablecoin/{}/merkle-tree", self.base_url, stablecoin);
+        tracing::info!("GET {url}");
+        let text = self.inner.get(&url).headers(Self::headers()).send().await?.text().await?;
+
+        let tree: Vec<String> = serde_json::from_str(&text)
+            .context("Failed to parse stablecoin Merkle tree response")?;
+        Ok(tree)
+    }
 }
 
 /// Custom query returning a fixed state root (bypasses ureq/WAF issues).

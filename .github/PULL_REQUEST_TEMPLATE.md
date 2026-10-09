@@ -1,24 +1,20 @@
 ## Summary
+<!-- Describe what the change does, why it's needed, and the approach taken. -->
 
-<!-- Describe what the change does, why it's needed, and the approach taken. Keep it
-short — readers can see the diff. -->
-
-## Planning Checklist
+## Planning
 - [ ] Read `CONTRIBUTING.md`
-- [ ] Read `docs/plans/active/current-roadmap.md` (if exists)
 - [ ] Documented the change before implementation
 - [ ] Documentation-first exception: typo, formatting, or mechanical change only
 
 Branch: `{feature|fix|refactor|docs}/<short-name>`
 
 ## Domain
-- [ ] `aleo-account`
-- [ ] `aleo-program`
-- [ ] `aleo-execution`
-- [ ] `aleo-network`
-- [ ] `aleo-client`
+- [ ] SDK core (`src/`)
+- [ ] sealance / stablecoin
 - [ ] examples
-- [ ] docs
+- [ ] docs / README
+- [ ] CI / workflows / config
+- [ ] CLI (`aleo-cli/` — this repo or separate)
 
 ## Validation
 Commands run:
@@ -28,14 +24,9 @@ Commands run:
 
 ## Production Boundary
 - [ ] Does not touch production boundary
-- [ ] API behavior changed
-- [ ] Dependency added or upgraded
 - [ ] Public API surface changed (breaking change)
-
-## Architecture / Tooling Boundary
-- [ ] Uses only `edition = "2024"` Rust
-- [ ] Does not introduce new language/toolchain
-- [ ] Follows workspace crate structure
+- [ ] Dependency added or upgraded
+- [ ] Version bump needed
 
 ## Changelog
 - [ ] Not user-visible / not needed

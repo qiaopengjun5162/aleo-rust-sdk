@@ -64,6 +64,7 @@ pub mod execution;
 pub mod network;
 pub mod program;
 pub mod record;
+pub mod sealance;
 
 // Re-export the main types at the crate root for convenience
 pub use account::AleoAccount;
