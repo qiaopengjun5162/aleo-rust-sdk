@@ -39,9 +39,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_KEY: ${{ secrets.PR_AGENT_OPENAI_KEY }}
           OPENAI.API_BASE: ${{ secrets.PR_AGENT_OPENAI_API_BASE }}
-          PR_AGENT_MODEL: ${{ vars.PR_AGENT_MODEL || 'gpt-5.4-mini' }}
-          PR_AGENT_AUTO_REVIEW: "true"
-          PR_AGENT_AUTO_DESCRIBE: "false"
-          PR_AGENT_AUTO_IMPROVE: "false"
+          # litellm reads OPENAI_API_BASE (underscore), not OPENAI.API_BASE (dot)
+          OPENAI_API_BASE: ${{ secrets.PR_AGENT_OPENAI_API_BASE }}
+          config.model: ${{ vars.PR_AGENT_MODEL || 'deepseek_v4' }}
+          config.fallback_models: ${{ format('["{0}"]', vars.PR_AGENT_MODEL || 'deepseek_v4') }}
+          config.custom_model_max_tokens: 4096
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "false"
+          github_action_config.auto_improve: "false"
         with:
           args: review --pr_url ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
