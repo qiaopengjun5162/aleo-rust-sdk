@@ -41,6 +41,7 @@ jobs:
           OPENAI.API_BASE: ${{ secrets.PR_AGENT_OPENAI_API_BASE }}
           config.model: ${{ vars.PR_AGENT_MODEL || 'deepseek_v4' }}
           config.fallback_models: ${{ format('["{0}"]', vars.PR_AGENT_MODEL || 'deepseek_v4') }}
+          config.custom_model_max_tokens: 4096
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "false"
