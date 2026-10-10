@@ -3,6 +3,38 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.7.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.6.0...aleo-rust-sdk-v0.7.0) (2026-10-10)
+
+
+### Features
+
+* **account:** encrypt_private_key, is_valid_address, destroy — JS SDK feature parity ([bf132b3](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/bf132b3a26c0ad07bf3fc3f9c8a293f17a356d87))
+* adapt to snarkVM 4.10.0 crates.io release ([4eba7f0](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/4eba7f0a36b607d04afd215faeccc20cd8c8db28))
+* add PR template, PR-Agent config, Release Please, and pre-commit hooks ([3515fba](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/3515fba0bf47d45331e04f27219adefddd195a7d))
+* add testnet_transfer example + AleoClient set_program/higher-level API ([6b8b64c](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/6b8b64c9b76948b2435458d56766ff63aeb0ea86))
+* add VERSION constant and fix PR-Agent workflow ([c1723e5](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/c1723e54fd0996238b4408c751d5364776d231e9))
+* consolidate to single crate aleo-rust-sdk ([6cfc0d9](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/6cfc0d9c77456a74a59fd9c68709c831249eacaf))
+* **deploy:** end-to-end testnet deploy verified on chain ([467dedc](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/467dedc210acdb42a36a6a35af13febf44e687f0))
+* **deploy:** implement full deploy pipeline ([6fdde7b](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/6fdde7bccc229aa9c9a85a372af50d45e6eaeed6))
+* find_private_credits_records (records/all + decrypt) + client helper; v0.2.0 ([dff636d](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/dff636d739dae635ef5250a2265016c712208f26))
+* initial SDK structure ([22536d2](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/22536d294876149b3ad6e1742ee17bebcc2aecf0))
+* migrate to v2 JSON-RPC, restructure network crate, add testnet_query example ([97a4463](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/97a4463d3475a353bf47571c8a78f4dfa8bc3d7c))
+* on-chain state queries (balance, records, block height, state root) ([0f93bf9](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/0f93bf9d49ef6637a93db43a857dcea0b2082702))
+* real Aleo testnet transfer — dry-run + prove + broadcast verified ([abf0b82](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/abf0b8249595b0259d27b535fe941248a1246d96))
+* **record:** 添加 record 模块 — 记录发现/解密/币选择 + 集成 AleoClient ([13d1481](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/13d1481e8b23f9e17563b2c51065e7843f33b484))
+* **sdk:** add prove_execution() — full pipeline without broadcast, returns Transaction JSON ([3ea1c15](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/3ea1c151755a8c6a4f1e1ad6dc4e5d5f1312577e))
+* **sdk:** add verify_execution() — deserialize + verify ZK proof locally (JS SDK verifyExecution equivalent) ([ae9cd70](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/ae9cd7062b792d68178cde9f488fb6562dd886f6))
+
+
+### Bug Fixes
+
+* **client,network:** REST-first mapping query — 修复 get_balance 读不到公开余额 ([37d3eab](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/37d3eab22a87cac54c8eaf9e81c3b9dfeca9fe1f))
+* **client:** trim tx_id quotes from broadcast response ([19cefa7](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/19cefa7c0659b48f79c98522c127db063dcef1fe))
+* **network:** add fetch_transaction for deploy verification ([ea99a99](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/ea99a997a889012e4a8440570786544711a14f16))
+* record scanning - pagination loop, balance parsing, reduced log noise ([5b9c79a](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/5b9c79ad05a34c269cf519f597b088d71999e045))
+* set release-please draft to false and fix pr-agent entryPoint ([3746c8a](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/3746c8a3fb0934f2ddc5409dfb7949a4f32136fd))
+* **test,ci:** fix CI failures — fmt, clippy, deny, doctest ([5d1c397](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/5d1c39729d0594f3d8d2fa3996f33afe04c3eda7))
+
 ## [0.6.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.5.1...aleo-rust-sdk-v0.6.0) (2026-10-09)
 
 
