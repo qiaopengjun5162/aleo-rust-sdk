@@ -39,9 +39,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_KEY: ${{ secrets.PR_AGENT_OPENAI_KEY }}
           OPENAI.API_BASE: ${{ secrets.PR_AGENT_OPENAI_API_BASE }}
-          PR_AGENT_MODEL: ${{ vars.PR_AGENT_MODEL || 'gpt-5.4-mini' }}
-          PR_AGENT_AUTO_REVIEW: "true"
-          PR_AGENT_AUTO_DESCRIBE: "false"
-          PR_AGENT_AUTO_IMPROVE: "false"
+          config.model: ${{ vars.PR_AGENT_MODEL || 'gpt-5.4-mini' }}
+          config.fallback_models: '["gpt-5.4-mini"]'
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "false"
+          github_action_config.auto_improve: "false"
         with:
           args: review --pr_url ${{ github.event.pull_request.html_url || github.event.issue.html_url }}
