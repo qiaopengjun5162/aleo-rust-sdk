@@ -3,12 +3,12 @@ extend-exclude = ["target/", ".git/"]
 
 [default]
 extend-ignore-re = [
-  # snarkVM types that look like typos
-  "Credits",
-  "credits",
-  "TestnetV3",
-  "Beacon",
-  "BeaconPrivateKey",
+    # snarkVM types that look like typos
+    "Credits",
+    "credits",
+    "TestnetV3",
+    "Beacon",
+    "BeaconPrivateKey",
 ]
 
 [default.extend-words]

@@ -47,7 +47,7 @@ footer = """
 trim = true
 # postprocessors
 postprocessors = [
-  { pattern = 'REPO', replace = "https://github.com/qiaopengjun5162/aleo-rust-sdk" },
+    { pattern = 'REPO', replace = "https://github.com/qiaopengjun5162/aleo-rust-sdk" },
 ]
 
 [git]
@@ -57,15 +57,15 @@ conventional_commits = true
 filter_unconventional = true
 # process each commit message with these regexes
 commit_parsers = [
-  { message = "^feat", group = "Features" },
-  { message = "^fix", group = "Bug Fixes" },
-  { message = "^docs", group = "Documentation" },
-  { message = "^test", group = "Testing" },
-  { message = "^refactor", group = "Refactoring" },
-  { message = "^style", group = "Styling" },
-  { message = "^chore\\(release\\)", group = "Release" },
-  { message = "^chore", group = "Miscellaneous Tasks" },
-  { body = ".*security", group = "Security" },
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^test", group = "Testing" },
+    { message = "^refactor", group = "Refactoring" },
+    { message = "^style", group = "Styling" },
+    { message = "^chore\\(release\\)", group = "Release" },
+    { message = "^chore", group = "Miscellaneous Tasks" },
+    { body = ".*security", group = "Security" },
 ]
 # filter out the commits that are not matched by commit_parsers
 filter_commits = false
