@@ -1,0 +1,16 @@
+# taplo — TOML formatter 配置
+# https://taplo.tamasfe.dev/configuration/file
+#
+# exclude 必须包含 target/：cargo package 会在 target/package/ 下留多份
+# 历史版本的 Cargo.toml / deny.toml，格式来自旧版本，不应被检查。
+
+exclude = ["target/**"]
+
+[formatting]
+align_entries = false
+# 保留作者手写的换行，不自动展开/折叠数组，避免产生无意义的 diff
+array_auto_collapse = false
+array_auto_expand = false
+indent_string = "    "
+reorder_arrays = false
+reorder_keys = false
