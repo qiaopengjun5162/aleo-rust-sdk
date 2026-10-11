@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.7.2](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.7.1...aleo-rust-sdk-v0.7.2) (2026-10-11)
+
+
+### Bug Fixes
+
+* **ci:** make TOML/spelling/audit checks real, drop dead release steps ([#9](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/9)) ([3d3624f](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/3d3624f7840cf3c41e488eca0e7f5120a29c1715))
+
 ## [0.7.1](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.7.0...aleo-rust-sdk-v0.7.1) (2026-10-10)
 
 
