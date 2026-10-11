@@ -34,7 +34,7 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Install typos
-        uses: crate-ci/typos@master
+        uses: taiki-e/install-action@typos
 
       - uses: Swatinem/rust-cache@v2
 

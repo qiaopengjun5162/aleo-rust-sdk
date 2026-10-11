@@ -25,6 +25,10 @@ jobs:
     name: PR-Agent review assistant
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # AI review 是辅助工具，不是质量闸门。上游模型服务（订阅到期 / 限流 /
+    # 宕机）不应阻塞代码合并——那会让所有人等一个第三方服务。
+    # 真实质量由 CI 的 fmt/clippy/test/typos/deny 把关。
+    continue-on-error: true
     if: >
       github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' ||
       (
@@ -35,6 +39,8 @@ jobs:
       )
     steps:
       - uses: the-pr-agent/pr-agent@8e4d32e5497defd43c023a404f73560c62728961
+        # 同上：PR-Agent 内部步骤失败也允许整个 job 走完，不产生红色 check
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_KEY: ${{ secrets.PR_AGENT_OPENAI_KEY }}
