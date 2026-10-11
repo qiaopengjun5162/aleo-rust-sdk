@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.7.1](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.7.0...aleo-rust-sdk-v0.7.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* PR-Agent config.* prefix + litellm OPENAI_API_BASE + deepseek_v4 ([f01fed4](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/f01fed433fc1452962c96a1b782668977d906767))
+
 ## [0.7.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.6.0...aleo-rust-sdk-v0.7.0) (2026-10-10)
 
 
