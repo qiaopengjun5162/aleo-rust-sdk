@@ -33,15 +33,22 @@ async fn test_fixed_state_root_query_async_methods() {
     assert!(async_paths.is_empty());
 }
 
-/// Cover wait_for_confirmation success path (network.rs 137-139)
+/// Cover wait_for_confirmation success path: V2 API returns txn with block_hash
 #[tokio::test]
 async fn test_wait_for_confirmation_success() {
     let mock_server = MockServer::start().await;
     let base_url = mock_server.uri();
 
+    // V2 API returns JSON with block_hash when confirmed
     Mock::given(method("GET"))
         .and(path_regex(r"/transaction/.+"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("confirmed"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "type": "execute",
+            "id": "at1mock",
+            "execution": {},
+            "fee": {},
+            "block_hash": "ab1blockhash"
+        })))
         .mount(&mock_server)
         .await;
 
@@ -81,7 +88,7 @@ async fn test_wait_for_confirmation_retry() {
     let call_count = Arc::new(AtomicU32::new(0));
     let count = call_count.clone();
 
-    // Closure responder: first call 404, subsequent calls 200
+    // Closure responder: first call 404, subsequent calls 200 with block_hash
     Mock::given(method("GET"))
         .and(path_regex(r"/transaction/.+"))
         .respond_with(move |_: &Request| {
@@ -89,7 +96,13 @@ async fn test_wait_for_confirmation_retry() {
             if c == 0 {
                 ResponseTemplate::new(404)
             } else {
-                ResponseTemplate::new(200).set_body_string("confirmed")
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "type": "execute",
+                    "id": "at1retry",
+                    "execution": {},
+                    "fee": {},
+                    "block_hash": "ab1retryhash"
+                }))
             }
         })
         .mount(&mock_server)

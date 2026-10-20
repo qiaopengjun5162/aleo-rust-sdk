@@ -1,4 +1,6 @@
-use aleo_rust_sdk::{AleoClient, ExecutionEngine, FixedStateRootQuery};
+use aleo_rust_sdk::{
+    AleoClient, ExecutionEngine, FixedStateRootQuery, consensus_version_to_varuna,
+};
 use snarkvm::prelude::{Address, ComputeKey};
 use snarkvm::prelude::{FromStr as _, Network, PrivateKey, Program, ProgramID, TestRng, TestnetV0};
 
@@ -19,7 +21,7 @@ fn test_real_varuna_prove_hello() {
     let program_id = ProgramID::<TestnetV0>::from_str("hello.aleo").unwrap();
 
     // ── Engine ───────────────────────────────────────────────────────
-    let engine = ExecutionEngine::new_with_v0_fee_keys().unwrap();
+    let engine = ExecutionEngine::new().unwrap();
     engine.add_program(&program).unwrap();
 
     // ── Authorize + execute locally ──────────────────────────────────
@@ -38,8 +40,21 @@ fn test_real_varuna_prove_hello() {
     };
 
     // ── Prove + package ──────────────────────────────────────────────
+    use snarkvm::prelude::ConsensusVersion;
+    let consensus_version = ConsensusVersion::V20;
+    let varuna_version = consensus_version_to_varuna(consensus_version);
     let tx = engine
-        .prove_and_package(trace, &pk, &program_id, "hello", 1, 0, &query, &mut rng)
+        .prove_and_package(
+            trace,
+            &pk,
+            &program_id,
+            "hello",
+            0,
+            consensus_version,
+            varuna_version,
+            &query,
+            &mut rng,
+        )
         .unwrap();
 
     // ── Verify ───────────────────────────────────────────────────────
@@ -105,7 +120,7 @@ async fn test_execute_and_broadcast_real_prove() {
     let program_id = ProgramID::<TestnetV0>::from_str("hello.aleo").unwrap();
 
     let tx_id = client
-        .execute_and_broadcast(&pk, &program_id, "hello", vec!["1u32", "2u32"], 1, 0)
+        .execute_and_broadcast(&pk, &program_id, "hello", vec!["1u32", "2u32"], 0)
         .await
         .unwrap();
 
@@ -161,7 +176,7 @@ async fn test_execute_and_broadcast_authorize_fails() {
 
     // Non-existent function → authorize_and_execute fails → hits line 158 `?`
     let result = client
-        .execute_and_broadcast(&pk, &program_id, "nonexistent_fn", vec!["1u32"], 1, 0)
+        .execute_and_broadcast(&pk, &program_id, "nonexistent_fn", vec!["1u32"], 0)
         .await;
 
     assert!(result.is_err(), "Expected error from nonexistent function");
@@ -180,7 +195,7 @@ fn test_prove_multiple_same_program_transitions() {
 
     let program_id = ProgramID::<TestnetV0>::from_str("credits.aleo").unwrap();
 
-    let engine = ExecutionEngine::new_with_v0_fee_keys().unwrap();
+    let engine = ExecutionEngine::new().unwrap();
 
     let (_response, trace) = engine
         .authorize_and_execute(
@@ -201,14 +216,18 @@ fn test_prove_multiple_same_program_transitions() {
         block_height: 42,
     };
 
+    use snarkvm::prelude::ConsensusVersion;
+    let consensus_version = ConsensusVersion::V20;
+    let varuna_version = consensus_version_to_varuna(consensus_version);
     let tx = engine
         .prove_and_package(
             trace,
             &pk,
             &program_id,
             "transfer_public",
-            1,
             0,
+            consensus_version,
+            varuna_version,
             &query,
             &mut rng,
         )

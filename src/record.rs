@@ -290,7 +290,7 @@ impl RecordManager {
     }
 
     /// Merge new records into the cache, deduplicating by ciphertext.
-    fn merge_records(&mut self, new_records: Vec<AleoRecord>) {
+    pub fn merge_records(&mut self, new_records: Vec<AleoRecord>) {
         for rec in new_records {
             if let Some(pos) = self.records.iter().position(|r| r.ciphertext == rec.ciphertext) {
                 self.records[pos] = rec;

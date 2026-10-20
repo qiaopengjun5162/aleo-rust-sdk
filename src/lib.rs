@@ -4,7 +4,8 @@
 //! Provides tools for account management, program loading, local zero-knowledge execution,
 //! proof generation, network querying, and transaction broadcasting.
 //!
-//! Built on top of [snarkVM 4.10.0](https://github.com/ProvableHQ/snarkVM) for zero-knowledge
+//! Built on top of [snarkVM 4.12.0](https://github.com/ProvableHQ/snarkVM) (git
+//! rev `6d7b76515`) for zero-knowledge
 //! proving and [reqwest](https://crates.io/crates/reqwest) for async HTTP.
 //!
 //! ## Architecture
@@ -71,6 +72,6 @@ pub mod version;
 pub use account::AleoAccount;
 pub use client::AleoClient;
 pub use error::AleoError;
-pub use execution::ExecutionEngine;
+pub use execution::{ExecutionEngine, consensus_version_to_varuna};
 pub use network::{AleoHttpClient, FixedStateRootQuery, ProvableQuery};
 pub use program::AleoProgram;

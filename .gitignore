@@ -8,3 +8,7 @@
 *.iml
 lcov.info
 *.tar.gz
+
+# 本地工具 / 生成产物
+.workbuddy/
+cov_report/

@@ -4,13 +4,13 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE)
 [![CI](https://github.com/qiaopengjun5162/aleo-rust-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/qiaopengjun5162/aleo-rust-sdk/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs.rs-aleo--rust--sdk-blue)](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/)
-[![Rust](https://img.shields.io/badge/rustc-1.85+-orange?logo=rust)](https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html)
+[![Rust](https://img.shields.io/badge/rustc-1.88+-orange?logo=rust)](https://blog.rust-lang.org/2025/06/26/Rust-1.88.0.html)
 
 [English](README.md) | [中文](README.zh-CN.md)
 
 A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — account management, program loading, local execution with zero-knowledge proof generation, network querying, transaction broadcasting, and **live Merkle path fetching** for private transfers (via Provable API v2).
 
-> **Why this SDK?** The official [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) has been **archived** and is no longer maintained. This SDK provides an up-to-date implementation using snarkVM 4.10.0 and the current Aleo testnet endpoints.
+> **Why this SDK?** The official [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) has been **archived** and is no longer maintained. This SDK provides an up-to-date implementation using snarkVM 4.12.0 and the current Aleo testnet endpoints.
 
 ---
 
@@ -77,7 +77,7 @@ The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a sepa
 │  record                                                │
 │  AleoRecord · RecordScanner · RecordManager · CoinSel  │
 ├────────────────────────────────────────────────────────┤
-│              snarkVM 4.10.0 (Process<TestnetV0>)       │
+│              snarkVM 4.12.0 (Process<TestnetV0>)       │
 │          reqwest (async HTTP) — tokio runtime         │
 └──────────────────────────────────────────────────────┘
 ```
@@ -95,8 +95,8 @@ tokio = { version = "1", features = ["full"] }
 ```
 
 **Requirements:**
-- Rust **1.85+**
-- snarkVM **4.10.0** (automatically resolved)
+- Rust **1.88+**
+- snarkVM **4.12.0** (automatically resolved)
 - For proving: ~16 GB RAM recommended
 
 ## Quick Start

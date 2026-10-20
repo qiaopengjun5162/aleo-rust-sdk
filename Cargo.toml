@@ -1,7 +1,7 @@
 [package]
 name = "aleo-rust-sdk"
 version = "0.7.2"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Rust SDK for the Aleo blockchain — accounts, programs, local/remote execution, ZK proving, on-chain verification"
 homepage = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
@@ -10,7 +10,7 @@ documentation = "https://docs.rs/aleo-rust-sdk"
 readme = "README.md"
 keywords = ["aleo", "blockchain", "zero-knowledge", "sdk", "snarkvm"]
 categories = ["cryptography", "web-programming::http-client"]
-rust-version = "1.85"
+rust-version = "1.88"
 
 [dependencies]
 anyhow = "1.0"
@@ -30,8 +30,10 @@ sha2 = "0.10"
 ureq = { version = "2", features = ["json"] }
 rand = "0.8"
 
-# snarkVM — the core zero-knowledge dependency
-snarkvm = { version = "4.10.0", default-features = true, features = [
+# snarkVM — the core zero-knowledge dependency.
+# 4.12.0 matches the snarkOS staging rev we previously pinned by git
+# (6d7b76515). Using the crates.io release keeps `cargo publish` working.
+snarkvm = { version = "4.12.0", default-features = true, features = [
     "ledger",
     "synthesizer",
 ] }
@@ -56,3 +58,7 @@ path = "examples/testnet_transfer.rs"
 [[example]]
 name = "simple_execute"
 path = "examples/simple_execute.rs"
+
+[[example]]
+name = "sdk_v2_broadcast_test"
+path = "examples/sdk_v2_broadcast_test.rs"

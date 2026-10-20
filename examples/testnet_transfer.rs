@@ -62,8 +62,7 @@ async fn main() -> anyhow::Result<()> {
             &program_id,
             "transfer_public",
             vec![self_addr.as_str(), "1000000u64"],
-            100_000, // base_fee (0.0001 credits)
-            0,       // priority_fee
+            0, // priority_fee
         )
         .await?;
 

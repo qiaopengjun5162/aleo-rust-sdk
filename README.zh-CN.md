@@ -4,13 +4,13 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE)
 [![CI](https://github.com/qiaopengjun5162/aleo-rust-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/qiaopengjun5162/aleo-rust-sdk/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs.rs-aleo--rust--sdk-blue)](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/)
-[![Rust](https://img.shields.io/badge/rustc-1.85+-orange?logo=rust)](https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html)
+[![Rust](https://img.shields.io/badge/rustc-1.88+-orange?logo=rust)](https://blog.rust-lang.org/2025/06/26/Rust-1.88.0.html)
 
 [English](README.md) | [中文](README.zh-CN.md)
 
 基于 **Rust** 的 [Aleo](https://aleo.org) 区块链 SDK，提供账户管理、程序加载、本地零知识证明执行、网络查询、交易广播，以及**实时 Merkle 路径获取**（通过 Provable API v2）的全套工具。
 
-> **为什么需要这个 SDK？** 官方 [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) 已经**存档废弃**，不再维护。本 SDK 基于 snarkVM 4.10.0 和当前 Aleo 测试网端点提供了最新的实现。
+> **为什么需要这个 SDK？** 官方 [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) 已经**存档废弃**，不再维护。本 SDK 基于 snarkVM 4.12.0 和当前 Aleo 测试网端点提供了最新的实现。
 
 ---
 
@@ -76,7 +76,7 @@ CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个�
 │  record                                                │
 │  AleoRecord · RecordScanner · RecordManager · 币选择   │
 ├────────────────────────────────────────────────────────┤
-│            snarkVM 4.10.0 (Process<TestnetV0>)         │
+│            snarkVM 4.12.0 (Process<TestnetV0>)         │
 │          reqwest (异步 HTTP) — tokio 运行时           │
 └──────────────────────────────────────────────────────┘
 ```
@@ -94,8 +94,8 @@ tokio = { version = "1", features = ["full"] }
 ```
 
 **要求：**
-- Rust **1.85+**
-- snarkVM **4.10.0**（自动解析）
+- Rust **1.88+**
+- snarkVM **4.12.0**（自动解析）
 - 证明生成：推荐 ~16 GB RAM
 
 ## 快速开始

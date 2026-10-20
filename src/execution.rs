@@ -11,7 +11,7 @@
 //! ```no_run
 //! use aleo_rust_sdk::ExecutionEngine;
 //!
-//! let engine = ExecutionEngine::new_with_v0_fee_keys().unwrap();
+//! let engine = ExecutionEngine::new_with_fee_keys().unwrap();
 //! // see AleoClient::execute_and_broadcast() for a full pipeline example
 //! ```
 
@@ -25,26 +25,33 @@ use snarkvm::prelude::{
     Address, ConsensusVersion, CryptoRng, InclusionVersion, PrivateKey, Process, Program, Response,
     Rng, TestRng, TestnetV0,
 };
-use snarkvm::synthesizer::process::{Stack, Trace, deployment_cost};
+use snarkvm::synthesizer::process::{Stack, Trace, deployment_cost, execution_cost};
 use std::str::FromStr;
 use std::sync::Arc;
 
 /// Custom query trait for state root fetching.
 pub use snarkvm::ledger::query::QueryTrait;
 
-/// Fee key loader — injects V0 proving/verifying keys for testnet fee_public.
+/// Fee key loader — injects proving/verifying keys for testnet fee_public.
 mod fee_keys {
-    use snarkvm::parameters::testnet::{FeePublicV0Prover, FeePublicV0Verifier};
+    use snarkvm::parameters::testnet::{FeePublicProver, FeePublicVerifier};
     use snarkvm::prelude::FromBytes as _;
     use snarkvm::synthesizer::snark::{ProvingKey, VerifyingKey};
 
     pub fn load_pk() -> Result<ProvingKey<snarkvm::prelude::TestnetV0>, anyhow::Error> {
-        ProvingKey::from_bytes_le(&FeePublicV0Prover::load_bytes()?)
+        ProvingKey::from_bytes_le(&FeePublicProver::load_bytes()?)
     }
 
     pub fn load_vk() -> Result<VerifyingKey<snarkvm::prelude::TestnetV0>, anyhow::Error> {
-        VerifyingKey::from_bytes_le(&FeePublicV0Verifier::load_bytes()?)
+        VerifyingKey::from_bytes_le(&FeePublicVerifier::load_bytes()?)
     }
+}
+
+/// Helper: map a `ConsensusVersion` to the corresponding `VarunaVersion`.
+/// Logic mirrors `snarkvm::console::network::varuna_version_from_consensus`.
+pub fn consensus_version_to_varuna(cv: ConsensusVersion) -> VarunaVersion {
+    use snarkvm::console::network::varuna_version_from_consensus;
+    varuna_version_from_consensus(cv)
 }
 
 /// Execution engine wrapping a snarkVM `Process`.
@@ -53,22 +60,23 @@ pub struct ExecutionEngine {
 }
 
 impl ExecutionEngine {
-    /// Initialize a new process using `Process::load()` (credits loaded by default).
+    /// Initialize using `Process::load()` (loads current consensus version keys).
     pub fn new() -> Result<Self> {
         let process = Process::<TestnetV0>::load()?;
         Ok(Self { process })
     }
 
-    /// Initialize with explicit V0 fee keys injected.
-    pub fn new_with_v0_fee_keys() -> Result<Self> {
+    /// Initialize using `Process::load_v0()` (V0 credits keys) with explicit
+    /// V0 fee proving/verifying key injection.
+    pub fn new_with_fee_keys() -> Result<Self> {
         let mut engine = Self::new()?;
-        engine.inject_v0_fee_keys()?;
+        engine.inject_fee_keys()?;
         Ok(engine)
     }
 
-    /// Inject V0 fee proving/verifying keys for testnet fee_public support.
-    pub fn inject_v0_fee_keys(&mut self) -> Result<()> {
-        tracing::info!("Loading V0 fee keys from testnet parameters...");
+    /// Inject fee proving/verifying keys for testnet fee_public support.
+    pub fn inject_fee_keys(&mut self) -> Result<()> {
+        tracing::info!("Loading fee keys from testnet parameters...");
         let fee_pk = fee_keys::load_pk().context("Failed to deserialize V0 fee proving key")?;
         let fee_vk = fee_keys::load_vk().context("Failed to deserialize V0 fee verifying key")?;
 
@@ -145,6 +153,11 @@ impl ExecutionEngine {
     }
 
     /// Prove execution + fee, verify, package into `Transaction`.
+    ///
+    /// Dynamically computes the correct `base_fee` via `execution_cost()` using
+    /// the given `consensus_version`, instead of expecting a hardcoded value.
+    /// This fixes broadcast failures that occur when the consensus version advances
+    /// (e.g. V14→V20 changed the minimum cost from 100_000 to 2_725).
     #[allow(clippy::too_many_arguments)]
     pub fn prove_and_package(
         &self,
@@ -152,27 +165,34 @@ impl ExecutionEngine {
         private_key: &PrivateKey<TestnetV0>,
         program_id: &ProgramID<TestnetV0>,
         function_name: &str,
-        base_fee: u64,
         priority_fee: u64,
+        consensus_version: ConsensusVersion,
+        varuna_version: VarunaVersion,
         query: &impl QueryTrait<TestnetV0>,
         rng: &mut TestRng,
     ) -> Result<Transaction<TestnetV0>> {
         let locator = format!("{program_id}/{function_name}");
 
-        // Prove execution
+        // 1. Prove execution
         let mut exec_trace = trace;
         exec_trace.prepare(query).context("Failed to prepare execution trace")?;
         let execution = exec_trace
-            .prove_execution::<AleoTestnetV0, _>(&locator, VarunaVersion::V2, rng)
+            .prove_execution::<AleoTestnetV0, _>(&locator, varuna_version, rng)
             .context("Failed to generate execution proof")?;
 
-        // Fee authorization + proving
+        // 2. Dynamically compute the correct base_fee
         let execution_id = execution.to_execution_id()?;
+        let (minimum_cost, _) = execution_cost(&self.process, &execution, consensus_version)?;
+        tracing::info!(
+            "Dynamic fee: minimum_cost={minimum_cost} (hardcoded was 100_000), priority_fee={priority_fee}"
+        );
+
+        // 3. Fee authorization with dynamically computed base_fee
         let fee_authorization = self
             .process
             .authorize_fee_public::<AleoTestnetV0, _>(
                 private_key,
-                base_fee,
+                minimum_cost,
                 priority_fee,
                 execution_id,
                 rng,
@@ -186,10 +206,10 @@ impl ExecutionEngine {
 
         fee_trace.prepare(query).context("Failed to prepare fee trace")?;
         let fee = fee_trace
-            .prove_fee::<AleoTestnetV0, _>(VarunaVersion::V2, rng)
+            .prove_fee::<AleoTestnetV0, _>(varuna_version, rng)
             .context("Failed to generate fee proof")?;
 
-        // Build execution_stacks for verification (needed by 4.10 API)
+        // 4. Build execution_stacks for verification
         let mut execution_stacks: IndexMap<ProgramID<TestnetV0>, Arc<Stack<TestnetV0>>> =
             IndexMap::new();
         let guard = self.process.lock();
@@ -202,21 +222,22 @@ impl ExecutionEngine {
         }
         drop(guard);
 
-        // Local verification (associated function in 4.10)
-        tracing::info!("Verifying proofs locally...");
+        // 5. Local verification with the same consensus_version the chain uses
+        tracing::info!("Verifying proofs locally (consensus={consensus_version:?})...");
         Process::<TestnetV0>::verify_execution(
-            ConsensusVersion::V14,
-            VarunaVersion::V2,
+            consensus_version,
+            varuna_version,
             InclusionVersion::V1,
             &execution,
             &execution_stacks,
         )
         .context("Local execution verification FAILED")?;
 
+        tracing::info!("Fee proof verification...");
         self.process
             .verify_fee(
-                ConsensusVersion::V14,
-                VarunaVersion::V2,
+                consensus_version,
+                varuna_version,
                 InclusionVersion::V1,
                 &fee,
                 execution_id,
@@ -255,7 +276,7 @@ impl ExecutionEngine {
     ///
     /// `base_fee` is the minimum deployment cost (use [`ExecutionEngine::deployment_cost_minimum`] to compute it).
     /// `priority_fee_in_microcredits` is an additional fee on top.
-    /// `consensus_version` determines which cost formula applies (TestnetV0 uses V14).
+    /// `consensus_version` determines which fee proving key to use.
     /// `query` supplies the current state root (from [`AleoHttpClient::fetch_state_root`](crate::network::AleoHttpClient::fetch_state_root)).
     #[allow(clippy::too_many_arguments)]
     pub fn build_deployment_transaction<R: Rng + CryptoRng>(
@@ -265,7 +286,7 @@ impl ExecutionEngine {
         deployment: &Deployment<TestnetV0>,
         base_fee: u64,
         priority_fee_in_microcredits: u64,
-        _consensus_version: ConsensusVersion,
+        consensus_version: ConsensusVersion,
         query: &impl QueryTrait<TestnetV0>,
         rng: &mut R,
     ) -> Result<Transaction<TestnetV0>> {
@@ -307,8 +328,9 @@ impl ExecutionEngine {
 
         fee_trace.prepare(query).context("Failed to prepare fee trace")?;
 
+        let varuna_version = consensus_version_to_varuna(consensus_version);
         let fee = fee_trace
-            .prove_fee::<AleoTestnetV0, R>(VarunaVersion::V2, rng)
+            .prove_fee::<AleoTestnetV0, R>(varuna_version, rng)
             .context("Failed to prove fee")?;
 
         // Package into transaction.
@@ -334,7 +356,9 @@ impl ExecutionEngine {
     pub fn verify_execution_transaction(
         &self,
         execution: &snarkvm::ledger::block::Execution<TestnetV0>,
+        consensus_version: ConsensusVersion,
     ) -> Result<()> {
+        let varuna_version = consensus_version_to_varuna(consensus_version);
         // Build execution stacks from the process
         let mut execution_stacks: IndexMap<ProgramID<TestnetV0>, Arc<Stack<TestnetV0>>> =
             IndexMap::new();
@@ -349,8 +373,8 @@ impl ExecutionEngine {
         drop(guard);
 
         Process::<TestnetV0>::verify_execution(
-            ConsensusVersion::V14,
-            VarunaVersion::V2,
+            consensus_version,
+            varuna_version,
             InclusionVersion::V1,
             execution,
             &execution_stacks,
@@ -363,10 +387,11 @@ impl ExecutionEngine {
     pub fn verify_deployment_transaction(
         &self,
         deployment: &Deployment<TestnetV0>,
+        consensus_version: ConsensusVersion,
         rng: &mut TestRng,
     ) -> Result<()> {
         self.process
-            .verify_deployment::<AleoTestnetV0, _>(ConsensusVersion::V14, deployment, rng)
+            .verify_deployment::<AleoTestnetV0, _>(consensus_version, deployment, rng)
             .context("Deployment proof verification FAILED")
     }
 }
