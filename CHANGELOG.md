@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.8.1](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.8.0...aleo-rust-sdk-v0.8.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **ci:** stop swallowing coverage failures; run doc-tests; harden network headers ([#13](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/13)) ([074546a](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/074546a341bb055cf92e1dfdbb49c4c5fd617b9a))
+
 ## [0.8.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.7.2...aleo-rust-sdk-v0.8.0) (2026-10-20)
 
 
