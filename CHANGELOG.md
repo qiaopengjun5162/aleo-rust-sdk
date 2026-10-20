@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.8.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.7.2...aleo-rust-sdk-v0.8.0) (2026-10-20)
+
+
+### Features
+
+* upgrade to snarkVM 4.12, fix hardcoded network/consensus assumptions, de-duplicate prove pipeline ([#11](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/11)) ([7a1eb5f](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/7a1eb5f3ddd0f20574058b9c565691fa699844c7))
+
 ## [0.7.2](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.7.1...aleo-rust-sdk-v0.7.2) (2026-10-11)
 
 
