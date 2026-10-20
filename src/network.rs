@@ -93,11 +93,15 @@ impl AleoHttpClient {
     }
 
     fn headers() -> reqwest::header::HeaderMap {
+        use reqwest::header::{ACCEPT, HeaderValue, USER_AGENT};
         let mut h = reqwest::header::HeaderMap::new();
-        h.insert("User-Agent", UA.parse().unwrap());
+        // Static literals go through `from_static`: no runtime parsing, no
+        // `unwrap()`. `parse().unwrap()` on a constant is a latent panic that
+        // a future edit to the constant would turn into a crash.
+        h.insert(USER_AGENT, HeaderValue::from_static(UA));
         h.insert(
-            "Accept",
-            "application/json, text/plain, */*".parse().unwrap(),
+            ACCEPT,
+            HeaderValue::from_static("application/json, text/plain, */*"),
         );
         h
     }
@@ -111,7 +115,10 @@ impl AleoHttpClient {
             "params": params,
         });
         let mut headers = Self::headers();
-        headers.insert("Content-Type", "application/json".parse().unwrap());
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        );
 
         let resp = self.inner.post(&self.rpc_url).headers(headers).json(&body).send().await?;
         let text = resp.text().await?;
@@ -159,9 +166,18 @@ impl AleoHttpClient {
             self.base_url
         );
         let mut headers = Self::headers();
-        headers.insert("Content-Type", "application/json".parse().unwrap());
-        headers.insert("Origin", "https://explorer.provable.com".parse().unwrap());
-        headers.insert("Referer", "https://explorer.provable.com/".parse().unwrap());
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        );
+        headers.insert(
+            reqwest::header::ORIGIN,
+            reqwest::header::HeaderValue::from_static("https://explorer.provable.com"),
+        );
+        headers.insert(
+            reqwest::header::REFERER,
+            reqwest::header::HeaderValue::from_static("https://explorer.provable.com/"),
+        );
 
         let resp = self.inner.post(&url).headers(headers).body(tx_json).send().await?;
         let status = resp.status();
@@ -327,7 +343,10 @@ impl AleoHttpClient {
             "params": params,
         });
         let mut headers = Self::headers();
-        headers.insert("Content-Type", "application/json".parse().unwrap());
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        );
 
         let resp = self.inner.post(&self.rpc_url).headers(headers).json(&body).send().await?;
         let text = resp.text().await?;
@@ -494,6 +513,19 @@ impl Clone for ProvableQuery {
 }
 
 impl ProvableQuery {
+    /// Lock the state-root cache, recovering from a poisoned mutex.
+    ///
+    /// The guarded value is a cache that gets overwritten on the next
+    /// `statePath` fetch, so poisoning carries no useful information. Using
+    /// `.unwrap()` here would mean that one panic anywhere under this lock
+    /// makes every subsequent call panic forever — turning a single transient
+    /// failure into a permanently unusable query object.
+    fn lock_state_root(
+        &self,
+    ) -> std::sync::MutexGuard<'_, Option<<TestnetV0 as Network>::StateRoot>> {
+        self.last_state_root.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn new(
         state_root: <TestnetV0 as Network>::StateRoot,
         block_height: u32,
@@ -514,7 +546,7 @@ impl QueryTrait<TestnetV0> for ProvableQuery {
         // Return the root cached from the most recently fetched state path.
         // This ensures the Merkle proof returned by get_state_path_for_commitment
         // verifies against the same root.
-        let guard = self.last_state_root.lock().unwrap();
+        let guard = self.lock_state_root();
         match *guard {
             Some(root) => Ok(root),
             None => Ok(self.state_root),
@@ -543,7 +575,7 @@ impl QueryTrait<TestnetV0> for ProvableQuery {
         // Cache the global state root embedded in the path so current_state_root
         // returns the same root the Merkle proof was built against.
         let path_root = path.global_state_root();
-        let mut guard = self.last_state_root.lock().unwrap();
+        let mut guard = self.lock_state_root();
         *guard = Some(path_root);
         Ok(path)
     }
@@ -574,7 +606,7 @@ impl QueryTrait<TestnetV0> for ProvableQuery {
     async fn current_state_root_async(&self) -> Result<<TestnetV0 as Network>::StateRoot> {
         // Must match the sync version: return the root cached from the last
         // `statePath` fetch so the Merkle proof and the root agree.
-        let guard = self.last_state_root.lock().unwrap();
+        let guard = self.lock_state_root();
         Ok((*guard).unwrap_or(self.state_root))
     }
     async fn current_block_height_async(&self) -> Result<u32> {

@@ -169,7 +169,6 @@ async fn main() -> anyhow::Result<()> {
         &ProgramID::from_str("credits.aleo")?,
         "transfer_public",
         vec!["aleo1recipient...", "1000000u64"],
-        50000,   // base fee (microcredits)
         0,       // priority fee
     ).await?;
 
@@ -221,8 +220,7 @@ async fn main() -> anyhow::Result<()> {
         &ProgramID::from_str("credits.aleo")?,
         "transfer_private",
         values,
-        50000,
-        0,
+        0,       // priority fee
     ).await?;
 
     println!("Private transfer: {tx_id}");
