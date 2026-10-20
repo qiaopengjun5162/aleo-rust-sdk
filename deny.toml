@@ -13,8 +13,9 @@ feature-depth = 1
 
 [advisories]
 ignore = [
-    # snarkVM transitive deps — unmaintained, no upgrade path
-    "RUSTSEC-2025-0057", # fxhash — unmaintained
+    # snarkVM transitive deps — unmaintained, no upgrade path.
+    # 注意：snarkVM 升级后会失效，cargo-deny 会报 `advisory-not-detected`，
+    # 届时删掉对应行即可（fxhash 已在 snarkVM 4.12 中移除）。
     "RUSTSEC-2024-0436", # paste — unmaintained
     "RUSTSEC-2025-0141", # bincode — unmaintained
 ]
@@ -45,6 +46,7 @@ skip-tree = []
 unknown-registry = "warn"
 unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# 所有依赖均来自 crates.io；如需引入 git 依赖，请显式加白名单并说明原因。
 allow-git = []
 [sources.allow-org]
 github = []

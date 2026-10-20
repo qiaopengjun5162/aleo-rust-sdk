@@ -16,14 +16,6 @@ fn json_rpc_result(value: serde_json::Value) -> serde_json::Value {
     })
 }
 
-fn json_rpc_error(msg: &str) -> serde_json::Value {
-    serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "error": { "code": -32000, "message": msg }
-    })
-}
-
 // ── fetch_block_height ────────────────────────────────────────────────
 
 #[tokio::test]
@@ -136,22 +128,12 @@ async fn test_fetch_mapping_value_found() {
     let mock_server = MockServer::start().await;
     let client = mock_client(&mock_server.uri());
 
-    let expected_body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getMappingValue",
-        "params": [
-            "credits.aleo",
-            "account",
-            "aleo1testtesttesttesttesttesttesttesttesttesttest"
-        ]
-    });
-
-    Mock::given(method("POST"))
-        .and(body_json(&expected_body))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json_rpc_result(serde_json::json!("2000000"))),
-        )
+    // V2 REST returns quoted JSON string "2000000"
+    Mock::given(method("GET"))
+        .and(path_regex(
+            r"/program/credits\.aleo/mapping/account/aleo1test.+",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_string("\"2000000\""))
         .mount(&mock_server)
         .await;
 
@@ -163,7 +145,7 @@ async fn test_fetch_mapping_value_found() {
         )
         .await
         .unwrap();
-    assert_eq!(val, Some("2000000".to_string()));
+    assert_eq!(val, Some("\"2000000\"".to_string()));
 }
 
 #[tokio::test]
@@ -171,10 +153,10 @@ async fn test_fetch_mapping_value_not_found() {
     let mock_server = MockServer::start().await;
     let client = mock_client(&mock_server.uri());
 
-    Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json_rpc_error("Mapping key not found")),
-        )
+    // V2 REST returns 404 for missing keys
+    Mock::given(method("GET"))
+        .and(path_regex(r"/program/.+"))
+        .respond_with(ResponseTemplate::new(404))
         .mount(&mock_server)
         .await;
 
@@ -190,16 +172,15 @@ async fn test_fetch_mapping_value_non_string_result() {
     let mock_server = MockServer::start().await;
     let client = mock_client(&mock_server.uri());
 
-    // result is a number, not a string
-    Mock::given(method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json_rpc_result(serde_json::json!(42))),
-        )
+    // V2 REST returns unquoted number (raw u64)
+    Mock::given(method("GET"))
+        .and(path_regex(r"/program/.+"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("42"))
         .mount(&mock_server)
         .await;
 
     let val = client.fetch_mapping_value("credits.aleo", "account", "anykey").await.unwrap();
-    // non-string values get to_string'd
+    // Raw text returned as-is
     assert_eq!(val, Some("42".to_string()));
 }
 
@@ -300,21 +281,12 @@ async fn test_client_get_balance() {
 
     let mut rng = TestRng::default();
     let account = AleoAccount::new_random(&mut rng).unwrap();
-    let addr = account.address_str();
+    let _addr = account.address_str();
 
-    // Build expected JSON-RPC body
-    let expected_rpc = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getMappingValue",
-        "params": ["credits.aleo", "account", addr]
-    });
-
-    Mock::given(method("POST"))
-        .and(body_json(&expected_rpc))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json_rpc_result(serde_json::json!("1000000"))),
-        )
+    // Mock V2 REST mapping endpoint: GET /program/credits.aleo/mapping/account/{addr}
+    Mock::given(method("GET"))
+        .and(path_regex(r"/program/credits\.aleo/mapping/account/.+"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("\"1000000\""))
         .mount(&mock_server)
         .await;
 
@@ -378,7 +350,7 @@ async fn test_client_fetch_unspent_records() {
 
     let mut rng = TestRng::default();
     let account = AleoAccount::new_random(&mut rng).unwrap();
-    let addr = account.address_str();
+    let _addr = account.address_str();
 
     // Block height response
     Mock::given(method("GET"))
@@ -391,7 +363,7 @@ async fn test_client_fetch_unspent_records() {
     Mock::given(method("POST"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(json_rpc_result(serde_json::json!([{"owner": addr}]))),
+                .set_body_json(json_rpc_result(serde_json::json!([{"owner": _addr}]))),
         )
         .mount(&mock_server)
         .await;
@@ -401,7 +373,7 @@ async fn test_client_fetch_unspent_records() {
     client.set_account_from_private_key_str(&account.private_key_str()).unwrap();
 
     let result = client.fetch_unspent_records().await.unwrap();
-    assert!(result.contains(&addr));
+    assert!(result.contains(&_addr));
 }
 
 // ── AleoClient execute_local (dry-run) ────────────────────────────────

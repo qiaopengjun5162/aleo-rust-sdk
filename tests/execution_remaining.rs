@@ -2,10 +2,10 @@ use aleo_rust_sdk::{ExecutionEngine, FixedStateRootQuery};
 use snarkvm::prelude::{ConsensusVersion, Network, PrivateKey, Program, TestRng, TestnetV0};
 use std::str::FromStr;
 
-/// Cover new_with_v0_fee_keys (lines 52-57)
+/// Cover new_with_fee_keys (lines 52-57)
 #[test]
 fn test_execution_engine_v0_fee_keys() {
-    let engine = ExecutionEngine::new_with_v0_fee_keys().unwrap();
+    let engine = ExecutionEngine::new_with_fee_keys().unwrap();
     let guard = engine.process.lock();
     let ids = guard.program_ids();
     assert!(!ids.is_empty());
@@ -42,7 +42,7 @@ function hello:
 /// Cover deploy_program — generate a pure deployment proof.
 #[test]
 fn test_deploy_program_generates_deployment() {
-    let engine = ExecutionEngine::new_with_v0_fee_keys().unwrap();
+    let engine = ExecutionEngine::new_with_fee_keys().unwrap();
     let program = Program::<TestnetV0>::from_str(HELLO_PROGRAM).unwrap();
     engine.add_program(&program).unwrap();
 
@@ -63,7 +63,7 @@ fn test_deploy_program_generates_deployment() {
 /// Cover deployment_cost_minimum — compute min cost for a deployment.
 #[test]
 fn test_deployment_cost_minimum_computed() {
-    let engine = ExecutionEngine::new_with_v0_fee_keys().unwrap();
+    let engine = ExecutionEngine::new_with_fee_keys().unwrap();
     let program = Program::<TestnetV0>::from_str(HELLO_PROGRAM).unwrap();
     engine.add_program(&program).unwrap();
 
@@ -82,7 +82,7 @@ fn test_deployment_cost_minimum_computed() {
 /// Cover build_deployment_transaction — full pipeline without broadcast.
 #[test]
 fn test_build_deployment_transaction_local() {
-    let engine = ExecutionEngine::new_with_v0_fee_keys().unwrap();
+    let engine = ExecutionEngine::new_with_fee_keys().unwrap();
     let program = Program::<TestnetV0>::from_str(HELLO_PROGRAM).unwrap();
     engine.add_program(&program).unwrap();
 

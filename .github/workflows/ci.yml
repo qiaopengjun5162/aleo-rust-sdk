@@ -63,3 +63,19 @@ jobs:
 
       - name: Generate coverage
         run: cargo llvm-cov --all-features --lcov --output-path lcov.info || echo "coverage skipped"
+
+  package-check:
+    name: package-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup toolchain install stable
+
+      # 发布前置校验：能在几秒内抓出「git-only 依赖」「缺 version」这类
+      # 只在 `cargo publish` 时才暴露的 manifest 错误。
+      # --no-verify 跳过重新编译，因此很便宜。
+      - name: Verify the crate is publishable
+        run: cargo publish --dry-run --no-verify

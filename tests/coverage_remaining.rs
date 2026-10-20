@@ -38,7 +38,7 @@ fn test_program_local_file_and_accessors() {
 /// Test execution engine with fee keys (lines 52-72)
 #[test]
 fn test_execution_engine_with_fee_keys() {
-    let engine = ExecutionEngine::new_with_v0_fee_keys().unwrap();
+    let engine = ExecutionEngine::new_with_fee_keys().unwrap();
     let guard = engine.process.lock();
     // Should have credits.aleo loaded
     assert!(

@@ -115,7 +115,7 @@ impl SealanceMerkleTree {
         if leaves.is_empty() {
             return Err(anyhow::anyhow!("Leaves array cannot be empty"));
         }
-        if leaves.len() % 2 != 0 {
+        if !leaves.len().is_multiple_of(2) {
             return Err(anyhow::anyhow!(
                 "Leaves array must have even number of elements"
             ));
@@ -192,7 +192,11 @@ impl SealanceMerkleTree {
 
         // Walk up through internal nodes
         while parent_offset < tree.len() {
-            let sibling_index = if index % 2 == 0 { index + 1 } else { index - 1 };
+            let sibling_index = if index.is_multiple_of(2) {
+                index + 1
+            } else {
+                index - 1
+            };
             sibling_path.push(tree[sibling_index]);
 
             // Calculate the next parent level

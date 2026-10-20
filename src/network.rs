@@ -30,7 +30,6 @@ use async_trait::async_trait;
 use serde_json::Value;
 use snarkvm::ledger::query::QueryTrait;
 use snarkvm::prelude::{Field, Network, Program, StatePath, TestnetV0};
-use std::io::Write;
 use std::str::FromStr;
 
 /// Browser-like User-Agent to bypass Cloudflare WAF.
@@ -59,8 +58,18 @@ impl AleoHttpClient {
     pub fn new_with_rpc(base_url: &str, rpc_url: &str) -> Result<Self> {
         let mut builder = reqwest::Client::builder()
             .http1_only()
-            .danger_accept_invalid_certs(true)
             .timeout(std::time::Duration::from_secs(120));
+
+        // Certificate verification is ON by default. Behind a corporate TLS
+        // intercepting proxy you can opt out with ALEO_INSECURE_TLS=1 — but
+        // never disable it silently: this client signs and broadcasts
+        // transactions, so a MITM can steal funds.
+        if std::env::var("ALEO_INSECURE_TLS")
+            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        {
+            tracing::warn!("ALEO_INSECURE_TLS is set — TLS certificate verification is DISABLED");
+            builder = builder.danger_accept_invalid_certs(true);
+        }
 
         // Respect HTTP_PROXY / HTTPS_PROXY env vars (e.g. Clash at 127.0.0.1:7890).
         // No manual proxy detection needed — reqwest 0.12 respects these by default
@@ -69,12 +78,10 @@ impl AleoHttpClient {
             .or_else(|_| std::env::var("http_proxy"))
             .or_else(|_| std::env::var("HTTPS_PROXY"))
             .or_else(|_| std::env::var("https_proxy"))
-        {
-            if let Ok(proxy) =
+            && let Ok(proxy) =
                 reqwest::Proxy::http(&proxy_url).or_else(|_| reqwest::Proxy::all(&proxy_url))
-            {
-                builder = builder.proxy(proxy);
-            }
+        {
+            builder = builder.proxy(proxy);
         }
 
         let inner = builder.build().context("Failed to build HTTP client")?;
@@ -139,6 +146,13 @@ impl AleoHttpClient {
     }
 
     /// Broadcast a JSON-serialized transaction (REST POST).
+    ///
+    /// Uses `?check_transaction=true` so the node runs `check_transaction_basic`
+    /// and returns a detailed error message if the transaction is invalid,
+    /// rather than silently dropping it after accepting the broadcast.
+    ///
+    /// The Cloud API at `api.explorer.provable.com/v2/testnet/transaction/broadcast` (singular)
+    /// matches the snarkOS node REST route definition in `node/rest/src/lib.rs:337`.
     pub async fn broadcast_transaction(&self, tx_json: String) -> Result<String> {
         let url = format!(
             "{}/transaction/broadcast?check_transaction=true",
@@ -169,6 +183,12 @@ impl AleoHttpClient {
     }
 
     /// Poll for confirmation (up to 30 attempts, 5s apart).
+    ///
+    /// Checks that the transaction response contains a `block_hash` field,
+    /// which is the only reliable indicator that the transaction has been
+    /// included in a block on Provable's testnet V2 API. A plain HTTP 200
+    /// only means the API accepted the transaction (it may still be in the
+    /// mempool waiting for a validator to pack it).
     pub async fn wait_for_confirmation(&self, tx_id: &str) -> Result<()> {
         let check_url = format!("{}/transaction/{tx_id}", self.base_url);
         tracing::info!("Waiting for confirmation... (polling every 5s)");
@@ -178,13 +198,19 @@ impl AleoHttpClient {
 
             match self.inner.get(&check_url).headers(Self::headers()).send().await {
                 Ok(res) if res.status().is_success() => {
-                    tracing::info!("Confirmed on chain!");
-                    tracing::info!("🔗 https://testnet.explorer.provable.com/transaction/{tx_id}");
-                    return Ok(());
+                    let body = res.text().await.unwrap_or_default();
+                    if body.contains("\"block_hash\"") {
+                        tracing::info!("Confirmed on chain!");
+                        tracing::info!(
+                            "🔗 https://testnet.explorer.provable.com/transaction/{tx_id}"
+                        );
+                        return Ok(());
+                    }
+                    // Transaction accepted by API but not yet in a block
+                    tracing::debug!("not yet confirmed (attempt)");
                 }
                 _ => {
-                    print!(".");
-                    std::io::stdout().flush().ok();
+                    tracing::debug!("confirmation poll failed");
                 }
             }
         }
@@ -221,34 +247,27 @@ impl AleoHttpClient {
         }
     }
 
-    /// Query a mapping value via JSON-RPC `getMappingValue`.
+    /// Query a mapping value via V2 REST API.
     ///
-    /// Returns `None` if the key does not exist in the mapping.
+    /// Uses `GET /v2/testnet/program/{id}/mapping/{name}/{key}` which is the currently
+    /// functional endpoint on Provable's testnet explorer. Falls back gracefully on 404
+    /// (key does not exist in mapping), returning `None`.
     pub async fn fetch_mapping_value(
         &self,
         program_id: &str,
         mapping_name: &str,
         key: &str,
     ) -> Result<Option<String>> {
-        let result = self
-            .json_rpc(
-                "getMappingValue",
-                vec![
-                    Value::String(program_id.to_string()),
-                    Value::String(mapping_name.to_string()),
-                    Value::String(key.to_string()),
-                ],
-            )
-            .await;
-
-        match result {
-            Ok(Value::String(s)) => Ok(Some(s)),
-            Ok(v) => Ok(Some(v.to_string())),
-            Err(e) => {
-                tracing::warn!("Mapping query note (key may not exist): {e}");
-                Ok(None)
-            }
+        let url = format!(
+            "{}/program/{program_id}/mapping/{mapping_name}/{key}",
+            self.base_url
+        );
+        let resp = self.inner.get(&url).headers(Self::headers()).send().await?;
+        if resp.status().is_client_error() {
+            return Ok(None); // 404 = no entry
         }
+        let text = resp.text().await?;
+        Ok(Some(text))
     }
 
     /// Fetch the current block height (REST GET).
@@ -351,25 +370,22 @@ impl AleoHttpClient {
                 // Try to parse and decrypt
                 if let Ok(record) =
                     Record::<TestnetV0, Ciphertext<TestnetV0>>::from_str(ciphertext_str)
+                    && let Ok(decrypted) = record.decrypt(&vk)
                 {
-                    if let Ok(decrypted) = record.decrypt(&vk) {
-                        // Check owner matches
-                        if *decrypted.owner() == snarkvm::prelude::Owner::Public(owner_addr)
-                            || *decrypted.owner()
-                                == snarkvm::prelude::Owner::Private(
-                                    snarkvm::prelude::Plaintext::from(
-                                        snarkvm::prelude::Literal::Address(owner_addr),
-                                    ),
-                                )
-                        {
-                            // Extract microcredits from data
-                            for (id, entry) in decrypted.data().iter() {
-                                if id.to_string() == "microcredits" {
-                                    let amount_str =
-                                        entry.to_string().replace("u64", "").trim().to_string();
-                                    if let Ok(amount) = amount_str.parse::<u64>() {
-                                        results.push((ciphertext_str.to_string(), amount));
-                                    }
+                    // Check owner matches
+                    if *decrypted.owner() == snarkvm::prelude::Owner::Public(owner_addr)
+                        || *decrypted.owner()
+                            == snarkvm::prelude::Owner::Private(snarkvm::prelude::Plaintext::from(
+                                snarkvm::prelude::Literal::Address(owner_addr),
+                            ))
+                    {
+                        // Extract microcredits from data
+                        for (id, entry) in decrypted.data().iter() {
+                            if id.to_string() == "microcredits" {
+                                let amount_str =
+                                    entry.to_string().replace("u64", "").trim().to_string();
+                                if let Ok(amount) = amount_str.parse::<u64>() {
+                                    results.push((ciphertext_str.to_string(), amount));
                                 }
                             }
                         }
@@ -556,7 +572,10 @@ impl QueryTrait<TestnetV0> for ProvableQuery {
             .map_err(|e| anyhow::anyhow!("Failed to parse state paths from '{body}': {e}"))
     }
     async fn current_state_root_async(&self) -> Result<<TestnetV0 as Network>::StateRoot> {
-        Ok(self.state_root)
+        // Must match the sync version: return the root cached from the last
+        // `statePath` fetch so the Merkle proof and the root agree.
+        let guard = self.last_state_root.lock().unwrap();
+        Ok((*guard).unwrap_or(self.state_root))
     }
     async fn current_block_height_async(&self) -> Result<u32> {
         Ok(self.block_height)

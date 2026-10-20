@@ -31,14 +31,24 @@
 //! ```
 
 use crate::execution::ExecutionEngine;
+use crate::execution::consensus_version_to_varuna;
 use crate::network::{AleoHttpClient, ProvableQuery};
 use crate::program::AleoProgram;
 use anyhow::Result;
 use snarkvm::console::program::{ProgramID, Value};
+use snarkvm::ledger::block::Transaction;
 use snarkvm::prelude::{Network, PrivateKey, TestRng, TestnetV0};
 
+/// Inputs for the prove pipeline.
+enum PipelineInputs<'a> {
+    /// Raw string inputs — snarkVM parses them.
+    Strings(Vec<&'a str>),
+    /// Pre-parsed values, required when inputs contain record ciphertexts.
+    Values(Vec<Value<TestnetV0>>),
+}
+
 /// High-level Aleo client that orchestrates the full lifecycle.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AleoClient {
     pub network: AleoHttpClient,
     account: Option<crate::account::AleoAccount>,
@@ -147,6 +157,67 @@ impl AleoClient {
 
     // ── High-level operations ──────────────────────────────────────────
 
+    /// Shared prove pipeline: fetch program → authorize → execute → prove → package.
+    ///
+    /// Every HTTP call goes through `self.network`, including the `statePath`
+    /// lookups the prover needs. This is what keeps a client pointed at a
+    /// non-default node (mainnet, local devnet) from silently proving against
+    /// testnet's Merkle root.
+    async fn prove_pipeline(
+        &self,
+        private_key: &PrivateKey<TestnetV0>,
+        program_id: &ProgramID<TestnetV0>,
+        function_name: &str,
+        inputs: PipelineInputs<'_>,
+        priority_fee: u64,
+    ) -> Result<Transaction<TestnetV0>> {
+        let mut rng = TestRng::default();
+
+        // Fetch the program: non-credits programs must be registered locally
+        // before `authorize` can resolve them.
+        let program = self.network.fetch_program(&program_id.to_string()).await?;
+
+        // V0 fee keys are required for `fee_public` on testnet.
+        let engine = ExecutionEngine::new_with_fee_keys()?;
+        engine.add_program(&program)?;
+
+        let (_response, trace) = match inputs {
+            PipelineInputs::Strings(values) => engine.authorize_and_execute(
+                private_key,
+                program_id,
+                function_name,
+                values,
+                &mut rng,
+            )?,
+            PipelineInputs::Values(values) => engine.authorize_and_execute_with_values(
+                private_key,
+                program_id,
+                function_name,
+                values,
+                &mut rng,
+            )?,
+        };
+
+        // State root + height decide the consensus version (hence the proving
+        // keys and fee schedule) used for this transaction.
+        let (state_root, block_height) = self.network.fetch_state_root().await?;
+        let consensus_version = TestnetV0::CONSENSUS_VERSION(block_height)?;
+        let varuna_version = consensus_version_to_varuna(consensus_version);
+        let query = ProvableQuery::new(state_root, block_height, &self.network.base_url);
+
+        engine.prove_and_package(
+            trace,
+            private_key,
+            program_id,
+            function_name,
+            priority_fee,
+            consensus_version,
+            varuna_version,
+            &query,
+            &mut rng,
+        )
+    }
+
     /// Full pipeline: authorize → execute → prove → return Transaction JSON (no broadcast).
     ///
     /// Equivalent to JS SDK `run(_, _, _, proveExecution=true)` without the broadcast step.
@@ -158,45 +229,17 @@ impl AleoClient {
         program_id: &ProgramID<TestnetV0>,
         function_name: &str,
         inputs: Vec<&str>,
-        base_fee: u64,
         priority_fee: u64,
     ) -> Result<String> {
-        let mut rng = TestRng::default();
-
-        // Fetch program from network (needed for non-credits programs)
-        let program = self.network.fetch_program(&program_id.to_string()).await?;
-
-        // Initialize engine with V0 fee keys for testnet
-        let engine = ExecutionEngine::new_with_v0_fee_keys()?;
-        // Register the user program
-        engine.add_program(&program)?;
-
-        let (_response, trace) = engine.authorize_and_execute(
-            private_key,
-            program_id,
-            function_name,
-            inputs,
-            &mut rng,
-        )?;
-
-        // Fetch state root for proving
-        let (state_root, block_height) = self.network.fetch_state_root().await?;
-        let query = ProvableQuery::new(
-            state_root,
-            block_height,
-            "https://api.provable.com/v2/testnet",
-        );
-
-        let tx = engine.prove_and_package(
-            trace,
-            private_key,
-            program_id,
-            function_name,
-            base_fee,
-            priority_fee,
-            &query,
-            &mut rng,
-        )?;
+        let tx = self
+            .prove_pipeline(
+                private_key,
+                program_id,
+                function_name,
+                PipelineInputs::Strings(inputs),
+                priority_fee,
+            )
+            .await?;
 
         Ok(serde_json::to_string(&tx)?)
     }
@@ -211,51 +254,19 @@ impl AleoClient {
         program_id: &ProgramID<TestnetV0>,
         function_name: &str,
         inputs: Vec<&str>,
-        base_fee: u64,
         priority_fee: u64,
     ) -> Result<String> {
-        let mut rng = TestRng::default();
+        let tx = self
+            .prove_pipeline(
+                private_key,
+                program_id,
+                function_name,
+                PipelineInputs::Strings(inputs),
+                priority_fee,
+            )
+            .await?;
 
-        // Fetch program from network
-        let program = self.network.fetch_program(&program_id.to_string()).await?;
-
-        // Initialize engine with V0 fee keys for testnet
-        let engine = ExecutionEngine::new_with_v0_fee_keys()?;
-        // Register the user program
-        engine.add_program(&program)?;
-
-        // Authorize + execute locally
-        let (_response, trace) = engine.authorize_and_execute(
-            private_key,
-            program_id,
-            function_name,
-            inputs,
-            &mut rng,
-        )?;
-
-        // Fetch state root for proving
-        let (state_root, block_height) = self.network.fetch_state_root().await?;
-        let query = ProvableQuery::new(
-            state_root,
-            block_height,
-            "https://api.provable.com/v2/testnet",
-        );
-
-        // Prove and package
-        let tx = engine.prove_and_package(
-            trace,
-            private_key,
-            program_id,
-            function_name,
-            base_fee,
-            priority_fee,
-            &query,
-            &mut rng,
-        )?;
-
-        // Serialize and broadcast
-        let tx_json = serde_json::to_string(&tx)?;
-        let raw = self.network.broadcast_transaction(tx_json).await?;
+        let raw = self.network.broadcast_transaction(serde_json::to_string(&tx)?).await?;
         Ok(raw.trim_matches('"').to_string())
     }
 
@@ -271,53 +282,19 @@ impl AleoClient {
         program_id: &ProgramID<TestnetV0>,
         function_name: &str,
         values: Vec<Value<TestnetV0>>,
-        base_fee: u64,
         priority_fee: u64,
     ) -> Result<String> {
-        use snarkvm::prelude::TestRng;
+        let tx = self
+            .prove_pipeline(
+                private_key,
+                program_id,
+                function_name,
+                PipelineInputs::Values(values),
+                priority_fee,
+            )
+            .await?;
 
-        let mut rng = TestRng::default();
-
-        // Fetch program from network
-        let program = self.network.fetch_program(&program_id.to_string()).await?;
-
-        // Initialize engine with V0 fee keys for testnet
-        let engine = ExecutionEngine::new_with_v0_fee_keys()?;
-        // Register the user program
-        engine.add_program(&program)?;
-
-        // Authorize + execute locally with pre-parsed values
-        let (_response, trace) = engine.authorize_and_execute_with_values(
-            private_key,
-            program_id,
-            function_name,
-            values,
-            &mut rng,
-        )?;
-
-        // Fetch state root for proving
-        let (state_root, block_height) = self.network.fetch_state_root().await?;
-        let query = ProvableQuery::new(
-            state_root,
-            block_height,
-            "https://api.provable.com/v2/testnet",
-        );
-
-        // Prove and package
-        let tx = engine.prove_and_package(
-            trace,
-            private_key,
-            program_id,
-            function_name,
-            base_fee,
-            priority_fee,
-            &query,
-            &mut rng,
-        )?;
-
-        // Serialize and broadcast
-        let tx_json = serde_json::to_string(&tx)?;
-        let raw = self.network.broadcast_transaction(tx_json).await?;
+        let raw = self.network.broadcast_transaction(serde_json::to_string(&tx)?).await?;
         Ok(raw.trim_matches('"').to_string())
     }
 
@@ -336,7 +313,7 @@ impl AleoClient {
         program_source: &str,
         priority_fee_in_microcredits: u64,
     ) -> Result<String> {
-        use snarkvm::prelude::{ConsensusVersion, Program};
+        use snarkvm::prelude::Program;
         use std::str::FromStr;
 
         let account = self.require_account()?;
@@ -347,26 +324,23 @@ impl AleoClient {
             .map_err(|e| anyhow::anyhow!("Failed to parse program: {e}"))?;
 
         // 2. Initialize engine with V0 fee keys
-        let engine = ExecutionEngine::new_with_v0_fee_keys()?;
+        let engine = ExecutionEngine::new_with_fee_keys()?;
         // Register the program so its dependencies are available
         engine.add_program(&program)?;
 
         // 3. Generate deployment proof (pure proving, no fee yet)
         let deployment = engine.deploy_program(&program, &mut rng)?;
 
-        // 4. Compute minimum deployment cost (TestnetV0 uses V14 consensus)
-        let min_cost = engine.deployment_cost_minimum(&deployment, ConsensusVersion::V14)?;
+        // 4. Compute minimum deployment cost (using consensus version from current height)
+        let (state_root, block_height) = self.network.fetch_state_root().await?;
+        let consensus_version = TestnetV0::CONSENSUS_VERSION(block_height)?;
+        let min_cost = engine.deployment_cost_minimum(&deployment, consensus_version)?;
         // Add a small buffer (5%) to account for node-level overhead that the static cost
         // calculation doesn't capture. This matches how the on-chain validator counts costs.
         let base_fee = min_cost.saturating_mul(105) / 100;
 
-        // 5. Fetch state root for proving
-        let (state_root, block_height) = self.network.fetch_state_root().await?;
-        let query = ProvableQuery::new(
-            state_root,
-            block_height,
-            "https://api.provable.com/v2/testnet",
-        );
+        // 5. Build full deployment transaction (prove fee + package)
+        let query = ProvableQuery::new(state_root, block_height, &self.network.base_url);
 
         // 6. Build full deployment transaction (prove fee + package)
         let tx = engine.build_deployment_transaction(
@@ -375,7 +349,7 @@ impl AleoClient {
             &deployment,
             base_fee,
             priority_fee_in_microcredits,
-            ConsensusVersion::V14,
+            consensus_version,
             &query,
             &mut rng,
         )?;
@@ -460,9 +434,13 @@ impl AleoClient {
                 let engine = ExecutionEngine::new()?;
                 engine.add_program(&program)?;
 
-                // 4. Verify execution proof
+                // 4. Determine consensus version from block height
+                let block_height = self.network.fetch_block_height().await?;
+                let consensus_version = TestnetV0::CONSENSUS_VERSION(block_height)?;
+
+                // 5. Verify execution proof
                 tracing::info!("Verifying execution proof...");
-                engine.verify_execution_transaction(execution)?;
+                engine.verify_execution_transaction(execution, consensus_version)?;
 
                 Ok(format!(
                     "✅ Execution proof VERIFIED\n   Program: {}\n   Function: {}\n   Transitions: {}",
@@ -475,7 +453,13 @@ impl AleoClient {
                 // Verify deployment proof using an empty engine (no user program loaded)
                 tracing::info!("Verifying deployment proof...");
                 let engine = ExecutionEngine::new()?;
-                engine.verify_deployment_transaction(deployment, &mut TestRng::default())?;
+                let block_height = self.network.fetch_block_height().await?;
+                let consensus_version = TestnetV0::CONSENSUS_VERSION(block_height)?;
+                engine.verify_deployment_transaction(
+                    deployment,
+                    consensus_version,
+                    &mut TestRng::default(),
+                )?;
 
                 Ok(format!(
                     "✅ Deployment proof VERIFIED\n   Program: {}",
