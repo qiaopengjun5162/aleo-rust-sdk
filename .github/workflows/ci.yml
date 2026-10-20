@@ -21,8 +21,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          submodules: recursive
+          # No submodules, and nothing here needs git history any more
+          # (changelog generation moved to release-please). A shallow clone
+          # is faster and the default depth is enough.
+          fetch-depth: 1
 
       - name: Install Rust
         run: rustup toolchain install stable --component llvm-tools-preview
@@ -36,15 +38,19 @@ jobs:
       - name: Install typos
         uses: taiki-e/install-action@typos
 
+      # taplo is in taiki-e's supported-tool list, so this downloads a prebuilt
+      # binary. `cargo install taplo-cli --locked` compiled it from source on
+      # every single run.
+      - name: Install taplo
+        uses: taiki-e/install-action@taplo
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Check code format
         run: cargo fmt --all -- --check
 
       - name: Check TOML format
-        run: |
-          cargo install taplo-cli --locked
-          taplo fmt --check
+        run: taplo fmt --check
 
       - name: Check spelling
         run: typos
@@ -58,11 +64,17 @@ jobs:
       - name: Audit dependencies
         uses: EmbarkStudios/cargo-deny-action@v2
 
+      # `cargo nextest` does NOT run doc-tests, so they need their own step.
+      # The previous `nextest || cargo test` fallback hid this: as long as
+      # nextest succeeded, the rustdoc examples in src/ were never compiled.
       - name: Execute rust tests
-        run: cargo nextest run --all-features || cargo test --all-features
+        run: cargo nextest run --all-features
+
+      - name: Execute doc-tests
+        run: cargo test --doc --all-features
 
       - name: Generate coverage
-        run: cargo llvm-cov --all-features --lcov --output-path lcov.info || echo "coverage skipped"
+        run: cargo llvm-cov --all-features --lcov --output-path lcov.info
 
   package-check:
     name: package-check
