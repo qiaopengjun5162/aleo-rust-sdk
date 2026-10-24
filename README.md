@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE)
 [![CI](https://github.com/qiaopengjun5162/aleo-rust-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/qiaopengjun5162/aleo-rust-sdk/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs.rs-aleo--rust--sdk-blue)](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/)
-[![Rust](https://img.shields.io/badge/rustc-1.88+-orange?logo=rust)](https://blog.rust-lang.org/2025/06/26/Rust-1.88.0.html)
+[![Rust](https://img.shields.io/badge/rustc-1.96+-orange?logo=rust)](https://www.rust-lang.org/)
 
 [English](README.md) | [中文](README.zh-CN.md)
 
@@ -34,7 +34,7 @@ A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — 
 
 | Package | crates.io | docs.rs | Description |
 |---------|-----------|---------|-------------|
-| aleo-rust-sdk | [crates.io](https://crates.io/crates/aleo-rust-sdk) | [docs.rs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/) | **Meta-package** — all modules below |
+| aleo-rust-sdk | [crates.io](https://crates.io/crates/aleo-rust-sdk) | [docs.rs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/) | Single crate — every module below lives in it |
 | aleo-rust-sdk (account) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/account/index.html) | Key chain: `PrivateKey → ViewKey → ComputeKey → Address` |
 | aleo-rust-sdk (program) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/program/index.html) | Program loading, parsing, inspection |
 | aleo-rust-sdk (execution) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/execution/index.html) | Authorize, execute, prove, package transactions |
@@ -90,12 +90,12 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aleo-rust-sdk = "0.5.0"
+aleo-rust-sdk = "0.8.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
 **Requirements:**
-- Rust **1.88+**
+- Rust **1.96+** (snarkVM 4.12.0 requires it)
 - snarkVM **4.12.0** (automatically resolved)
 - For proving: ~16 GB RAM recommended
 
@@ -237,6 +237,7 @@ The CLI tool handles this automatically — see the `aleo-cli transfer --mode pr
 | `testnet_query` | [examples/testnet_query.rs](examples/testnet_query.rs) | Query testnet: block height, state root, program info (no key needed) |
 | `testnet_transfer` | [examples/testnet_transfer.rs](examples/testnet_transfer.rs) | Full pipeline: authorize → execute → prove → broadcast credits transfer |
 | `simple_execute` | [examples/simple_execute.rs](examples/simple_execute.rs) | Minimal workflow: load program, execute locally (dry-run) |
+| `sdk_v2_broadcast_test` | [examples/sdk_v2_broadcast_test.rs](examples/sdk_v2_broadcast_test.rs) | Exercise the v2 REST surface and broadcast path against testnet |
 
 Run an example:
 
@@ -291,7 +292,7 @@ aleo-cli transfer aleo1ss6e8... 30000 --mode private
 aleo-cli deploy /path/to/program.aleo program_name
 
 # Execute and broadcast
-aleo-cli exec credits.aleo transfer_public aleo1ss6e8... 1000u64 --base-fee 50000
+aleo-cli exec credits.aleo transfer_public aleo1ss6e8... 1000u64
 
 # Verify a transaction on-chain
 aleo-cli verify at136grnr...

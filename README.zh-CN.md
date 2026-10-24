@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE)
 [![CI](https://github.com/qiaopengjun5162/aleo-rust-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/qiaopengjun5162/aleo-rust-sdk/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs.rs-aleo--rust--sdk-blue)](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/)
-[![Rust](https://img.shields.io/badge/rustc-1.88+-orange?logo=rust)](https://blog.rust-lang.org/2025/06/26/Rust-1.88.0.html)
+[![Rust](https://img.shields.io/badge/rustc-1.96+-orange?logo=rust)](https://www.rust-lang.org/)
 
 [English](README.md) | [中文](README.zh-CN.md)
 
@@ -34,7 +34,7 @@
 
 | 包 | crates.io | docs.rs | 说明 |
 |------|-----------|---------|------|
-| aleo-rust-sdk | [crates.io](https://crates.io/crates/aleo-rust-sdk) | [docs.rs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/) | **元包** — 包含以下所有模块 |
+| aleo-rust-sdk | [crates.io](https://crates.io/crates/aleo-rust-sdk) | [docs.rs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/) | 单一 crate — 下列模块全部在它内部 |
 | aleo-rust-sdk (account) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/account/index.html) | 密钥链：`PrivateKey → ViewKey → ComputeKey → Address` |
 | aleo-rust-sdk (program) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/program/index.html) | 程序加载、解析、检查 |
 | aleo-rust-sdk (execution) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/execution/index.html) | 授权、执行、证明、打包交易 |
@@ -89,12 +89,12 @@ CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个�
 
 ```toml
 [dependencies]
-aleo-rust-sdk = "0.5.0"
+aleo-rust-sdk = "0.8.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
 **要求：**
-- Rust **1.88+**
+- Rust **1.96+**（snarkVM 4.12.0 本身要求）
 - snarkVM **4.12.0**（自动解析）
 - 证明生成：推荐 ~16 GB RAM
 
@@ -236,6 +236,7 @@ CLI 工具会自动处理这个流程——参见下面 `aleo-cli transfer --mod
 | `testnet_query` | [examples/testnet_query.rs](examples/testnet_query.rs) | 查询测试网：区块高度、状态根、程序信息（无需密钥） |
 | `testnet_transfer` | [examples/testnet_transfer.rs](examples/testnet_transfer.rs) | 完整流水线：授权 → 执行 → 证明 → 广播 credits 转账 |
 | `simple_execute` | [examples/simple_execute.rs](examples/simple_execute.rs) | 最小工作流：加载程序、本地执行（脱机模拟） |
+| `sdk_v2_broadcast_test` | [examples/sdk_v2_broadcast_test.rs](examples/sdk_v2_broadcast_test.rs) | 对测试网走一遍 v2 REST 接口与广播路径 |
 
 运行示例：
 
@@ -290,7 +291,7 @@ aleo-cli transfer aleo1ss6e8... 30000 --mode private
 aleo-cli deploy /path/to/program.aleo program_name
 
 # 执行并广播
-aleo-cli exec credits.aleo transfer_public aleo1ss6e8... 1000u64 --base-fee 50000
+aleo-cli exec credits.aleo transfer_public aleo1ss6e8... 1000u64
 
 # 验证链上交易
 aleo-cli verify at136grnr...

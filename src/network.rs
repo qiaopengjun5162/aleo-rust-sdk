@@ -484,7 +484,7 @@ impl<N: Network> QueryTrait<N> for FixedStateRootQuery<N> {
 /// A custom query that fetches Merkle state paths from the Provable API v2
 /// `statePath/{commitment}` endpoint during `trace.prepare()`.
 ///
-/// The state root returned by [`current_state_root`] is cached from the most
+/// The state root returned by `current_state_root()` is cached from the most
 /// recently fetched state path — ensuring the Merkle proof and the root it
 /// verifies against are consistent.
 #[derive(Debug)]
@@ -494,7 +494,7 @@ pub struct ProvableQuery {
     /// Provable API v2 base URL (e.g. `https://api.provable.com/v2/testnet`)
     pub api_base_url: String,
     /// Cached state root extracted from the most recently fetched state path.
-    /// [`current_state_root`] returns this cached value so the Merkle proof
+    /// `current_state_root()` returns this cached value so the Merkle proof
     /// verifies against the same root.
     last_state_root: std::sync::Mutex<Option<<TestnetV0 as Network>::StateRoot>>,
 }

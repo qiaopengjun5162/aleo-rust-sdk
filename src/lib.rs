@@ -4,13 +4,15 @@
 //! Provides tools for account management, program loading, local zero-knowledge execution,
 //! proof generation, network querying, and transaction broadcasting.
 //!
-//! Built on top of [snarkVM 4.12.0](https://github.com/ProvableHQ/snarkVM) (git
-//! rev `6d7b76515`) for zero-knowledge
-//! proving and [reqwest](https://crates.io/crates/reqwest) for async HTTP.
+//! Built on top of [snarkVM 4.12.0](https://crates.io/crates/snarkvm) for
+//! zero-knowledge proving, [reqwest](https://crates.io/crates/reqwest) for async
+//! HTTP, and [ureq](https://crates.io/crates/ureq) for the synchronous
+//! `ProvableQuery` state-path fetches.
 //!
 //! ## Architecture
 //!
-//! The SDK is organized into five modules:
+//! The SDK is organized into nine modules — six of them functional layers,
+//! three of them support:
 //!
 //! | Module | Purpose |
 //! |--------|---------|
@@ -19,7 +21,10 @@
 //! | [`execution`] | Authorize, execute, prove, and package transactions |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
 //! | [`record`] | Record discovery, decryption, and coin selection |
+//! | [`sealance`] | Merkle exclusion proofs for compliant-stablecoin freeze lists |
 //! | [`client`] | High-level `AleoClient` orchestrating the full lifecycle |
+//! | [`error`] | Unified [`AleoError`] type |
+//! | [`version`] | Crate version constant |
 //!
 //! ## Quick Start
 //!
@@ -44,14 +49,16 @@
 //! }
 //! ```
 //!
-//! ## Feature flags
+//! ## Cargo features
 //!
-//! All features are built-in. The heavy lifting dependency is
-//! [snarkVM](https://github.com/ProvableHQ/snarkVM) for zero-knowledge proving.
+//! This crate defines **no optional features** — every module is always
+//! compiled. The heavy lifting comes from [snarkVM](https://crates.io/crates/snarkvm),
+//! which dominates both build time and binary size.
 //!
 //! ## Related crates
 //!
-//! - [`aleo-cli`](https://crates.io/crates/aleo-cli) — CLI tool built on this SDK
+//! - [`aleo-cli`](https://crates.io/crates/aleo-cli) — a companion command-line
+//!   tool built on this SDK
 //! - [`snarkvm`](https://crates.io/crates/snarkvm) — Zero-knowledge VM for Aleo
 //!
 //! ## License
