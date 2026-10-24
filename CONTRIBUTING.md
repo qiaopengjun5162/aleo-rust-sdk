@@ -59,8 +59,9 @@ Have an idea for a new feature or improvement?
 
 ## Development Setup
 
-Requires **Rust 1.88+** (edition 2024 + `time` 0.3.47 security fix). `rust-toolchain.toml`
-pins `stable`, so `rustup` picks the right toolchain automatically.
+Requires **Rust 1.96+** — that is snarkVM 4.12.0's own `rust-version`, so it sets
+the floor for this crate too. `rust-toolchain.toml` pins `stable`, so `rustup`
+picks a suitable toolchain automatically.
 
 ```bash
 # Clone your fork

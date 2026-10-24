@@ -10,7 +10,9 @@ documentation = "https://docs.rs/aleo-rust-sdk"
 readme = "README.md"
 keywords = ["aleo", "blockchain", "zero-knowledge", "sdk", "snarkvm"]
 categories = ["cryptography", "web-programming::http-client"]
-rust-version = "1.88"
+# snarkVM 4.12.0 itself declares rust-version = "1.96.0", so that — not 1.88 —
+# is the real floor. CI verifies this value instead of trusting the comment.
+rust-version = "1.96"
 
 [dependencies]
 anyhow = "1.0"
@@ -19,9 +21,8 @@ indexmap = { version = "2", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json", "socks"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 hex = "0.4"
 aes-gcm = "0.10"
@@ -42,6 +43,9 @@ thiserror = "2.0.21"
 [dev-dependencies]
 wiremock = "0.6"
 tempfile = "3"
+# Only `examples/testnet_transfer.rs` initialises a subscriber; keeping it out
+# of [dependencies] stops every library consumer from pulling env-filter in.
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [lib]
 name = "aleo_rust_sdk"

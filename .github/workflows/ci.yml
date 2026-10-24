@@ -12,12 +12,21 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+# A new push to the same branch makes the previous run pointless. Cancel it so
+# queue time goes to the commit that actually matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-rust:
     strategy:
       matrix:
         platform: [ubuntu-latest]
     runs-on: ${{ matrix.platform }}
+    # The full run sits around 25 min; 60 leaves room for a cold cache without
+    # letting a hung step burn the 6 h default.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,14 +64,19 @@ jobs:
       - name: Check spelling
         run: typos
 
-      - name: Check the package for errors
-        run: cargo check --all-features
-
       - name: Lint rust sources
         run: cargo clippy --all-targets --all-features --tests --benches -- -D warnings
 
       - name: Audit dependencies
         uses: EmbarkStudios/cargo-deny-action@v2
+
+      # rustdoc resolves every intra-doc link. Without this step a doc comment
+      # can reference a type that no longer exists and nothing notices — the
+      # crate still builds, the link is just dead on docs.rs.
+      - name: Build docs (warn on broken links)
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --all-features
 
       # `cargo nextest` does NOT run doc-tests, so they need their own step.
       # The previous `nextest || cargo test` fallback hid this: as long as
@@ -75,6 +89,16 @@ jobs:
 
       - name: Generate coverage
         run: cargo llvm-cov --all-features --lcov --output-path lcov.info
+
+      # The report is the whole point of the previous step; without this upload
+      # the 6 minutes of instrumented rebuilding produce a file that is deleted
+      # together with the runner.
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov-report
+          path: lcov.info
+          retention-days: 14
 
   package-check:
     name: package-check
@@ -91,3 +115,42 @@ jobs:
       # --no-verify 跳过重新编译，因此很便宜。
       - name: Verify the crate is publishable
         run: cargo publish --dry-run --no-verify
+
+  # `rust-version` is a promise to downstream users. Nothing else in this
+  # workflow checks it: `stable` is always newer, so a dependency could quietly
+  # raise the real floor while the manifest keeps advertising the old number.
+  # (That is exactly what happened with the old `rust-version = "1.88"` —
+  # snarkVM 4.12.0 actually requires 1.96.0.)
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Read the number from the manifest rather than hardcoding it here. A
+      # hardcoded job keeps happily testing the old version after the promise
+      # changes, which is another way of being green and wrong.
+      - name: Read declared MSRV
+        id: msrv
+        run: |
+          version=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].rust_version')
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "::error::Cargo.toml has no rust-version; the MSRV promise is unverifiable"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Declared MSRV: $version"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Separate cache: mixing MSRV artifacts with stable ones would
+          # invalidate both on every switch.
+          key: msrv-${{ steps.msrv.outputs.version }}
+
+      - name: Check with the declared MSRV
+        run: cargo +${{ steps.msrv.outputs.version }} check --all-features
