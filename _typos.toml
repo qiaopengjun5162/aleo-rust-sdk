@@ -3,6 +3,11 @@ extend-exclude = ["target/", ".git/"]
 
 [default]
 extend-ignore-re = [
+    # Commit hashes. release-please writes 7-char hashes into CHANGELOG.md, and
+    # any hex run can be split into "words" like `ba`, `be`, `ab` — that is how
+    # `3a20ba5` produced `error: `ba` should be `by`, `be`` on a release PR.
+    # Nothing here is prose, so skipping 7+ hex runs costs no real coverage.
+    "\\b[0-9a-f]{7,40}\\b",
     # snarkVM types that look like typos
     "Credits",
     "credits",
