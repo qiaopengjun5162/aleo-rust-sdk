@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.8.2](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.8.1...aleo-rust-sdk-v0.8.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* **ci:** ignore commit hashes in typos ([#17](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/17)) ([ec9aacd](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/ec9aacddaeaf4a33a87479b5bb2f858366528009))
+* patch five RUSTSEC advisories, correct MSRV to 1.96, close doc gaps ([#15](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/15)) ([3a20ba5](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/3a20ba589b91a27de7c82c213cca1396c1660193))
+
 ## [0.8.1](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.8.0...aleo-rust-sdk-v0.8.1) (2026-10-20)
 
 
