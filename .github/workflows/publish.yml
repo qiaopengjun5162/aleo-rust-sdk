@@ -1,0 +1,65 @@
+# Publishes aleo-rust-sdk to crates.io.
+#
+# Why this exists: release-please only cuts a git tag + GitHub Release. It does
+# NOT upload to crates.io. Without this workflow every release silently relied
+# on a manual `cargo publish` — which is exactly how 0.8.0/0.8.1 got missed and
+# crates.io stalled at 0.7.0. Now the tag push is the single trigger that
+# finishes the release end-to-end.
+#
+# Required secret (add once in repo Settings > Secrets and variables > Actions):
+#   CARGO_REGISTRY_TOKEN  — a crates.io API token with publish rights.
+#
+# The job is idempotent: if the version is already on crates.io it skips, so
+# re-running or re-pushing the tag is safe.
+
+name: Publish to crates.io
+
+on:
+  push:
+    tags:
+      - 'aleo-rust-sdk-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: cargo publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Rust
+        run: rustup toolchain install stable
+
+      - name: Derive version from tag
+        id: ver
+        run: |
+          # tag format: aleo-rust-sdk-v0.8.2 -> 0.8.2
+          echo "version=${GITHUB_REF_NAME#aleo-rust-sdk-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if already published
+        run: |
+          if curl -sf "https://crates.io/api/v1/crates/aleo-rust-sdk/${{ steps.ver.outputs.version }}" >/dev/null; then
+            echo "aleo-rust-sdk ${{ steps.ver.outputs.version }} is already on crates.io — nothing to do."
+            exit 0
+          fi
+
+      - name: cargo publish (retry transient failures)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          for attempt in 1 2 3; do
+            if cargo publish --token "$CARGO_REGISTRY_TOKEN"; then
+              echo "Published aleo-rust-sdk ${{ steps.ver.outputs.version }}."; exit 0
+            fi
+            echo "cargo publish attempt $attempt failed; retrying in 15s..."; sleep 15
+          done
+          echo "cargo publish failed after 3 attempts."; exit 1
