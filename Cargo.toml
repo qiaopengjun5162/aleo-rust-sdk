@@ -38,7 +38,6 @@ snarkvm = { version = "4.12.0", default-features = true, features = [
     "ledger",
     "synthesizer",
 ] }
-thiserror = "2.0.21"
 
 [dev-dependencies]
 wiremock = "0.6"

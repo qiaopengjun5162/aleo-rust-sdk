@@ -388,9 +388,28 @@ impl AleoClient {
     }
 
     /// Find unspent private credits records owned by the current account's view key.
+    ///
+    /// Scans the last ~100K blocks and returns `(ciphertext, microcredits)` pairs
+    /// for `credits.aleo` records, largest first.
+    ///
+    /// The decryption itself lives in [`RecordScanner`](crate::record::RecordScanner),
+    /// which is the single implementation of "decrypt a ciphertext and check
+    /// whether it is mine". Keeping a second copy here (or in the HTTP client)
+    /// is how the two versions drift apart on edge cases like private owners.
     pub async fn find_private_credits_records(&self) -> Result<Vec<(String, u64)>> {
+        use crate::record::RecordScanner;
+
         let account = self.require_account()?;
-        self.network.find_private_credits_records(&account.view_key.to_string()).await
+        let scanner = RecordScanner::new(self.network.clone());
+        let records = scanner.scan_recent(&account.view_key.to_string(), 100_000).await?;
+
+        // `scan_blocks` returns records for every program owned by this view key
+        // and sorts them by amount descending, so filtering preserves the order.
+        Ok(records
+            .into_iter()
+            .filter(|r| r.program_id == "credits.aleo")
+            .map(|r| (r.ciphertext, r.microcredits))
+            .collect())
     }
 
     /// Fetch the current block height.

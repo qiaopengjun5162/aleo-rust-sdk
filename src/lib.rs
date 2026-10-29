@@ -11,8 +11,8 @@
 //!
 //! ## Architecture
 //!
-//! The SDK is organized into nine modules — six of them functional layers,
-//! three of them support:
+//! The SDK is organized into eight modules — six of them functional layers,
+//! two of them support:
 //!
 //! | Module | Purpose |
 //! |--------|---------|
@@ -23,8 +23,20 @@
 //! | [`record`] | Record discovery, decryption, and coin selection |
 //! | [`sealance`] | Merkle exclusion proofs for compliant-stablecoin freeze lists |
 //! | [`client`] | High-level `AleoClient` orchestrating the full lifecycle |
-//! | [`error`] | Unified [`AleoError`] type |
 //! | [`version`] | Crate version constant |
+//!
+//! ## Error handling
+//!
+//! Every fallible API returns `anyhow::Result`. That is deliberate: the majority
+//! of failures originate inside snarkVM (parsing a program, tracing a transition,
+//! synthesizing a circuit) and arrive as `anyhow::Error` already, with a context
+//! chain that would be destroyed by flattening it into a fixed enum. This crate
+//! adds context at each step (`.context("Failed to parse program")`) instead of
+//! re-typing the error, so `err.to_string()` stays readable and
+//! `err.chain()` still shows the root cause.
+//!
+//! Match on the *message* only as a last resort; if you need to branch on a
+//! failure, check it before the call (e.g. `client.require_account()`), not after.
 //!
 //! ## Quick Start
 //!
@@ -67,7 +79,6 @@
 
 pub mod account;
 pub mod client;
-pub mod error;
 pub mod execution;
 pub mod network;
 pub mod program;
@@ -78,7 +89,6 @@ pub mod version;
 // Re-export the main types at the crate root for convenience
 pub use account::AleoAccount;
 pub use client::AleoClient;
-pub use error::AleoError;
 pub use execution::{ExecutionEngine, consensus_version_to_varuna};
 pub use network::{AleoHttpClient, FixedStateRootQuery, ProvableQuery};
 pub use program::AleoProgram;
