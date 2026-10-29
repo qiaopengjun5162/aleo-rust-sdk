@@ -95,25 +95,40 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if already published
-        run: |
-          if curl -sf -A "aleo-rust-sdk-release-workflow" \
-              "https://crates.io/api/v1/crates/aleo-rust-sdk/${{ steps.ver.outputs.version }}" >/dev/null; then
-            echo "aleo-rust-sdk ${{ steps.ver.outputs.version }} is already on crates.io — nothing to do."
-            exit 0
-          fi
-
-      - name: cargo publish (retry transient failures)
+      - name: cargo publish (idempotent, retries only real failures)
         env:
+          # `cargo publish --token` is deprecated and prints a warning; the env
+          # var is the supported path and was already being set here.
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
+          version="${{ steps.ver.outputs.version }}"
+
           for attempt in 1 2 3; do
-            if cargo publish --token "$CARGO_REGISTRY_TOKEN"; then
-              echo "Published aleo-rust-sdk ${{ steps.ver.outputs.version }}."
+            if out=$(cargo publish --locked 2>&1); then
+              printf '%s\n' "$out"
+              echo "Published aleo-rust-sdk $version."
               exit 0
             fi
+            printf '%s\n' "$out"
+
+            # "already exists on crates.io index" is a SUCCESS for an
+            # idempotent release job, not a transient failure: the version is
+            # out there. Retrying it three times and failing the run (or worse,
+            # treating it as an infrastructure hiccup) is how a re-run of a
+            # good release turns red.
+            #
+            # This check is on the *index* message on purpose. An earlier
+            # version probed https://crates.io/api/v1/crates/... instead, but
+            # that endpoint is CDN-cached and lagged the index by minutes, so
+            # it answered "not published" for a version that already was.
+            if printf '%s' "$out" | grep -qi "already exists on crates.io index"; then
+              echo "aleo-rust-sdk $version is already on crates.io — nothing to do."
+              exit 0
+            fi
+
             echo "cargo publish attempt $attempt failed; retrying in 15s..."
             sleep 15
           done
-          echo "cargo publish failed after 3 attempts."
+
+          echo "::error::cargo publish failed after 3 attempts."
           exit 1
