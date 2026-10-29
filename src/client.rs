@@ -365,20 +365,15 @@ impl AleoClient {
     /// Query the public balance of the current account from `credits.aleo`.
     ///
     /// Returns `None` if the account has never received credits (no mapping entry).
+    ///
+    /// There is only one endpoint for this (`GET .../mapping/account/{addr}`), so
+    /// there is only one call. An earlier version re-issued the identical request
+    /// as a "JSON-RPC fallback" — same URL, same 404 handling — which bought an
+    /// extra round trip on every empty account and turned a parse failure that
+    /// the first call logged as `None` into a hard error on the second.
     pub async fn get_balance(&self) -> Result<Option<u64>> {
         let addr = self.require_account()?.address_str();
-        // Try REST first (more reliable than JSON-RPC for mapping queries)
-        if let Some(val) =
-            self.network.fetch_mapping_value_rest("credits.aleo", "account", &addr).await?
-        {
-            return Ok(Some(val));
-        }
-        // Fallback: JSON-RPC path
-        let val = self.network.fetch_mapping_value("credits.aleo", "account", &addr).await?;
-        match val {
-            Some(s) => Ok(Some(s.trim().parse::<u64>()?)),
-            None => Ok(None),
-        }
+        self.network.fetch_mapping_value_rest("credits.aleo", "account", &addr).await
     }
 
     /// Fetch unspent records for the current account's view key.
@@ -388,9 +383,28 @@ impl AleoClient {
     }
 
     /// Find unspent private credits records owned by the current account's view key.
+    ///
+    /// Scans the last ~100K blocks and returns `(ciphertext, microcredits)` pairs
+    /// for `credits.aleo` records, largest first.
+    ///
+    /// The decryption itself lives in [`RecordScanner`](crate::record::RecordScanner),
+    /// which is the single implementation of "decrypt a ciphertext and check
+    /// whether it is mine". Keeping a second copy here (or in the HTTP client)
+    /// is how the two versions drift apart on edge cases like private owners.
     pub async fn find_private_credits_records(&self) -> Result<Vec<(String, u64)>> {
+        use crate::record::RecordScanner;
+
         let account = self.require_account()?;
-        self.network.find_private_credits_records(&account.view_key.to_string()).await
+        let scanner = RecordScanner::new(self.network.clone());
+        let records = scanner.scan_recent(&account.view_key.to_string(), 100_000).await?;
+
+        // `scan_blocks` returns records for every program owned by this view key
+        // and sorts them by amount descending, so filtering preserves the order.
+        Ok(records
+            .into_iter()
+            .filter(|r| r.program_id == "credits.aleo")
+            .map(|r| (r.ciphertext, r.microcredits))
+            .collect())
     }
 
     /// Fetch the current block height.
