@@ -13,6 +13,40 @@ use super::BROWSER_UA;
 /// JSON-RPC endpoint for Aleo testnet (used for mapping/records queries).
 const JSON_RPC_URL: &str = "https://testnetbeta.aleorpc.com";
 
+/// Polling schedule for [`AleoHttpClient::wait_for_confirmation_with`].
+#[derive(Clone, Copy, Debug)]
+pub struct ConfirmationPoll {
+    /// Maximum number of checks.
+    pub attempts: u32,
+    /// Delay between checks. Not applied after the final attempt.
+    pub interval: std::time::Duration,
+}
+
+impl Default for ConfirmationPoll {
+    /// The production schedule: 30 checks, 5 seconds apart (~145s worst case).
+    fn default() -> Self {
+        Self {
+            attempts: 30,
+            interval: std::time::Duration::from_secs(5),
+        }
+    }
+}
+
+/// Whether a `transaction/{id}` response reports the transaction as mined.
+///
+/// Requires `block_hash` to be a present, non-empty string. An earlier version
+/// searched the body for the substring `"block_hash"`, which also matches
+/// `"block_hash": null` and any error text mentioning the field — i.e. it could
+/// report an unmined transaction as confirmed, which is precisely the false
+/// positive this check exists to prevent. Waiting longer is the safe failure;
+/// claiming success is not.
+fn transaction_is_confirmed(body: &str) -> bool {
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v.get("block_hash")?.as_str().map(str::to_owned))
+        .is_some_and(|hash| !hash.is_empty())
+}
+
 /// HTTP client with browser-like headers for Aleo network interaction.
 #[derive(Clone, Debug)]
 pub struct AleoHttpClient {
@@ -181,24 +215,43 @@ impl AleoHttpClient {
         Ok(body)
     }
 
-    /// Poll for confirmation (up to 30 attempts, 5s apart).
+    /// Poll for confirmation with the production schedule (30 attempts, 5s apart).
     ///
-    /// Checks that the transaction response contains a `block_hash` field,
-    /// which is the only reliable indicator that the transaction has been
-    /// included in a block on Provable's testnet V2 API. A plain HTTP 200
-    /// only means the API accepted the transaction (it may still be in the
-    /// mempool waiting for a validator to pack it).
+    /// See [`Self::wait_for_confirmation_with`] for what counts as confirmed.
     pub async fn wait_for_confirmation(&self, tx_id: &str) -> Result<()> {
+        self.wait_for_confirmation_with(tx_id, ConfirmationPoll::default()).await
+    }
+
+    /// Poll for confirmation using an explicit schedule.
+    ///
+    /// A transaction is confirmed only when the response carries a non-empty
+    /// string `block_hash`. That field is the sole reliable indicator of
+    /// inclusion in a block on Provable's testnet V2 API — a plain HTTP 200
+    /// only means the API accepted the transaction and it may still be sitting
+    /// in the mempool.
+    ///
+    /// The first check happens immediately; the interval only separates
+    /// attempts. [`ConfirmationPoll`] is a parameter rather than a constant
+    /// because the timeout path otherwise takes 150 seconds and cannot run in
+    /// CI, which is how the previous version ended up `#[ignore]`d — present
+    /// but never executed.
+    pub async fn wait_for_confirmation_with(
+        &self,
+        tx_id: &str,
+        poll: ConfirmationPoll,
+    ) -> Result<()> {
         let check_url = format!("{}/transaction/{tx_id}", self.base_url);
-        tracing::info!("Waiting for confirmation... (polling every 5s)");
+        tracing::info!(
+            "Waiting for confirmation... ({} attempts, {:?} apart)",
+            poll.attempts,
+            poll.interval
+        );
 
-        for _ in 1..=30 {
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-
+        for attempt in 1..=poll.attempts {
             match self.inner.get(&check_url).headers(Self::headers()).send().await {
                 Ok(res) if res.status().is_success() => {
                     let body = res.text().await.unwrap_or_default();
-                    if body.contains("\"block_hash\"") {
+                    if transaction_is_confirmed(&body) {
                         tracing::info!("Confirmed on chain!");
                         tracing::info!(
                             "🔗 https://testnet.explorer.provable.com/transaction/{tx_id}"
@@ -206,11 +259,14 @@ impl AleoHttpClient {
                         return Ok(());
                     }
                     // Transaction accepted by API but not yet in a block
-                    tracing::debug!("not yet confirmed (attempt)");
+                    tracing::debug!("not yet confirmed (attempt {attempt})");
                 }
                 _ => {
-                    tracing::debug!("confirmation poll failed");
+                    tracing::debug!("confirmation poll failed (attempt {attempt})");
                 }
+            }
+            if attempt < poll.attempts {
+                tokio::time::sleep(poll.interval).await;
             }
         }
         anyhow::bail!("Timed out waiting for confirmation of {tx_id}")

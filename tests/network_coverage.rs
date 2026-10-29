@@ -1,4 +1,4 @@
-use aleo_rust_sdk::AleoHttpClient;
+use aleo_rust_sdk::{AleoHttpClient, ConfirmationPoll};
 use wiremock::matchers::{body_json, method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -259,14 +259,22 @@ async fn test_wait_for_confirmation_timeout() {
     let mock_server = MockServer::start().await;
     let client = mock_client(&mock_server.uri());
 
-    // Always return 404 so it times out
+    // Always return 404 so it times out.
     Mock::given(method("GET"))
         .and(path_regex(r"/transaction/.+"))
         .respond_with(ResponseTemplate::new(404))
         .mount(&mock_server)
         .await;
 
-    let result = client.wait_for_confirmation("tx_never_confirms").await;
+    // Fast schedule: the production default is 30 × 5 s = 145 s of dead wall
+    // clock per run, which is why this assertion used to cost more than the
+    // entire rest of the suite. The retry *logic* is what needs testing, not
+    // the constant.
+    let poll = ConfirmationPoll {
+        attempts: 3,
+        interval: std::time::Duration::from_millis(1),
+    };
+    let result = client.wait_for_confirmation_with("tx_never_confirms", poll).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("Timed out"));
 }
