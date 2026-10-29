@@ -218,40 +218,14 @@ impl AleoHttpClient {
 
     // ── On-chain state queries ──────────────────────────────────────────
 
-    /// Query a mapping value via REST API (GET /program/{id}/mapping/{name}/{key}).
+    /// GET a mapping entry and return the raw body, or `None` when the key is
+    /// absent (the API answers 404).
     ///
-    /// Returns `None` if the key does not exist (404).
-    pub async fn fetch_mapping_value_rest(
-        &self,
-        program_id: &str,
-        mapping_name: &str,
-        key: &str,
-    ) -> Result<Option<u64>> {
-        let url = format!(
-            "{}/program/{program_id}/mapping/{mapping_name}/{key}",
-            self.base_url
-        );
-        let resp = self.inner.get(&url).headers(Self::headers()).send().await?;
-        if resp.status().is_client_error() {
-            return Ok(None); // 404 = no entry
-        }
-        let text = resp.text().await?;
-        let cleaned = text.trim().trim_matches('"').replace("u64", "");
-        match cleaned.parse::<u64>() {
-            Ok(v) => Ok(Some(v)),
-            Err(e) => {
-                tracing::warn!("Failed to parse REST mapping value '{text}': {e}");
-                Ok(None)
-            }
-        }
-    }
-
-    /// Query a mapping value via V2 REST API.
-    ///
-    /// Uses `GET /v2/testnet/program/{id}/mapping/{name}/{key}` which is the currently
-    /// functional endpoint on Provable's testnet explorer. Falls back gracefully on 404
-    /// (key does not exist in mapping), returning `None`.
-    pub async fn fetch_mapping_value(
+    /// Both public mapping helpers below resolve to the *same* REST route and
+    /// the same "4xx means absent" rule; the only difference between them is
+    /// whether the body is parsed as a `u64`. This is the single place that
+    /// knows the route, so the two cannot drift.
+    async fn mapping_value_raw(
         &self,
         program_id: &str,
         mapping_name: &str,
@@ -265,8 +239,44 @@ impl AleoHttpClient {
         if resp.status().is_client_error() {
             return Ok(None); // 404 = no entry
         }
-        let text = resp.text().await?;
-        Ok(Some(text))
+        Ok(Some(resp.text().await?))
+    }
+
+    /// Query a numeric mapping value (`credits.aleo/account`).
+    ///
+    /// Returns `None` if the key does not exist (404), or if the body is not a
+    /// `u64` — the latter is logged, because a value that does not parse means
+    /// the response format changed, not that the account is empty.
+    pub async fn fetch_mapping_value_rest(
+        &self,
+        program_id: &str,
+        mapping_name: &str,
+        key: &str,
+    ) -> Result<Option<u64>> {
+        let Some(text) = self.mapping_value_raw(program_id, mapping_name, key).await? else {
+            return Ok(None);
+        };
+        let cleaned = text.trim().trim_matches('"').replace("u64", "");
+        match cleaned.parse::<u64>() {
+            Ok(v) => Ok(Some(v)),
+            Err(e) => {
+                tracing::warn!("Failed to parse REST mapping value '{text}': {e}");
+                Ok(None)
+            }
+        }
+    }
+
+    /// Query a mapping value as its raw serialized string.
+    ///
+    /// Use this for mappings whose values are not `u64` (structs, addresses,
+    /// other plaintext literals). Returns `None` on 404.
+    pub async fn fetch_mapping_value(
+        &self,
+        program_id: &str,
+        mapping_name: &str,
+        key: &str,
+    ) -> Result<Option<String>> {
+        self.mapping_value_raw(program_id, mapping_name, key).await
     }
 
     /// Fetch the current block height (REST GET).

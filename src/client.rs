@@ -365,20 +365,15 @@ impl AleoClient {
     /// Query the public balance of the current account from `credits.aleo`.
     ///
     /// Returns `None` if the account has never received credits (no mapping entry).
+    ///
+    /// There is only one endpoint for this (`GET .../mapping/account/{addr}`), so
+    /// there is only one call. An earlier version re-issued the identical request
+    /// as a "JSON-RPC fallback" — same URL, same 404 handling — which bought an
+    /// extra round trip on every empty account and turned a parse failure that
+    /// the first call logged as `None` into a hard error on the second.
     pub async fn get_balance(&self) -> Result<Option<u64>> {
         let addr = self.require_account()?.address_str();
-        // Try REST first (more reliable than JSON-RPC for mapping queries)
-        if let Some(val) =
-            self.network.fetch_mapping_value_rest("credits.aleo", "account", &addr).await?
-        {
-            return Ok(Some(val));
-        }
-        // Fallback: JSON-RPC path
-        let val = self.network.fetch_mapping_value("credits.aleo", "account", &addr).await?;
-        match val {
-            Some(s) => Ok(Some(s.trim().parse::<u64>()?)),
-            None => Ok(None),
-        }
+        self.network.fetch_mapping_value_rest("credits.aleo", "account", &addr).await
     }
 
     /// Fetch unspent records for the current account's view key.
