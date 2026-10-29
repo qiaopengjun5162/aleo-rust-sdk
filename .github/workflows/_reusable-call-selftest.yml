@@ -4,9 +4,14 @@
 # publish.yml as a reusable workflow with `secrets: inherit`. Without this the
 # wiring would only be proven at the next real release, i.e. after the point
 # where a mistake can still be fixed cheaply.
+#
+# Triggered on push rather than workflow_dispatch because GitHub only lets you
+# dispatch workflows that already exist on the default branch — which is the
+# opposite of what you want when testing a new workflow file.
 name: Reusable call self-test
 on:
-  workflow_dispatch:
+  push:
+    branches: [fix/publish-trigger-never-fired]
 permissions:
   contents: read
 jobs:
