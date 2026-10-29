@@ -3,14 +3,24 @@
 # Why this exists: release-please only cuts a git tag + GitHub Release. It does
 # NOT upload to crates.io. Without this workflow every release silently relied
 # on a manual `cargo publish` — which is exactly how 0.8.0/0.8.1 got missed and
-# crates.io stalled at 0.7.0. Now the tag push is the single trigger that
-# finishes the release end-to-end.
+# crates.io stalled at 0.7.0.
 #
-# Required secret (add once in repo Settings > Secrets and variables > Actions):
-#   CARGO_REGISTRY_TOKEN  — a crates.io API token with publish rights.
+# ⚠️ The `push: tags` trigger below is NOT sufficient on its own, and relying on
+# it alone is how 0.9.0 silently failed to publish: release-please creates the
+# tag with the workflow's `GITHUB_TOKEN`, and GitHub deliberately does not start
+# new workflow runs for events caused by GITHUB_TOKEN (anti-recursion). So the
+# tag appeared, the Release appeared, and this workflow never ran.
+#
+# The reliable trigger is `workflow_call`, invoked by release-please.yml in the
+# same run that creates the tag — no personal access token to provision or
+# rotate. The `push: tags` trigger is kept for tags pushed by a human, and
+# `workflow_dispatch` for recovering a missed release.
+#
+# Required secret: CARGO_REGISTRY_TOKEN — a crates.io API token with publish
+# rights (Settings > Secrets and variables > Actions).
 #
 # The job is idempotent: if the version is already on crates.io it skips, so
-# re-running or re-pushing the tag is safe.
+# re-running or re-pushing a tag is safe.
 
 name: Publish to crates.io
 
@@ -18,7 +28,18 @@ on:
   push:
     tags:
       - 'aleo-rust-sdk-v*'
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag to publish, e.g. aleo-rust-sdk-v0.9.0'
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (required when dispatching from a branch, e.g. aleo-rust-sdk-v0.9.0)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -30,24 +51,54 @@ jobs:
   publish:
     name: cargo publish
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
+      # On a tag push / workflow_call the input is empty and `github.ref` is the
+      # tag; on a branch dispatch it is the tag the operator passed.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install Rust
         run: rustup toolchain install stable
 
-      - name: Derive version from tag
+      - name: Resolve version from tag
         id: ver
+        # Fails loudly instead of publishing the wrong thing. Before this guard,
+        # dispatching on a branch derived the version from `GITHUB_REF_NAME`
+        # ("main") and happily ran `cargo publish` for a package named "main".
         run: |
-          # tag format: aleo-rust-sdk-v0.8.2 -> 0.8.2
-          echo "version=${GITHUB_REF_NAME#aleo-rust-sdk-v}" >> "$GITHUB_OUTPUT"
+          tag="${{ inputs.tag }}"
+          [ -n "$tag" ] || tag="$GITHUB_REF_NAME"
+
+          case "$tag" in
+            aleo-rust-sdk-v*) ;;
+            *)
+              echo "::error::'$tag' is not an aleo-rust-sdk-v* tag. Pass the 'tag' input (dispatching from a branch cannot infer it)."
+              exit 1
+              ;;
+          esac
+
+          version="${tag#aleo-rust-sdk-v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$version' (from tag '$tag') is not a release version."
+            exit 1
+          fi
+
+          # The tag must actually be a tag — a branch named like one would let us
+          # publish uncommitted-to-crates code.
+          git fetch --depth 1 origin "refs/tags/$tag:refs/tags/$tag"
+          git rev-parse --verify "refs/tags/$tag^{commit}" >/dev/null
+
+          echo "Publishing aleo-rust-sdk $version from tag $tag ($(git rev-parse --short HEAD))"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Skip if already published
         run: |
-          if curl -sf "https://crates.io/api/v1/crates/aleo-rust-sdk/${{ steps.ver.outputs.version }}" >/dev/null; then
+          if curl -sf -A "aleo-rust-sdk-release-workflow" \
+              "https://crates.io/api/v1/crates/aleo-rust-sdk/${{ steps.ver.outputs.version }}" >/dev/null; then
             echo "aleo-rust-sdk ${{ steps.ver.outputs.version }} is already on crates.io — nothing to do."
             exit 0
           fi
@@ -58,8 +109,11 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             if cargo publish --token "$CARGO_REGISTRY_TOKEN"; then
-              echo "Published aleo-rust-sdk ${{ steps.ver.outputs.version }}."; exit 0
+              echo "Published aleo-rust-sdk ${{ steps.ver.outputs.version }}."
+              exit 0
             fi
-            echo "cargo publish attempt $attempt failed; retrying in 15s..."; sleep 15
+            echo "cargo publish attempt $attempt failed; retrying in 15s..."
+            sleep 15
           done
-          echo "cargo publish failed after 3 attempts."; exit 1
+          echo "cargo publish failed after 3 attempts."
+          exit 1

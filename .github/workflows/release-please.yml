@@ -1,3 +1,16 @@
+# Cuts the release PR + tag, then publishes to crates.io in the SAME run.
+#
+# Why the publish job lives here rather than relying on publish.yml's
+# `push: tags` trigger: release-please creates the tag with the workflow's
+# `GITHUB_TOKEN`, and GitHub does not start new workflow runs for events caused
+# by GITHUB_TOKEN (anti-recursion). That is not a theory — it is why 0.9.0 got
+# a tag and a GitHub Release but never reached crates.io: publishing looked
+# automatic and silently did nothing.
+#
+# Calling the reusable workflow from here sidesteps the trigger rule entirely
+# and needs no personal access token (RELEASE_PLEASE_TOKEN is intentionally not
+# required; a PAT would be one more secret to rotate).
+
 name: Release Please
 
 on:
@@ -19,9 +32,26 @@ jobs:
     name: Prepare draft release
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      # Empty when this push did not create a release (the usual case: only the
+      # release PR was opened or updated).
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      release_created: ${{ steps.release.outputs.release_created }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - id: release
+        uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  publish:
+    name: Publish to crates.io
+    needs: release-please
+    # Keyed on the tag rather than `release_created`: the tag is the thing the
+    # publish job actually consumes, so if it is absent there is nothing to do.
+    if: needs.release-please.outputs.tag_name != ''
+    uses: ./.github/workflows/publish.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit
