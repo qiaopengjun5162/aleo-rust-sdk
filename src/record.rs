@@ -47,7 +47,7 @@
 
 use anyhow::{Context, Result};
 use snarkvm::console::program::{Ciphertext, Record};
-use snarkvm::prelude::{Address, Owner, TestnetV0, ViewKey};
+use snarkvm::prelude::{Address, TestnetV0, ViewKey};
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -122,9 +122,7 @@ impl RecordScanner {
                     if ciphertext_str.is_empty() {
                         continue;
                     }
-                    if let Some((microcredits, data)) =
-                        Self::decrypt_record(ciphertext_str, &vk, &owner_addr)
-                    {
+                    if let Some((microcredits, data)) = Self::decrypt_record(ciphertext_str, &vk) {
                         results.push(AleoRecord {
                             program_id,
                             owner: owner_addr,
@@ -165,12 +163,28 @@ impl RecordScanner {
 
     /// Decrypt a single record ciphertext.
     ///
-    /// Returns `(microcredits, data_map)` if the record is owned by `expected_owner`,
-    /// or `None` if decryption fails or the owner doesn't match.
+    /// Returns `(microcredits, data_map)` if the record belongs to `vk`, or `None`
+    /// if the ciphertext cannot be parsed, cannot be decrypted, or belongs to
+    /// someone else.
+    ///
+    /// ## Where "is this record mine?" is decided
+    ///
+    /// Not here. `Record::decrypt` derives the record view key from `nonce * vk`,
+    /// decrypts, and then bails unless the recovered owner equals `vk.to_address()`
+    /// — so a successfully decrypted record is *by construction* owned by `vk`.
+    ///
+    /// This function used to re-check that equality against a separately passed
+    /// `expected_owner` and skip mismatches. That branch was unreachable: the only
+    /// caller passes `vk.to_address()`, and `decrypt` had already rejected exactly
+    /// the records the check was looking for. Unreachable security checks are worse
+    /// than none — they read as protection while the real protection lives one
+    /// layer down, so a change that removed the real one would look safe here.
+    /// The invariant is now guarded by `tests/record_decryption_test.rs`, which
+    /// feeds in a record encrypted for a different account and requires it to be
+    /// rejected.
     fn decrypt_record(
         ciphertext_str: &str,
         vk: &ViewKey<TestnetV0>,
-        expected_owner: &Address<TestnetV0>,
     ) -> Option<(u64, BTreeMap<String, String>)> {
         let encrypted = match Record::<TestnetV0, Ciphertext<TestnetV0>>::from_str(ciphertext_str) {
             Ok(r) => r,
@@ -182,50 +196,26 @@ impl RecordScanner {
         let decrypted = match encrypted.decrypt(vk) {
             Ok(r) => r,
             Err(e) => {
+                // Either the ciphertext is not ours, or it is malformed. Both mean
+                // "not a record we can spend", so the scan continues.
                 tracing::debug!("Record::decrypt failed: {e}");
                 return None;
             }
         };
-
-        // Check owner
-        let is_owned = match decrypted.owner() {
-            Owner::Public(addr) => addr == expected_owner,
-            Owner::Private(plain) => {
-                let addr_str = plain.to_string();
-                match Address::from_str(&addr_str) {
-                    Ok(addr) => &addr == expected_owner,
-                    Err(e) => {
-                        tracing::warn!("Owner parse failed: {e} (plain={addr_str:?})");
-                        false
-                    }
-                }
-            }
-        };
-        if !is_owned {
-            tracing::debug!(
-                "Owner mismatch: expected {expected_owner}, got {:?}",
-                decrypted.owner()
-            );
-            return None;
-        }
 
         // Extract microcredits — iterate over data entries matching "microcredits" key
         let mut microcredits = 0u64;
         let mut data = BTreeMap::new();
         for (id, entry) in decrypted.data().iter() {
             let key = id.to_string();
+            let raw = entry.to_string();
             if key == "microcredits" {
-                let raw = entry.to_string();
-                // Strip trailing "u64.private" (or just "u64") to get numeric value
-                let amount_str =
-                    raw.replace("u64.private", "").replace("u64", "").trim().to_string();
-                if let Ok(amount) = amount_str.parse::<u64>() {
-                    microcredits = amount;
-                } else {
-                    tracing::warn!("microcredits parse failed: {amount_str:?}");
+                match parse_u64_entry(&raw) {
+                    Some(amount) => microcredits = amount,
+                    None => tracing::warn!("microcredits parse failed: {raw:?}"),
                 }
             }
-            data.insert(key, entry.to_string());
+            data.insert(key, raw);
         }
 
         tracing::info!(
@@ -234,6 +224,23 @@ impl RecordScanner {
         );
         Some((microcredits, data))
     }
+}
+
+/// Read a `u64` out of the textual form snarkVM uses for record entries.
+///
+/// `Entry::to_string()` renders `<value><type>.<visibility>` — `1000000u64.private`,
+/// `5u64.public`, `0u64.constant`. The previous implementation stripped the
+/// literal `"u64.private"` and then `"u64"`, which only worked for private
+/// entries: a public entry `5u64.public` became `5.public` and failed to parse,
+/// silently reporting a zero balance. Splitting on the visibility suffix and
+/// then the type suffix handles all three visibilities and any integer width
+/// that is not `u64` still fails the parse, which is what the caller wants.
+fn parse_u64_entry(raw: &str) -> Option<u64> {
+    // Drop the `.private` / `.public` / `.constant` visibility suffix.
+    let value = raw.rsplit_once('.').map_or(raw, |(value, _)| value);
+    // Drop the `u64` type suffix.
+    let digits = value.strip_suffix("u64").unwrap_or(value);
+    digits.trim().parse::<u64>().ok()
 }
 
 /// High-level record manager providing cached scanning and coin selection.

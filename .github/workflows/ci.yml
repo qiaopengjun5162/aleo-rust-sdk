@@ -90,16 +90,18 @@ jobs:
       # The threshold is what turns coverage from a number nobody reads into a
       # gate. Without it, generating lcov.info and uploading it only proved the
       # command ran — coverage could have fallen to any value and CI stayed green.
-      # Measured baseline when the gate was introduced: 75.97% by llvm-cov's line
-      # totals (76.6% if you recount the lcov file, because macro and generic
-      # expansions are counted differently). 75 leaves ~1 point of headroom for
-      # ordinary refactoring while still failing if a module loses its tests —
-      # verified locally: 75 passes, 76 fails at this baseline.
+      #
+      # Measured baseline: 80.94% by llvm-cov's line totals (81.6% if you recount
+      # the lcov file, because macro and generic expansions are counted
+      # differently). The gate uses llvm-cov's number, so 78 leaves ~3 points of
+      # headroom for ordinary refactoring while still failing if a module loses
+      # its tests. Raise this when a round of test work lifts the baseline; a gate
+      # that sits far below reality only ratchets down.
       - name: Generate coverage
         run: |
           cargo llvm-cov --all-features \
             --lcov --output-path lcov.info \
-            --fail-under-lines 75
+            --fail-under-lines 78
 
       # Print the per-file table into the job summary. An aggregate percentage
       # hides the shape of the problem: 70% overall is very different depending
@@ -135,7 +137,7 @@ jobs:
           print(
               "Counted from `lcov.info`; the gate uses llvm-cov's own line totals, "
               "which read slightly lower (macro/generic expansion). Recent baseline: "
-              "76.6% lcov / 75.97% llvm-cov, gate 75%.\n"
+              "81.6% lcov / 80.94% llvm-cov, gate 78%.\n"
           )
           print("| File | Coverage | Lines |")
           print("|---|---:|---:|")
