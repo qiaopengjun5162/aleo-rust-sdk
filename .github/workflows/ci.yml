@@ -87,13 +87,68 @@ jobs:
       - name: Execute doc-tests
         run: cargo test --doc --all-features
 
+      # The threshold is what turns coverage from a number nobody reads into a
+      # gate. Without it, generating lcov.info and uploading it only proved the
+      # command ran — coverage could have fallen to any value and CI stayed green.
+      # Measured baseline when the gate was introduced: 75.97% by llvm-cov's line
+      # totals (76.6% if you recount the lcov file, because macro and generic
+      # expansions are counted differently). 75 leaves ~1 point of headroom for
+      # ordinary refactoring while still failing if a module loses its tests —
+      # verified locally: 75 passes, 76 fails at this baseline.
       - name: Generate coverage
-        run: cargo llvm-cov --all-features --lcov --output-path lcov.info
+        run: |
+          cargo llvm-cov --all-features \
+            --lcov --output-path lcov.info \
+            --fail-under-lines 75
+
+      # Print the per-file table into the job summary. An aggregate percentage
+      # hides the shape of the problem: 70% overall is very different depending
+      # on whether it is spread evenly or one module at 100% covering five at 40%.
+      - name: Coverage summary
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import os
+          path = "lcov.info"
+          if not os.path.exists(path):
+              print("## Coverage\n\n`lcov.info` was not produced — see the step above.\n")
+              raise SystemExit(0)
+          files, cur = {}, None
+          for line in open(path):
+              line = line.rstrip("\n")
+              if line.startswith("SF:"):
+                  cur = line[3:]
+                  files[cur] = [0, 0]
+              elif line.startswith("DA:") and cur:
+                  cnt = int(line[3:].split(",")[1])
+                  files[cur][1] += 1
+                  if cnt > 0:
+                      files[cur][0] += 1
+              elif line == "end_of_record":
+                  cur = None
+          src = {k: v for k, v in files.items() if "/src/" in k}
+          hit = sum(v[0] for v in src.values())
+          total = sum(v[1] for v in src.values())
+          pct = hit / total * 100 if total else 0.0
+          print("## Coverage\n")
+          print(f"**src/ total: {hit}/{total} lines = {pct:.1f}%**\n")
+          print(
+              "Counted from `lcov.info`; the gate uses llvm-cov's own line totals, "
+              "which read slightly lower (macro/generic expansion). Recent baseline: "
+              "76.6% lcov / 75.97% llvm-cov, gate 75%.\n"
+          )
+          print("| File | Coverage | Lines |")
+          print("|---|---:|---:|")
+          for k, v in sorted(src.items(), key=lambda kv: (kv[1][0] / kv[1][1]) if kv[1][1] else 1):
+              p = v[0] / v[1] * 100 if v[1] else 100.0
+              print(f"| `{k.split('/src/')[-1]}` | {p:.1f}% | {v[1]} |")
+          PY
 
       # The report is the whole point of the previous step; without this upload
       # the 6 minutes of instrumented rebuilding produce a file that is deleted
       # together with the runner.
       - name: Upload coverage report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lcov-report

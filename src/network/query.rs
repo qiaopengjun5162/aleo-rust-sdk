@@ -32,6 +32,39 @@ fn ureq_get_text(label: &str, url: &str) -> Result<String> {
         .map_err(|e| anyhow::anyhow!("Failed to read {label} response from {url}: {e}"))
 }
 
+/// Strip the surrounding quotes Provable puts around single-value responses.
+///
+/// The API answers `statePath/{commitment}` with a JSON string (`"path1..."`,
+/// quotes included) rather than a bare value, while a body pasted through a
+/// proxy may arrive without them. Both shapes are accepted.
+///
+/// Kept separate from the fetch so the unwrapping rule can be tested without a
+/// network call — it is the only thing standing between the API's quoting
+/// choice and `StatePath::from_str`.
+fn unwrap_quoted(body: &str) -> &str {
+    body.trim().trim_matches('"')
+}
+
+/// Build the single-commitment state path URL.
+fn state_path_url(api_base_url: &str, commitment: &Field<TestnetV0>) -> String {
+    format!(
+        "{}/statePath/{commitment}",
+        api_base_url.trim_end_matches('/')
+    )
+}
+
+/// Build the batched state path URL.
+///
+/// Provable expects the commitments as one comma-separated `commitments`
+/// query parameter, not one parameter per commitment.
+fn state_paths_url(api_base_url: &str, commitments: &[Field<TestnetV0>]) -> String {
+    let joined = commitments.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(",");
+    format!(
+        "{}/statePaths?commitments={joined}",
+        api_base_url.trim_end_matches('/')
+    )
+}
+
 /// Custom query returning a fixed state root (bypasses ureq/WAF issues).
 #[derive(Clone, Debug)]
 pub struct FixedStateRootQuery<N: Network> {
@@ -48,7 +81,10 @@ impl<N: Network> QueryTrait<N> for FixedStateRootQuery<N> {
         Ok(self.block_height)
     }
     fn get_state_path_for_commitment(&self, _commitment: &Field<N>) -> Result<StatePath<N>> {
-        StatePath::from_str("").or_else(|_| anyhow::bail!("State path not available"))
+        // Not "unavailable" — structurally impossible: this query exists to pin a
+        // root for offline execution and has no path data at all. Callers that
+        // need to prove must use [`ProvableQuery`].
+        anyhow::bail!("FixedStateRootQuery holds no Merkle paths; use ProvableQuery to prove")
     }
     fn get_state_paths_for_commitments(
         &self,
@@ -66,7 +102,7 @@ impl<N: Network> QueryTrait<N> for FixedStateRootQuery<N> {
         &self,
         _commitment: &Field<N>,
     ) -> Result<StatePath<N>> {
-        StatePath::from_str("").or_else(|_| anyhow::bail!("State path not available"))
+        anyhow::bail!("FixedStateRootQuery holds no Merkle paths; use ProvableQuery to prove")
     }
     async fn get_state_paths_for_commitments_async(
         &self,
@@ -154,10 +190,9 @@ impl QueryTrait<TestnetV0> for ProvableQuery {
         &self,
         commitment: &Field<TestnetV0>,
     ) -> Result<StatePath<TestnetV0>> {
-        let url = format!("{}/statePath/{commitment}", self.api_base_url);
+        let url = state_path_url(&self.api_base_url, commitment);
         let body = ureq_get_text("statePath", &url)?;
-        // Provable returns state path as a quoted string.
-        let trimmed = body.trim().trim_matches('"');
+        let trimmed = unwrap_quoted(&body);
         let path = StatePath::<TestnetV0>::from_str(trimmed)
             .map_err(|e| anyhow::anyhow!("Failed to parse state path from '{trimmed}': {e}"))?;
         // Cache the global state root embedded in the path so current_state_root
@@ -174,12 +209,7 @@ impl QueryTrait<TestnetV0> for ProvableQuery {
         if commitments.is_empty() {
             return Ok(Vec::new());
         }
-        let cm_strings: Vec<String> = commitments.iter().map(|c| c.to_string()).collect();
-        let url = format!(
-            "{}/statePaths?commitments={}",
-            self.api_base_url,
-            cm_strings.join(",")
-        );
+        let url = state_paths_url(&self.api_base_url, commitments);
         let body = ureq_get_text("statePaths", &url)?;
         serde_json::from_str(&body)
             .map_err(|e| anyhow::anyhow!("Failed to parse state paths from '{body}': {e}"))

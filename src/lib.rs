@@ -90,5 +90,5 @@ pub mod version;
 pub use account::AleoAccount;
 pub use client::AleoClient;
 pub use execution::{ExecutionEngine, consensus_version_to_varuna};
-pub use network::{AleoHttpClient, FixedStateRootQuery, ProvableQuery};
+pub use network::{AleoHttpClient, ConfirmationPoll, FixedStateRootQuery, ProvableQuery};
 pub use program::AleoProgram;

@@ -56,24 +56,12 @@ async fn test_wait_for_confirmation_success() {
     client.wait_for_confirmation("tx_abc123").await.unwrap();
 }
 
-/// Cover wait_for_confirmation timeout path (network.rs 147): 30 retries all fail → bail
-/// Takes ~150s. Only run explicitly.
-#[tokio::test]
-#[ignore]
-async fn test_wait_for_confirmation_timeout_isolated() {
-    let mock_server = MockServer::start().await;
-    let base_url = mock_server.uri();
-
-    Mock::given(method("GET"))
-        .and(path_regex(r"/transaction/.+"))
-        .respond_with(ResponseTemplate::new(404))
-        .mount(&mock_server)
-        .await;
-
-    let client = AleoHttpClient::new_with_rpc(&base_url, &format!("{}/jsonrpc", base_url)).unwrap();
-    let err = client.wait_for_confirmation("tx_timeout").await.unwrap_err();
-    assert!(err.to_string().contains("Timed out"));
-}
+// The timeout path used to live here as `#[ignore]`d — 30 attempts x 5 s, i.e.
+// 150 seconds that no CI run ever paid and no developer ever waited for, so the
+// branch was exercised exactly never. `ConfirmationPoll` makes the schedule a
+// parameter, and `tests/query_and_confirmation_test.rs` now covers the timeout
+// path in milliseconds. Deleted rather than un-ignored: keeping it would only
+// re-add the 150-second stall to every full test run.
 
 /// Cover wait_for_confirmation retry path (network.rs 141-144): first call 404, second call 200
 #[tokio::test]

@@ -43,7 +43,7 @@
 mod client;
 mod query;
 
-pub use client::AleoHttpClient;
+pub use client::{AleoHttpClient, ConfirmationPoll};
 pub use query::{FixedStateRootQuery, ProvableQuery};
 
 /// Browser-like User-Agent to bypass Cloudflare WAF.
