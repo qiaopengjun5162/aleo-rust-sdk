@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.9.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.8.2...aleo-rust-sdk-v0.9.0) (2026-10-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **network:** `AleoError` (and the `error` module) is removed — it was never returned by any API, so downstream code could only have referenced it in a way that did nothing; use `anyhow::Error` instead. `AleoHttpClient::find_private_credits_records` is removed; use `AleoClient::find_private_credits_records` or `RecordScanner::scan_recent`. `thiserror` is no longer a dependency.
+
+### Code Refactoring
+
+* **network:** split transport from Merkle queries, drop dead error module ([#19](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/19)) ([7a09179](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/7a091798ebb5fd94e2b135b34928c991d6e97d29))
+
 ## [0.8.2](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.8.1...aleo-rust-sdk-v0.8.2) (2026-10-24)
 
 
