@@ -91,9 +91,9 @@ jobs:
       # gate. Without it, generating lcov.info and uploading it only proved the
       # command ran — coverage could have fallen to any value and CI stayed green.
       #
-      # Measured baseline: 80.94% by llvm-cov's line totals (81.6% if you recount
+      # Measured baseline: 84.41% by llvm-cov's line totals (85.4% if you recount
       # the lcov file, because macro and generic expansions are counted
-      # differently). The gate uses llvm-cov's number, so 78 leaves ~3 points of
+      # differently). The gate uses llvm-cov's number, so 81 leaves ~3 points of
       # headroom for ordinary refactoring while still failing if a module loses
       # its tests. Raise this when a round of test work lifts the baseline; a gate
       # that sits far below reality only ratchets down.
@@ -101,7 +101,7 @@ jobs:
         run: |
           cargo llvm-cov --all-features \
             --lcov --output-path lcov.info \
-            --fail-under-lines 78
+            --fail-under-lines 81
 
       # Print the per-file table into the job summary. An aggregate percentage
       # hides the shape of the problem: 70% overall is very different depending

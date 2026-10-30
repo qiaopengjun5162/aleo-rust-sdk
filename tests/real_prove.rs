@@ -238,3 +238,81 @@ fn test_prove_multiple_same_program_transitions() {
     println!("JSON length: {}", tx_json.len());
     assert!(tx_json.len() > 100);
 }
+
+// ── Fixture generator for the offline `verify_execution` test ──────────────
+//
+// The `verify_execution` tests in `client_async_test.rs` must run in CI, i.e.
+// without proving and without the network. They therefore consume a real
+// Varuna-proved transaction captured once and committed under `tests/fixtures/`.
+//
+// Regenerate with:
+//   cargo test --test real_prove -- --ignored regenerate_verify_fixture --nocapture
+//
+// `credits.aleo::transfer_public` is used on purpose: it produces **two**
+// transitions on the same program, and its verifying keys ship with
+// `Process::load()`, so the verifier needs no circuit synthesis.
+#[test]
+#[ignore = "slow: regenerates tests/fixtures/credits_execute_tx.json (~60s)"]
+fn regenerate_verify_fixture() {
+    const FIXTURE_HEIGHT: u32 = 20_962_824;
+
+    let mut rng = TestRng::default();
+    let pk: PrivateKey<TestnetV0> = PrivateKey::new(&mut rng).unwrap();
+    let pk_addr = Address::try_from(&ComputeKey::try_from(&pk).unwrap()).unwrap();
+    let program_id = ProgramID::<TestnetV0>::from_str("credits.aleo").unwrap();
+
+    let engine = ExecutionEngine::new().unwrap();
+    let (_response, trace) = engine
+        .authorize_and_execute(
+            &pk,
+            &program_id,
+            "transfer_public",
+            vec![&pk_addr.to_string(), "1000000u64"],
+            &mut rng,
+        )
+        .unwrap();
+
+    let state_root = <TestnetV0 as Network>::StateRoot::from_str(
+        "sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s",
+    )
+    .unwrap();
+    let query = FixedStateRootQuery {
+        state_root,
+        block_height: FIXTURE_HEIGHT,
+    };
+
+    // Derive the consensus version from the height exactly as the SDK does at
+    // verification time — a hardcoded V20 would silently stop matching the
+    // height once the chain moves on.
+    let consensus_version = <TestnetV0 as Network>::CONSENSUS_VERSION(FIXTURE_HEIGHT).unwrap();
+    let varuna_version = consensus_version_to_varuna(consensus_version);
+
+    let tx = engine
+        .prove_and_package(
+            trace,
+            &pk,
+            &program_id,
+            "transfer_public",
+            0,
+            consensus_version,
+            varuna_version,
+            &query,
+            &mut rng,
+        )
+        .unwrap();
+
+    let envelope = serde_json::json!({
+        "block_height": FIXTURE_HEIGHT,
+        "consensus_version": format!("{consensus_version:?}"),
+        "transaction_id": tx.id().to_string(),
+        "transaction": serde_json::to_value(&tx).unwrap(),
+    });
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/credits_execute_tx.json");
+    std::fs::write(&path, serde_json::to_vec_pretty(&envelope).unwrap()).unwrap();
+    println!(
+        "wrote {} ({} bytes)",
+        path.display(),
+        std::fs::metadata(&path).unwrap().len()
+    );
+}
