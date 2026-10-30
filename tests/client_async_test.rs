@@ -443,3 +443,153 @@ async fn test_verify_execution_invalid_json_err() {
         "expected deserialization error for invalid Transaction JSON"
     );
 }
+
+// ── verify_execution against a real, committed proof ──────────────────────
+//
+// The tests above only cover the deserialization failure. The success path —
+// "does `verify_execution` actually verify a proof?" — is what the whole API
+// promises, so it is checked against a real Varuna-proved `credits.aleo::
+// transfer_public` transaction captured from this SDK (see
+// `real_prove.rs::regenerate_verify_fixture`). No network, no proving.
+
+fn fixture_envelope() -> serde_json::Value {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/credits_execute_tx.json");
+    let raw =
+        std::fs::read(&path).unwrap_or_else(|e| panic!("missing fixture {}: {e}", path.display()));
+    serde_json::from_slice(&raw).expect("fixture is not valid JSON")
+}
+
+/// Serve the fixture transaction, the fixture block height, and the real
+/// `credits.aleo` source (taken from a loaded `Process`, so it is exactly what
+/// the verifier expects).
+async fn mount_verify_fixture(server: &MockServer, tx: &serde_json::Value, height: u32) {
+    Mock::given(method("GET"))
+        .and(path_regex(r"/v2/testnet/transaction/.+"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(serde_json::to_vec(tx).unwrap(), "application/json"),
+        )
+        .mount(server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/testnet/block/height/latest"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(height.to_string()))
+        .mount(server)
+        .await;
+
+    let credits_src = {
+        use snarkvm::prelude::FromStr as _;
+        use snarkvm::synthesizer::program::StackTrait as _;
+        let engine = aleo_rust_sdk::ExecutionEngine::new().unwrap();
+        let id =
+            snarkvm::prelude::ProgramID::<snarkvm::prelude::TestnetV0>::from_str("credits.aleo")
+                .unwrap();
+        engine.process.lock().get_stack(id).unwrap().program().to_string()
+    };
+    Mock::given(method("GET"))
+        .and(path("/v2/testnet/program/credits.aleo"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            serde_json::to_vec(&credits_src).unwrap(),
+            "application/json",
+        ))
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn test_verify_execution_accepts_real_proof() {
+    let envelope = fixture_envelope();
+    let tx = envelope["transaction"].clone();
+    let height = envelope["block_height"].as_u64().unwrap() as u32;
+    let tx_id = envelope["transaction_id"].as_str().unwrap().to_string();
+
+    let mock_server = MockServer::start().await;
+    mount_verify_fixture(&mock_server, &tx, height).await;
+
+    let client = make_client(&mock_server, &mock_server.uri());
+    let report = client
+        .verify_execution(&tx_id)
+        .await
+        .expect("a real on-chain proof must verify");
+
+    assert!(
+        report.contains("VERIFIED"),
+        "expected a verification report, got: {report}"
+    );
+    assert!(
+        report.contains("credits.aleo"),
+        "report should name the program, got: {report}"
+    );
+    assert!(
+        report.contains("transfer_public"),
+        "report should name the function, got: {report}"
+    );
+    // Read the expected transition count from the fixture itself so this
+    // assertion cannot rot if the fixture is ever regenerated differently.
+    let transitions = tx["execution"]["transitions"].as_array().unwrap().len();
+    assert!(
+        report.contains(&format!("Transitions: {transitions}")),
+        "expected {transitions} transitions in the report, got: {report}"
+    );
+}
+
+#[tokio::test]
+async fn test_verify_execution_rejects_tampered_proof() {
+    let envelope = fixture_envelope();
+    let height = envelope["block_height"].as_u64().unwrap() as u32;
+    let tx_id = envelope["transaction_id"].as_str().unwrap().to_string();
+
+    // Swap the transfer amount for a different (still well-typed) value. The
+    // proof commits to the original public inputs, so verification must fail.
+    let mut tampered = envelope["transaction"].clone();
+    let amount = &mut tampered["execution"]["transitions"][0]["inputs"][1]["value"];
+    assert_eq!(amount.as_str(), Some("1000000u64"), "fixture shape changed");
+    *amount = serde_json::json!("1000001u64");
+
+    let mock_server = MockServer::start().await;
+    mount_verify_fixture(&mock_server, &tampered, height).await;
+
+    let client = make_client(&mock_server, &mock_server.uri());
+    let result = client.verify_execution(&tx_id).await;
+    let err = result.expect_err("a tampered transaction must not verify");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("Execution proof verification FAILED"),
+        "tampering must be caught by the proof verifier, not the parser: {msg}"
+    );
+}
+
+/// The consensus version — and with it the Varuna version — must come from the
+/// height the transaction was mined at, not from `block/height/latest`.
+///
+/// This fixture was proven at consensus V22 (Varuna V3). Serving a *latest*
+/// height that maps to an older consensus version must therefore reject it,
+/// while `verify_execution_at` with the right height still accepts it. If this
+/// test ever goes green on both calls, verification has stopped depending on
+/// the consensus version and the whole check is worthless.
+#[tokio::test]
+async fn test_verify_execution_depends_on_consensus_height() {
+    let envelope = fixture_envelope();
+    let tx = envelope["transaction"].clone();
+    let mined_at = envelope["block_height"].as_u64().unwrap() as u32;
+    let tx_id = envelope["transaction_id"].as_str().unwrap().to_string();
+
+    // 19_000_000 is consensus V19 on testnet — a different Varuna version.
+    let mock_server = MockServer::start().await;
+    mount_verify_fixture(&mock_server, &tx, 19_000_000).await;
+    let client = make_client(&mock_server, &mock_server.uri());
+
+    let via_latest = client.verify_execution(&tx_id).await;
+    assert!(
+        via_latest.is_err(),
+        "a V22 proof must not verify under the consensus of an older height; got: {via_latest:?}"
+    );
+
+    let via_mined_height = client.verify_execution_at(&tx_id, mined_at).await;
+    assert!(
+        via_mined_height.is_ok(),
+        "the same proof must verify at its own height {mined_at}; got: {via_mined_height:?}"
+    );
+}

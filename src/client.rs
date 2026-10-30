@@ -426,7 +426,43 @@ impl AleoClient {
     ///
     /// - **Execute** transactions: verifies the execution proof.
     /// - **Deploy** transactions: verifies the deployment proof.
+    ///
+    /// The consensus version is taken from the **latest** block height. That is
+    /// only correct for transactions mined under the current consensus rules;
+    /// for anything older use [`verify_execution_at`](Self::verify_execution_at).
     pub async fn verify_execution(&self, tx_id: &str) -> Result<String> {
+        self.verify_transaction(tx_id, None).await
+    }
+
+    /// Verify a transaction's proof against the consensus rules in force at
+    /// `block_height`.
+    ///
+    /// Pass the height the transaction was **mined** at. A proof is only valid
+    /// under the Varuna version of its own era, and `ConsensusVersion →
+    /// VarunaVersion` is not backward compatible (V4..=V20 → V2, V21.. → V3),
+    /// so checking an old transaction against today's height reports
+    /// `verification FAILED` for a perfectly valid proof.
+    pub async fn verify_execution_at(&self, tx_id: &str, block_height: u32) -> Result<String> {
+        self.verify_transaction(tx_id, Some(block_height)).await
+    }
+
+    /// The height to derive a consensus version from: the caller's, or the
+    /// network's latest.
+    ///
+    /// Only the arms that actually verify a proof call this, so a transaction
+    /// without a proof is still answered when the node is unreachable.
+    async fn resolve_height(&self, override_height: Option<u32>) -> Result<u32> {
+        match override_height {
+            Some(height) => Ok(height),
+            None => self.network.fetch_block_height().await,
+        }
+    }
+
+    async fn verify_transaction(
+        &self,
+        tx_id: &str,
+        override_height: Option<u32>,
+    ) -> Result<String> {
         use snarkvm::ledger::block::Transaction;
 
         // 1. Fetch + deserialize transaction
@@ -448,12 +484,12 @@ impl AleoClient {
                 let engine = ExecutionEngine::new()?;
                 engine.add_program(&program)?;
 
-                // 4. Determine consensus version from block height
-                let block_height = self.network.fetch_block_height().await?;
+                // 4. Consensus version from the height the transaction belongs to.
+                let block_height = self.resolve_height(override_height).await?;
                 let consensus_version = TestnetV0::CONSENSUS_VERSION(block_height)?;
 
                 // 5. Verify execution proof
-                tracing::info!("Verifying execution proof...");
+                tracing::info!("Verifying execution proof (height={block_height})...");
                 engine.verify_execution_transaction(execution, consensus_version)?;
 
                 Ok(format!(
@@ -465,9 +501,9 @@ impl AleoClient {
             }
             Transaction::Deploy(ref _id, ref _deploy_id, ref _owner, ref deployment, ref _fee) => {
                 // Verify deployment proof using an empty engine (no user program loaded)
-                tracing::info!("Verifying deployment proof...");
+                let block_height = self.resolve_height(override_height).await?;
+                tracing::info!("Verifying deployment proof (height={block_height})...");
                 let engine = ExecutionEngine::new()?;
-                let block_height = self.network.fetch_block_height().await?;
                 let consensus_version = TestnetV0::CONSENSUS_VERSION(block_height)?;
                 engine.verify_deployment_transaction(
                     deployment,
