@@ -1,0 +1,66 @@
+name: Slow tests
+
+# The proving tests in `tests/real_prove.rs` are `#[ignore]`d: one Varuna proof
+# costs 15-60 s of CPU (61.8 s for the smallest one, hello.aleo), and
+# instrumented coverage runs are slower still. Keeping them in the PR gate would
+# add minutes to every push.
+#
+# Leaving them *only* `#[ignore]`d has the opposite problem: `prove_and_package`
+# — the function every transaction goes through — then runs in no CI job at all,
+# so a regression there ships silently. This workflow is the middle ground: the
+# ignored tests still run automatically, just on a schedule instead of per PR.
+#
+# Run it on demand:
+#   gh workflow run slow-tests.yml
+
+on:
+  schedule:
+    # 18:00 UTC = 02:00 Beijing, i.e. outside working hours.
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  proving:
+    runs-on: ubuntu-latest
+    # 5 ignored tests at up to ~60 s each, plus a cold snarkVM build.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Rust
+        run: rustup toolchain install stable
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `--run-ignored ignored-only` runs exactly the tests the PR gate skips.
+      # The fixture generator is excluded here and regenerated in its own step
+      # below, so it does not cost 60 s twice.
+      - name: Run the ignored (proving) tests
+        run: |
+          cargo nextest run --all-features --run-ignored ignored-only \
+            -E 'not test(regenerate_verify_fixture)'
+
+      # The fixture generator is also `#[ignore]`d; running it proves the
+      # committed `tests/fixtures/credits_execute_tx.json` is still reproducible
+      # with today's snarkVM parameters, and that the offline verify tests are
+      # not feeding on a hand-edited artifact.
+      - name: Regenerate the verification fixture
+        run: cargo test --test real_prove -- --ignored regenerate_verify_fixture
+
+      - name: The fixture still verifies
+        run: cargo test --test client_async_test verify_execution
