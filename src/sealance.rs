@@ -62,6 +62,10 @@ impl SealanceMerkleTree {
         addresses: &[String],
         max_tree_depth: u32,
     ) -> Result<Vec<Field<N>>> {
+        if max_tree_depth == 0 {
+            // `1 << (0 - 1)` used to underflow and panic.
+            return Err(anyhow::anyhow!("max_tree_depth must be at least 1"));
+        }
         let max_num_leaves = 1 << (max_tree_depth - 1);
 
         // Filter out zero addresses
@@ -175,14 +179,23 @@ impl SealanceMerkleTree {
     /// Generates the sibling path (Merkle proof) for a given leaf index.
     ///
     /// JS equivalent: `SealanceMerkleTree.getSiblingPath()`.
-    /// Returns the sibling values needed to reconstruct the Merkle root.
+    ///
+    /// Element 0 is the leaf itself, followed by one sibling per level, so the
+    /// returned vector has **`depth + 1`** elements — matching the JS SDK
+    /// ("the returned siblings array will have maxTreeDepth + 1 elements") and
+    /// the on-chain `struct MerkleProof { siblings: [field; 16u32] }`, which is
+    /// 16 elements for the default `depth` of 15.
+    ///
+    /// Returning exactly `depth` elements (the previous behaviour) produced a
+    /// 15-element array that cannot be cast to `[field; 16u32]`, so the call
+    /// only failed on chain.
     pub fn get_sibling_path<N: Network>(
         tree: &[Field<N>],
         leaf_index: usize,
         depth: u32,
     ) -> Result<Vec<Field<N>>> {
         let num_leaves = tree.len().div_ceil(2);
-        let mut sibling_path: Vec<Field<N>> = Vec::with_capacity(depth as usize);
+        let mut sibling_path: Vec<Field<N>> = Vec::with_capacity(depth as usize + 1);
         let mut index = leaf_index;
         let mut parent_offset = num_leaves;
         let mut level = 1u32;
@@ -205,8 +218,10 @@ impl SealanceMerkleTree {
             level += 1;
         }
 
-        // Pad remaining levels with zero fields
-        while level < depth {
+        // Pad remaining levels with zero fields. `level` counts the elements
+        // already pushed (the leaf plus one per level walked), so the target is
+        // `depth + 1`, not `depth`.
+        while level <= depth {
             sibling_path.push(Field::<N>::zero());
             level += 1;
         }
@@ -241,7 +256,10 @@ impl SealanceMerkleTree {
     /// # Arguments
     /// * `addresses` - Freeze list addresses (from Provable API or local)
     /// * `target_address` - The address to prove is NOT on the freeze list
-    /// * `depth` - Merkle tree depth (default: 15, matching Sealance)
+    /// * `depth` - Merkle tree depth, i.e. Leo's `MAX_TREE_DEPTH` (default: 15,
+    ///   matching Sealance). Each returned sibling path has `depth + 1` elements,
+    ///   which is the length the on-chain `MerkleProof.siblings` array is
+    ///   declared with (`[field; 16u32]` for the default depth).
     ///
     /// # Returns
     /// A tuple of (left_sibling_path, right_sibling_path, left_leaf_index, right_leaf_index)
@@ -342,10 +360,203 @@ mod tests {
         let tree = SealanceMerkleTree::build_tree::<N>(&leaves).unwrap();
 
         let path = SealanceMerkleTree::get_sibling_path::<N>(&tree, 0, 15).unwrap();
-        assert_eq!(path.len(), 15);
+        assert_eq!(
+            path.len(),
+            16,
+            "depth 15 must yield 16 siblings (leaf + 15 levels), per the JS SDK"
+        );
+        assert_eq!(
+            path[0], tree[0],
+            "element 0 is the leaf itself, as the JS SDK's [leaf, sibling_1, ...] layout"
+        );
         println!(
-            "Sibling path (15 levels): {:?}",
+            "Sibling path (16 elements): {:?}",
             path.iter().map(|f| format!("{}", f)).collect::<Vec<_>>()
+        );
+    }
+
+    /// The length is not cosmetic: Aleo programs declare
+    /// `struct MerkleProof { siblings: [field; 16u32]; leaf_index: u32 }`, and a
+    /// 15-element array fails the cast on chain. Depth 16 has to grow with it.
+    #[test]
+    fn test_sibling_path_length_tracks_the_on_chain_array() {
+        let addresses =
+            vec!["aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px".to_string()];
+        let leaves = SealanceMerkleTree::generate_leaves::<N>(&addresses, 15).unwrap();
+        let tree = SealanceMerkleTree::build_tree::<N>(&leaves).unwrap();
+
+        for depth in [2u32, 15, 16] {
+            let path = SealanceMerkleTree::get_sibling_path::<N>(&tree, 0, depth).unwrap();
+            assert_eq!(
+                path.len(),
+                depth as usize + 1,
+                "path length must be depth + 1 for depth {depth}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_generate_leaves_rejects_zero_depth() {
+        let addresses =
+            vec!["aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px".to_string()];
+        let err = SealanceMerkleTree::generate_leaves::<N>(&addresses, 0).unwrap_err();
+        assert!(
+            format!("{err}").contains("at least 1"),
+            "depth 0 must be a clean error, not a subtraction overflow panic: {err}"
+        );
+    }
+
+    // ── convert_tree_to_fields ──────────────────────────────────────────
+
+    /// The Provable `merkle-tree` endpoint returns decimal strings; a single
+    /// unparsable element must fail loudly instead of silently producing a
+    /// shorter tree (which would still build, and would silently produce a
+    /// proof for the wrong root).
+    #[test]
+    fn test_convert_tree_to_fields() {
+        let one = Field::<N>::one();
+        let tree = vec![format!("{one}"), format!("{}", Field::<N>::zero())];
+        let fields = SealanceMerkleTree::convert_tree_to_fields::<N>(&tree).unwrap();
+        assert_eq!(fields, vec![one, Field::<N>::zero()]);
+
+        let bad = vec!["1field".to_string(), "not_a_field".to_string()];
+        assert!(
+            SealanceMerkleTree::convert_tree_to_fields::<N>(&bad).is_err(),
+            "an unparsable element must be an error, not a skipped element"
+        );
+    }
+
+    // ── format_merkle_proof ─────────────────────────────────────────────
+    //
+    // This string is passed verbatim as a program input, so the punctuation
+    // is part of the contract: `[{siblings: [...], leaf_index: Nu32}, ...]`.
+    #[test]
+    fn test_format_merkle_proof_matches_program_input_syntax() {
+        let one = Field::<N>::one();
+        let zero = Field::<N>::zero();
+        let proofs = [(vec![one, zero], 0usize), (vec![zero, one], 1usize)];
+        let formatted = SealanceMerkleTree::format_merkle_proof(&proofs);
+        assert_eq!(
+            formatted,
+            "[{siblings: [1field, 0field], leaf_index: 0u32}, {siblings: [0field, 1field], leaf_index: 1u32}]",
+            "the formatted proof is a program input; any change here breaks on-chain calls"
+        );
+    }
+
+    #[test]
+    fn test_format_merkle_proof_empty() {
+        let empty: Vec<(Vec<Field<N>>, usize)> = Vec::new();
+        assert_eq!(SealanceMerkleTree::format_merkle_proof(&empty), "[]");
+    }
+
+    // ── generate_exclusion_proof (the documented entry point) ───────────
+
+    /// End-to-end: two freeze-list addresses plus a target that is not on the
+    /// list. Both sibling paths must be exactly `depth` long (the on-chain
+    /// function indexes them positionally), and the two leaves must bracket
+    /// the target in the sorted leaf order.
+    #[test]
+    fn test_generate_exclusion_proof_brackets_the_target() {
+        let addresses = vec![
+            "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px".to_string(),
+            "aleo1s3ws5tra87fjycnjrwsjcrnw2qxr8jfqqdugnf0xzqqw29q9m5pqem2u4t".to_string(),
+        ];
+        let target = "aleo1kypwp5m7qtk9mwazgcpg0tq8aal23mnrvwfvug65qgcg9xvsrqgspyjm6n";
+
+        let (left_path, right_path, left_idx, right_idx) =
+            SealanceMerkleTree::generate_exclusion_proof::<N>(&addresses, target, 15).unwrap();
+
+        assert_eq!(
+            left_path.len(),
+            16,
+            "left sibling path must match the on-chain [field; 16u32]"
+        );
+        assert_eq!(
+            right_path.len(),
+            16,
+            "right sibling path must match the on-chain [field; 16u32]"
+        );
+        assert!(
+            left_idx <= right_idx,
+            "left leaf must not be right of the right leaf"
+        );
+
+        // Rebuild the tree by hand to confirm the indices really bracket the
+        // target: leaves[left_idx] <= target < leaves[right_idx].
+        let leaves = SealanceMerkleTree::generate_leaves::<N>(&addresses, 15).unwrap();
+        let target_field = SealanceMerkleTree::convert_address_to_field::<N>(target).unwrap();
+        let below = leaves[..left_idx].iter().filter(|leaf| **leaf > target_field).count();
+        assert_eq!(
+            below, 0,
+            "no leaf before left_idx may be greater than the target"
+        );
+    }
+
+    /// A freeze list containing only the zero address is empty after filtering;
+    /// `generate_leaves` must still return a well-formed (zero-padded) leaf set
+    /// rather than panicking on `num_leaves - len`.
+    #[test]
+    fn test_generate_leaves_filters_zero_address_and_pads() {
+        let zero_addr =
+            "aleo1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq3ljyzc".to_string();
+        let leaves = SealanceMerkleTree::generate_leaves::<N>(&[zero_addr], 15).unwrap();
+        assert_eq!(leaves.len(), 2, "empty freeze list still yields 2 leaves");
+        assert!(leaves.iter().all(|leaf| *leaf == Field::<N>::zero()));
+
+        // Padding goes at the front, so real addresses stay at the tail.
+        let addresses = vec![
+            "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px".to_string(),
+            "aleo1s3ws5tra87fjycnjrwsjcrnw2qxr8jfqqdugnf0xzqqw29q9m5pqem2u4t".to_string(),
+            "aleo1kypwp5m7qtk9mwazgcpg0tq8aal23mnrvwfvug65qgcg9xvsrqgspyjm6n".to_string(),
+        ];
+        let leaves = SealanceMerkleTree::generate_leaves::<N>(&addresses, 15).unwrap();
+        assert_eq!(leaves.len(), 4, "3 addresses pad to the next power of two");
+        assert_eq!(
+            leaves[0],
+            Field::<N>::zero(),
+            "padding sits before the sorted addresses"
+        );
+        assert!(
+            leaves[1..].iter().all(|leaf| *leaf != Field::<N>::zero()),
+            "real addresses must not be replaced by padding"
+        );
+    }
+
+    #[test]
+    fn test_generate_leaves_rejects_more_than_the_depth_allows() {
+        // depth 2 => 1 << 1 == 2 leaves max, so 3 addresses must be rejected.
+        let addresses: Vec<String> = (0..3)
+            .map(|i| {
+                // Distinct valid addresses: reuse one and vary it is not
+                // possible, so build from a known list and repeat with the
+                // zero address excluded differently.
+                [
+                    "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px",
+                    "aleo1s3ws5tra87fjycnjrwsjcrnw2qxr8jfqqdugnf0xzqqw29q9m5pqem2u4t",
+                    "aleo1kypwp5m7qtk9mwazgcpg0tq8aal23mnrvwfvug65qgcg9xvsrqgspyjm6n",
+                ][i]
+                    .to_string()
+            })
+            .collect();
+        let err = SealanceMerkleTree::generate_leaves::<N>(&addresses, 2).unwrap_err();
+        assert!(
+            format!("{err}").contains("Leaves limit exceeded"),
+            "expected a leaves-limit error, got: {err}"
+        );
+    }
+
+    // ── build_tree validation ───────────────────────────────────────────
+
+    #[test]
+    fn test_build_tree_rejects_empty_and_odd_input() {
+        let empty: Vec<Field<N>> = vec![];
+        assert!(SealanceMerkleTree::build_tree::<N>(&empty).is_err());
+
+        let odd = vec![Field::<N>::one(), Field::<N>::zero(), Field::<N>::one()];
+        let err = SealanceMerkleTree::build_tree::<N>(&odd).unwrap_err();
+        assert!(
+            format!("{err}").contains("even number"),
+            "expected an even-length error, got: {err}"
         );
     }
 }
