@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.10.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.9.0...aleo-rust-sdk-v0.10.0) (2026-10-30)
+
+
+### Features
+
+* **client:** verify proofs against the consensus version of their own era ([#24](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/24)) ([d409855](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/d4098554105e80908cc087547e07fe7582e43a86))
+
+
+### Bug Fixes
+
+* **sealance:** sibling paths must carry depth+1 elements ([#26](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/26)) ([b24edc8](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/b24edc86e19b24da11be4c81cc667f140bf0912e))
+
 ## [0.9.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.8.2...aleo-rust-sdk-v0.9.0) (2026-10-29)
 
 
