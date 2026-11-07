@@ -1221,8 +1221,18 @@ mod chain_reads {
             .mount(&server)
             .await;
 
+        Mock::given(method("GET"))
+            .and(path("/block/latest"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "height": 21225033, "by": "latest" })),
+            )
+            .mount(&server)
+            .await;
+
         assert_eq!(client.fetch_block("1234").await.unwrap()["by"], "height");
         assert_eq!(client.fetch_block("ab1hash").await.unwrap()["by"], "hash");
+        assert_eq!(client.fetch_latest_block().await.unwrap()["by"], "latest");
     }
 
     /// The whole point of the translation: a half-open 100..160 must go out as
@@ -1404,6 +1414,19 @@ mod chain_reads {
         assert!(
             err.to_string().contains("expected an array"),
             "expected a shape error, got: {err}"
+        );
+
+        // An array whose members are not strings is a shape break too: taking
+        // the index out of whatever came back would fabricate a mapping name.
+        Mock::given(method("GET"))
+            .and(path("/program/numeric.aleo/mappings"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([7])))
+            .mount(&server)
+            .await;
+        let err = client.fetch_mapping_names("numeric.aleo").await.unwrap_err();
+        assert!(
+            err.to_string().contains("mapping name is not a string"),
+            "expected a member error, got: {err}"
         );
     }
 
