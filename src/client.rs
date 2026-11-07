@@ -41,7 +41,7 @@ use crate::program::AleoProgram;
 use anyhow::Result;
 use snarkvm::console::program::{ProgramID, Value};
 use snarkvm::ledger::block::Transaction;
-use snarkvm::prelude::{Network, PrivateKey, TestRng, TestnetV0};
+use snarkvm::prelude::{Network, PrivateKey, Program, TestRng, TestnetV0};
 use std::str::FromStr;
 
 /// Inputs for the prove pipeline.
@@ -546,6 +546,52 @@ impl AleoClient {
         self.network.check_fee(&address, fee_amount_microcredits).await
     }
 
+    // ── Fee estimation (JS ProgramManager `estimate*` family) ───────────
+    //
+    // Synchronous and offline like the JS versions: no account, no network,
+    // no proving — a burner key prices a synthetic call and the result is
+    // discarded. Returns the base fee in microcredits; add the priority fee
+    // on top when building the transaction.
+
+    /// Estimate the execution fee for a function call — the JS
+    /// `ProgramManager.estimateExecutionFee()`.
+    ///
+    /// `program_source` is the raw `.aleo` source; its imports must already
+    /// be loadable in a fresh process (today: only programs without imports,
+    /// plus `credits.aleo` itself). See
+    /// [`ExecutionEngine::estimate_execution_fee`](crate::ExecutionEngine::estimate_execution_fee)
+    /// for the sampling and pricing details.
+    pub fn estimate_execution_fee(&self, program_source: &str, function_name: &str) -> Result<u64> {
+        let engine = ExecutionEngine::new()?;
+        let program = Program::<TestnetV0>::from_str(program_source)?;
+        engine.estimate_execution_fee(&program, function_name)
+    }
+
+    /// Price an existing [`Authorization`](snarkvm::prelude::Authorization) —
+    /// the JS `ProgramManager.estimateFeeForAuthorization()`.
+    pub fn estimate_fee_for_authorization(
+        &self,
+        authorization: &snarkvm::prelude::Authorization<TestnetV0>,
+        program_source: &str,
+    ) -> Result<u64> {
+        let engine = ExecutionEngine::new()?;
+        let program = Program::<TestnetV0>::from_str(program_source)?;
+        if !engine.process.contains_program(program.id()) {
+            engine.add_program(&program)?;
+        }
+        engine.estimate_fee_for_authorization(authorization)
+    }
+
+    /// Estimate the finalize fee component of a function — the JS
+    /// `ProgramManager.estimateFinalizeFee()`. 0 for a function without a
+    /// finalize step. See
+    /// [`ExecutionEngine::estimate_finalize_fee`](crate::ExecutionEngine::estimate_finalize_fee).
+    pub fn estimate_finalize_fee(&self, program_source: &str, function_name: &str) -> Result<u64> {
+        let engine = ExecutionEngine::new()?;
+        let program = Program::<TestnetV0>::from_str(program_source)?;
+        engine.estimate_finalize_fee(&program, function_name)
+    }
+
     // ── Deployment (program publishing) ─────────────────────────────────
 
     /// Full deployment pipeline: parse → prove → compute fee → fetch state root → build tx → broadcast.
@@ -561,9 +607,6 @@ impl AleoClient {
         program_source: &str,
         priority_fee_in_microcredits: u64,
     ) -> Result<String> {
-        use snarkvm::prelude::Program;
-        use std::str::FromStr;
-
         let account = self.require_account()?;
         let mut rng = TestRng::default();
 
