@@ -151,11 +151,67 @@ impl AleoHttpClient {
         v.get("result").cloned().context("JSON-RPC response missing result")
     }
 
+    /// `GET url`, failing on any non-2xx instead of handing the error page to
+    /// the caller.
+    ///
+    /// Without this check a failed request surfaces as whatever the parser
+    /// makes of the error body — `fetch_block_height` on a 404 reports a
+    /// `ParseIntError`, which points at the wrong layer.
+    pub(crate) async fn get_text_checked(&self, url: &str) -> Result<String> {
+        let resp = self
+            .inner
+            .get(url)
+            .headers(Self::headers())
+            .send()
+            .await
+            .with_context(|| format!("GET {url} failed"))?;
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            anyhow::bail!("GET {url} -> {status}: {}", crate::hosted::truncate(&body));
+        }
+        Ok(body)
+    }
+
+    /// `GET url`, parsed as JSON.
+    pub(crate) async fn get_json(&self, url: &str) -> Result<Value> {
+        let text = self.get_text_checked(url).await?;
+        serde_json::from_str(&text).with_context(|| format!("GET {url} did not return JSON"))
+    }
+
+    /// `GET url` whose body must be a JSON *string* (`"at1…"`).
+    ///
+    /// The node pretty-prints these, so the quotes arrive verbatim. A body that
+    /// is not a non-empty JSON string is an error rather than a value that
+    /// happens to be quoted — an id that was never fetched must not look like
+    /// one that was.
+    pub(crate) async fn get_json_string(&self, url: &str) -> Result<String> {
+        match self.get_json(url).await? {
+            Value::String(s) if !s.is_empty() => Ok(s),
+            other => anyhow::bail!("GET {url}: expected a JSON string, got {other}"),
+        }
+    }
+
     /// Fetch a program from the network (REST GET).
     pub async fn fetch_program(&self, program_id: &str) -> Result<Program<TestnetV0>> {
-        let url = format!("{}/program/{program_id}", self.base_url);
+        self.fetch_program_edition(program_id, None).await
+    }
+
+    /// Fetch a specific edition of a program (`None` = latest).
+    ///
+    /// The node serves `program/{id}/{edition}` for a pinned edition and
+    /// `program/{id}` for the latest; both answer with the same program text.
+    pub async fn fetch_program_edition(
+        &self,
+        program_id: &str,
+        edition: Option<u16>,
+    ) -> Result<Program<TestnetV0>> {
+        let url = match edition {
+            Some(edition) => format!("{}/program/{program_id}/{edition}", self.base_url),
+            None => format!("{}/program/{program_id}", self.base_url),
+        };
         tracing::info!("GET {url}");
-        let text = self.inner.get(&url).headers(Self::headers()).send().await?.text().await?;
+        let text = self.get_text_checked(&url).await?;
 
         let clean = text.trim_matches('"').replace("\\n", "\n");
         Program::<TestnetV0>::from_str(&clean).context("Failed to parse program")
@@ -281,7 +337,7 @@ impl AleoHttpClient {
     /// the same "4xx means absent" rule; the only difference between them is
     /// whether the body is parsed as a `u64`. This is the single place that
     /// knows the route, so the two cannot drift.
-    async fn mapping_value_raw(
+    pub(crate) async fn mapping_value_raw(
         &self,
         program_id: &str,
         mapping_name: &str,

@@ -1150,3 +1150,480 @@ mod record_scan {
         }
     }
 }
+
+// ── Chain reads: blocks, program metadata, committees, balances ─────────
+
+/// The endpoint used by the Cloud API is not the one snarkOS documents:
+/// `/blocks?start=&end=` is **inclusive of `end`** there (verified live:
+/// `start=20962820&end=20962822` returns three blocks) and caps the range at
+/// `end - start <= 50`, while snarkOS's own handler iterates `start..end`.
+/// These tests pin the translation rather than trusting the doc page.
+mod chain_reads {
+    use super::*;
+    use aleo_rust_sdk::network::MAX_BLOCKS_PER_REQUEST;
+    use wiremock::{Request, Respond};
+
+    /// `/blocks` answered the way the live Cloud API does: one object per
+    /// height in `start..=end`, optionally truncated to simulate a node whose
+    /// tip is below the requested range.
+    struct BlocksFromQuery {
+        max_per_page: Option<usize>,
+    }
+
+    impl Respond for BlocksFromQuery {
+        fn respond(&self, request: &Request) -> ResponseTemplate {
+            let query = |name: &'static str| -> u32 {
+                request
+                    .url
+                    .query_pairs()
+                    .find(|(k, _)| k == name)
+                    .unwrap_or_else(|| panic!("missing query param {name}"))
+                    .1
+                    .parse()
+                    .expect("numeric query param")
+            };
+            let (start, end) = (query("start"), query("end"));
+            let mut heights: Vec<u32> = (start..=end).collect();
+            if let Some(max) = self.max_per_page {
+                heights.truncate(max);
+            }
+            let blocks: Vec<serde_json::Value> = heights
+                .iter()
+                .map(|h| serde_json::json!({ "height": h, "block_hash": format!("ab1h{h}") }))
+                .collect();
+            ResponseTemplate::new(200).set_body_json(blocks)
+        }
+    }
+
+    fn query_strings(requests: &[Request]) -> Vec<String> {
+        requests.iter().map(|r| r.url.query().unwrap_or_default().to_string()).collect()
+    }
+
+    #[tokio::test]
+    async fn block_by_height_and_by_hash_share_one_route() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/block/1234"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "height": 1234, "by": "height" })),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/block/ab1hash"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "height": 1234, "by": "hash" })),
+            )
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/block/latest"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "height": 21225033, "by": "latest" })),
+            )
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.fetch_block("1234").await.unwrap()["by"], "height");
+        assert_eq!(client.fetch_block("ab1hash").await.unwrap()["by"], "hash");
+        assert_eq!(client.fetch_latest_block().await.unwrap()["by"], "latest");
+    }
+
+    /// The whole point of the translation: a half-open 100..160 must go out as
+    /// two inclusive requests, `100..=149` and `150..=159`, and come back in
+    /// ascending, gap-free order.
+    #[tokio::test]
+    async fn block_range_is_half_open_and_chunked() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/blocks"))
+            .respond_with(BlocksFromQuery { max_per_page: None })
+            .mount(&server)
+            .await;
+        let client = mock_client(&server.uri());
+
+        let span = MAX_BLOCKS_PER_REQUEST + 10; // forces exactly two requests
+        let blocks = client.fetch_block_range(100, 100 + span).await.unwrap();
+
+        let heights: Vec<u64> =
+            blocks.iter().map(|b| b["height"].as_u64().expect("height")).collect();
+        assert_eq!(
+            heights,
+            (100u64..100 + span as u64).collect::<Vec<_>>(),
+            "the returned range must be exactly what was asked for"
+        );
+
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(
+            query_strings(&requests),
+            vec![
+                format!("start=100&end={}", 100 + MAX_BLOCKS_PER_REQUEST - 1),
+                format!(
+                    "start={}&end={}",
+                    100 + MAX_BLOCKS_PER_REQUEST,
+                    100 + span - 1
+                ),
+            ],
+            "each request carries an inclusive end one below the half-open bound"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_block_range_makes_no_request() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        assert!(client.fetch_block_range(500, 500).await.unwrap().is_empty());
+        assert!(client.fetch_block_range(600, 500).await.unwrap().is_empty());
+        assert!(
+            server.received_requests().await.unwrap().is_empty(),
+            "an empty range must not hit the network"
+        );
+    }
+
+    /// A node behind the requested range answers with fewer blocks than asked
+    /// for; reporting that as a shorter range would make a scan look complete
+    /// when it covered less chain than the caller believes.
+    #[tokio::test]
+    async fn a_short_block_page_is_an_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/blocks"))
+            .respond_with(BlocksFromQuery {
+                max_per_page: Some(2),
+            })
+            .mount(&server)
+            .await;
+        let client = mock_client(&server.uri());
+
+        let err = client.fetch_block_range(100, 110).await.unwrap_err();
+        assert!(
+            err.to_string().contains("behind the requested range"),
+            "expected a truncation error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_block_is_an_error_not_an_empty_block() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/block/[0-9]+$"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "statusCode": 404,
+                "message": "Couldn't find block 999999999"
+            })))
+            .mount(&server)
+            .await;
+        let client = mock_client(&server.uri());
+
+        let err = client.fetch_block("999999999").await.unwrap_err();
+        let message = format!("{err:#}");
+        assert!(message.contains("404"), "status must survive: {message}");
+        assert!(
+            message.contains("Couldn't find block"),
+            "the node's explanation must survive: {message}"
+        );
+    }
+
+    /// A body that is not a JSON string is a protocol break. Returning the raw
+    /// body would hand out `null` (or an error page) as if it were a hash.
+    #[tokio::test]
+    async fn ids_must_arrive_as_non_empty_json_strings() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/block/hash/latest"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#""ab1gcz0cqyshjs8y73hrgqlakrjzht20taxxv4fftrzsqsg47d8fcrs6lqqfc""#,
+            ))
+            .mount(&server)
+            .await;
+        assert_eq!(
+            client.fetch_latest_block_hash().await.unwrap(),
+            "ab1gcz0cqyshjs8y73hrgqlakrjzht20taxxv4fftrzsqsg47d8fcrs6lqqfc"
+        );
+
+        Mock::given(method("GET"))
+            .and(path("/find/transitionID/anonid"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("null"))
+            .mount(&server)
+            .await;
+        let err = client.fetch_transition_id("anonid").await.unwrap_err();
+        assert!(
+            err.to_string().contains("expected a JSON string"),
+            "expected a shape error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn block_height_of_a_hash_is_parsed() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/height/ab1hash"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("21225033"))
+            .mount(&server)
+            .await;
+        let client = mock_client(&server.uri());
+
+        assert_eq!(
+            client.fetch_block_height_of_hash("ab1hash").await.unwrap(),
+            21225033
+        );
+    }
+
+    /// Live shape: `["committee","delegated",…]`. An object body must not be
+    /// mistaken for "this program has no mappings".
+    #[tokio::test]
+    async fn mapping_names_must_be_an_array_of_strings() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/program/credits.aleo/mappings"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                "committee",
+                "delegated",
+                "metadata",
+                "bonded",
+                "unbonding",
+                "account",
+                "withdraw",
+                "pool"
+            ])))
+            .mount(&server)
+            .await;
+        let names = client.fetch_mapping_names("credits.aleo").await.unwrap();
+        assert_eq!(names.len(), 8);
+        assert_eq!(names[5], "account");
+
+        Mock::given(method("GET"))
+            .and(path("/program/odd.aleo/mappings"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "account": ["u64"] })),
+            )
+            .mount(&server)
+            .await;
+        let err = client.fetch_mapping_names("odd.aleo").await.unwrap_err();
+        assert!(
+            err.to_string().contains("expected an array"),
+            "expected a shape error, got: {err}"
+        );
+
+        // An array whose members are not strings is a shape break too: taking
+        // the index out of whatever came back would fabricate a mapping name.
+        Mock::given(method("GET"))
+            .and(path("/program/numeric.aleo/mappings"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([7])))
+            .mount(&server)
+            .await;
+        let err = client.fetch_mapping_names("numeric.aleo").await.unwrap_err();
+        assert!(
+            err.to_string().contains("mapping name is not a string"),
+            "expected a member error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn program_edition_is_read_and_can_be_pinned() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+        const SOURCE: &str = "program hello_hello.aleo;\n\nfunction hello:\n    input r0 as u32.public;\n    input r1 as u32.private;\n    add r0 r1 into r2;\n    output r2 as u32.private;\n";
+
+        Mock::given(method("GET"))
+            .and(path("/program/hello_hello.aleo/latest_edition"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("0"))
+            .mount(&server)
+            .await;
+        assert_eq!(
+            client.fetch_latest_program_edition("hello_hello.aleo").await.unwrap(),
+            0
+        );
+
+        Mock::given(method("GET"))
+            .and(path("/program/hello_hello.aleo/1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!(SOURCE)))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let program = client.fetch_program_edition("hello_hello.aleo", Some(1)).await.unwrap();
+        assert_eq!(program.id().to_string(), "hello_hello.aleo");
+    }
+
+    #[tokio::test]
+    async fn find_routes_resolve_a_program_and_an_input() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/find/transactionID/deployment/hello_hello.aleo"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#""at1deploytransactionid""#))
+            .mount(&server)
+            .await;
+        assert_eq!(
+            client.fetch_deployment_transaction_id("hello_hello.aleo").await.unwrap(),
+            "at1deploytransactionid"
+        );
+
+        Mock::given(method("GET"))
+            .and(path("/find/transitionID/1234field"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#""au1transition""#))
+            .mount(&server)
+            .await;
+        assert_eq!(
+            client.fetch_transition_id("1234field").await.unwrap(),
+            "au1transition"
+        );
+    }
+
+    /// `/transaction/{id}` answers for unconfirmed transactions too; the
+    /// confirmed route is the one that refuses. Using the wrong one is how a
+    /// mempool entry gets mistaken for a mined one.
+    #[tokio::test]
+    async fn confirmed_transactions_use_the_confirmed_route() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/transaction/confirmed/at1mined"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "status": "accepted", "index": 0 })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/transaction/confirmed/at1pending"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("not found"))
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            client.fetch_confirmed_transaction("at1mined").await.unwrap()["status"],
+            "accepted"
+        );
+        assert!(client.fetch_confirmed_transaction("at1pending").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn committee_and_mempool_hit_their_routes() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/committee/latest"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "id": "committee1", "round": 42 })),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/committee/1234"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "id": "committee2", "round": 7 })),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/memoryPool/transactions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+            .mount(&server)
+            .await;
+
+        assert_eq!(client.fetch_committee().await.unwrap()["round"], 42);
+        assert_eq!(client.fetch_committee_at(1234).await.unwrap()["round"], 7);
+        assert_eq!(
+            client
+                .fetch_mempool_transactions()
+                .await
+                .unwrap()
+                .as_array()
+                .expect("array")
+                .len(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn public_balance_reads_the_account_mapping() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/program/credits.aleo/mapping/account/aleo1funded"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("123456u64"))
+            .mount(&server)
+            .await;
+        let client = mock_client(&server.uri());
+
+        assert_eq!(
+            client.fetch_public_balance("aleo1funded").await.unwrap(),
+            123456
+        );
+    }
+
+    /// Never funded is 0; "the node answered with something that is not a
+    /// number" is not 0. Conflating them is how a funded account looks drained.
+    #[tokio::test]
+    async fn public_balance_separates_absent_from_malformed() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/program/credits.aleo/mapping/account/aleo1unpaid"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("Program not found"))
+            .mount(&server)
+            .await;
+        assert_eq!(client.fetch_public_balance("aleo1unpaid").await.unwrap(), 0);
+
+        Mock::given(method("GET"))
+            .and(path("/program/credits.aleo/mapping/account/aleo1weird"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not-a-number"))
+            .mount(&server)
+            .await;
+        let err = client.fetch_public_balance("aleo1weird").await.unwrap_err();
+        assert!(
+            err.to_string().contains("is not a u64"),
+            "expected a parse error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn block_transactions_accept_a_height_or_a_hash() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/block/1234/transactions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!([{ "id": "at1byheight" }])),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/block/ab1hash/transactions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!([{ "id": "at1byhash" }])),
+            )
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            client.fetch_block_transactions("1234").await.unwrap()[0]["id"],
+            "at1byheight"
+        );
+        assert_eq!(
+            client.fetch_block_transactions("ab1hash").await.unwrap()[0]["id"],
+            "at1byhash"
+        );
+    }
+}
