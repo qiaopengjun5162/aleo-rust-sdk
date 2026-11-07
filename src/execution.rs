@@ -19,13 +19,19 @@ use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use snarkvm::algorithms::snark::varuna::VarunaVersion;
 use snarkvm::circuit::AleoTestnetV0;
-use snarkvm::console::program::{Identifier, ProgramID, ProgramOwner, Value};
+use snarkvm::console::program::{
+    Identifier, ProgramID, ProgramOwner, RegisterType, Value, ValueType,
+};
 use snarkvm::ledger::block::{Deployment, Transaction};
 use snarkvm::prelude::{
-    Address, Authorization, ConsensusVersion, CryptoRng, InclusionVersion, PrivateKey, Process,
-    Program, Response, Rng, TestRng, TestnetV0,
+    Address, Authorization, ComputeKey, ConsensusVersion, CryptoRng, InclusionVersion, PrivateKey,
+    Process, Program, Response, Rng, TestRng, TestnetV0,
 };
-use snarkvm::synthesizer::process::{Stack, Trace, deployment_cost, execution_cost};
+use snarkvm::synthesizer::process::{
+    Stack, Trace, deployment_cost, execution_cost, execution_cost_for_authorization,
+    minimum_cost_in_microcredits_v2,
+};
+use snarkvm::synthesizer::program::StackTrait;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -144,6 +150,126 @@ impl ExecutionEngine {
         self.process
             .authorize::<AleoTestnetV0, _>(private_key, *program_id, fn_id, inputs.into_iter(), rng)
             .context("Authorization failed")
+    }
+
+    // ── Fee estimation (JS ProgramManager `estimate*` family) ────────────
+    //
+    // All three are offline computations — no network, no account, and no
+    // Varuna proving. They return the **base fee in microcredits**; add the
+    // priority fee on top when building the transaction.
+
+    /// Estimate the execution fee for a function call — the JS
+    /// `ProgramManager.estimateExecutionFee`.
+    ///
+    /// Authorizes a throwaway call with a fresh burner key and synthetic
+    /// inputs (every input type is sampled, records included) and prices the
+    /// resulting [`Authorization`] with
+    /// `execution_cost_for_authorization`. The sampled values do not change
+    /// the outcome: the cost is driven by the function's circuit shapes and
+    /// record counts, not by the data.
+    ///
+    /// The fee is computed at [`ConsensusVersion::latest()`], which is what a
+    /// transaction broadcast now will pay — later blocks only move the price
+    /// forward (verifying a past transaction must instead use the consensus
+    /// version of its block; see `verify_execution_at`).
+    ///
+    /// The program must be in the engine's process; it is added when missing
+    /// (the JS version likewise accepts the source and resolves it). Its own
+    /// imports must already be loaded — add them first with
+    /// [`add_program`](Self::add_program) if it has any.
+    pub fn estimate_execution_fee(
+        &self,
+        program: &Program<TestnetV0>,
+        function_name: &str,
+    ) -> Result<u64> {
+        let mut rng = TestRng::default();
+        let program_id = *program.id();
+        let fn_id = Identifier::<TestnetV0>::from_str(function_name)?;
+
+        // A burner key: the authorization is priced and discarded.
+        let burner_private_key = PrivateKey::new(&mut rng)?;
+        let burner_address = Address::try_from(&ComputeKey::try_from(&burner_private_key)?)?;
+
+        if !self.process.contains_program(&program_id) {
+            self.add_program(program)?;
+        }
+
+        let function = program.get_function(&fn_id)?;
+        let mut sampled = Vec::new();
+        for input_type in function.input_types() {
+            let value = match &input_type {
+                ValueType::ExternalRecord(locator) => {
+                    // Sample the foreign record from its own program's stack.
+                    let stack = self.process.get_stack(locator.program_id())?;
+                    stack.sample_value(
+                        &burner_address,
+                        &RegisterType::from(ValueType::Record(*locator.resource())),
+                        &mut rng,
+                    )?
+                }
+                other => {
+                    let stack = self.process.get_stack(program_id)?;
+                    stack.sample_value(
+                        &burner_address,
+                        &RegisterType::from(other.clone()),
+                        &mut rng,
+                    )?
+                }
+            };
+            sampled.push(value);
+        }
+
+        let authorization = self.process.authorize::<AleoTestnetV0, _>(
+            &burner_private_key,
+            program_id,
+            fn_id,
+            sampled.into_iter(),
+            &mut rng,
+        )?;
+        self.estimate_fee_for_authorization(&authorization)
+    }
+
+    /// Price an existing [`Authorization`] — the JS
+    /// `ProgramManager.estimateFeeForAuthorization`.
+    ///
+    /// The authorization's program must already be in the process (add it
+    /// with [`add_program`](Self::add_program) first). Computed at
+    /// [`ConsensusVersion::latest()`], like
+    /// [`estimate_execution_fee`](Self::estimate_execution_fee).
+    pub fn estimate_fee_for_authorization(
+        &self,
+        authorization: &Authorization<TestnetV0>,
+    ) -> Result<u64> {
+        let (minimum_cost, _) = execution_cost_for_authorization(
+            &self.process,
+            authorization,
+            ConsensusVersion::latest(),
+        )?;
+        Ok(minimum_cost)
+    }
+
+    /// Estimate the finalize fee component of a function — the JS
+    /// `ProgramManager.estimateFinalizeFee`.
+    ///
+    /// Only the finalize half: 0 for a function without a finalize step,
+    /// nonzero for an `async` function (its finalize cost). A lower bound for
+    /// dynamic futures, which cannot be priced statically — the JS docs mark
+    /// the whole estimate experimental and this shares the caveat.
+    ///
+    /// Unlike the JS version (which looks the stack up without ever loading
+    /// the program), the program is added to the process when missing.
+    pub fn estimate_finalize_fee(
+        &self,
+        program: &Program<TestnetV0>,
+        function_name: &str,
+    ) -> Result<u64> {
+        let program_id = *program.id();
+        if !self.process.contains_program(&program_id) {
+            self.add_program(program)?;
+        }
+        let fn_id = Identifier::<TestnetV0>::from_str(function_name)?;
+        let stack = self.process.get_stack(program_id)?;
+        minimum_cost_in_microcredits_v2(&stack, &fn_id)
     }
 
     /// Authorize and execute locally. Returns response + trace.

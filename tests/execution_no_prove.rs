@@ -15,6 +15,7 @@ use aleo_rust_sdk::{AleoClient, AleoProgram, ExecutionEngine, consensus_version_
 use snarkvm::prelude::{
     ConsensusVersion, FromStr as _, PrivateKey, Program, ProgramID, TestRng, TestnetV0, Value,
 };
+use snarkvm::synthesizer::program::StackTrait;
 
 /// Minimal program for local execution.
 const HELLO_SRC: &str = "program hello.aleo;\nfunction hello:\n    input r0 as u32.public;\n    input r1 as u32.private;\n    add r0 r1 into r2;\n    output r2 as u32.private;\n";
@@ -291,4 +292,104 @@ fn test_authorize_and_execute_wrong_input_type() {
         &mut rng,
     );
     assert!(result.is_err(), "expected error for wrong input type");
+}
+
+// ── Fee estimation (JS ProgramManager `estimate*` family) ───────────────
+
+/// A program with one finalize-free function and one async function whose
+/// finalize step has a nonzero cost. (snarkVM 4.12 syntax: the function
+/// keyword stays plain and the body carries the `async` call — the same
+/// shape as `credits.aleo`'s staking functions.)
+const FINALIZE_SRC: &str = "program fee_finalize_test.aleo;\n\nfunction noop:\n    input r0 as u64.public;\n    output r0 as u64.public;\n\nfunction tick:\n    input r0 as u64.public;\n    async tick r0 into r1;\n    output r1 as fee_finalize_test.aleo/tick.future;\n\nfinalize tick:\n    input r0 as u64.public;\n    add r0 r0 into r1;\n";
+
+#[test]
+fn estimate_execution_fee_prices_a_local_call() {
+    let engine = ExecutionEngine::new().unwrap();
+    let program = Program::<TestnetV0>::from_str(HELLO_SRC).unwrap();
+
+    let fee = engine.estimate_execution_fee(&program, "hello").unwrap();
+    // Base fees are small: the V14-era floor was 100_000 microcredits and
+    // later consensus versions are cheaper. 1 credit is a generous ceiling
+    // for a two-input add; the exact figure moves with consensus version.
+    assert!(fee > 0, "{fee}");
+    assert!(fee < 1_000_000, "{fee}");
+}
+
+#[test]
+fn estimate_execution_fee_prices_credits_functions_including_records() {
+    let engine = ExecutionEngine::new().unwrap();
+    let credits = engine.process.get_stack(CREDITS_ID).unwrap().program().clone();
+
+    // transfer_public: (address, u64) — plain inputs.
+    let public_fee = engine.estimate_execution_fee(&credits, "transfer_public").unwrap();
+    assert!(public_fee > 0, "{public_fee}");
+
+    // transfer_private: (record, address, u64) — exercises record sampling.
+    let private_fee = engine.estimate_execution_fee(&credits, "transfer_private").unwrap();
+    assert!(private_fee > 0, "{private_fee}");
+}
+
+#[test]
+fn estimate_fee_for_authorization_prices_an_existing_authorization() {
+    let engine = ExecutionEngine::new().unwrap();
+    let program = Program::<TestnetV0>::from_str(HELLO_SRC).unwrap();
+    engine.add_program(&program).unwrap();
+    let program_id = *program.id();
+
+    let mut rng = TestRng::default();
+    let pk = PrivateKey::new(&mut rng).unwrap();
+    let auth = engine
+        .authorize(&pk, &program_id, "hello", vec!["1u32", "2u32"], &mut rng)
+        .unwrap();
+
+    let fee = engine.estimate_fee_for_authorization(&auth).unwrap();
+    assert!(fee > 0, "{fee}");
+}
+
+#[test]
+fn estimate_finalize_fee_is_zero_without_a_finalize_step() {
+    let engine = ExecutionEngine::new().unwrap();
+    let program = Program::<TestnetV0>::from_str(FINALIZE_SRC).unwrap();
+
+    assert_eq!(engine.estimate_finalize_fee(&program, "noop").unwrap(), 0);
+    assert!(engine.estimate_finalize_fee(&program, "tick").unwrap() > 0);
+}
+
+#[test]
+fn estimate_rejects_an_unknown_function_with_its_name() {
+    let engine = ExecutionEngine::new().unwrap();
+    let program = Program::<TestnetV0>::from_str(HELLO_SRC).unwrap();
+
+    let err = engine.estimate_execution_fee(&program, "nope").unwrap_err().to_string();
+    assert!(err.contains("nope"), "{err}");
+
+    let err = engine.estimate_finalize_fee(&program, "nope").unwrap_err().to_string();
+    assert!(err.contains("nope"), "{err}");
+}
+
+#[test]
+fn test_client_fee_estimation_wrappers() {
+    let client =
+        AleoClient::new_with_rpc("http://localhost:19999", "http://localhost:19999").unwrap();
+
+    let fee = client.estimate_execution_fee(HELLO_SRC, "hello").unwrap();
+    assert!(fee > 0 && fee < 1_000_000, "{fee}");
+
+    let finalize_fee = client.estimate_finalize_fee(FINALIZE_SRC, "tick").unwrap();
+    assert!(finalize_fee > 0, "{finalize_fee}");
+    assert_eq!(
+        client.estimate_finalize_fee(FINALIZE_SRC, "noop").unwrap(),
+        0
+    );
+
+    // estimate_fee_for_authorization wraps the same engine path.
+    let engine = ExecutionEngine::new().unwrap();
+    let program = Program::<TestnetV0>::from_str(HELLO_SRC).unwrap();
+    engine.add_program(&program).unwrap();
+    let mut rng = TestRng::default();
+    let pk = PrivateKey::new(&mut rng).unwrap();
+    let auth = engine
+        .authorize(&pk, program.id(), "hello", vec!["1u32", "2u32"], &mut rng)
+        .unwrap();
+    assert!(client.estimate_fee_for_authorization(&auth, HELLO_SRC).unwrap() > 0);
 }
