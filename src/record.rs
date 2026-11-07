@@ -122,7 +122,9 @@ impl RecordScanner {
                     if ciphertext_str.is_empty() {
                         continue;
                     }
-                    if let Some((microcredits, data)) = Self::decrypt_record(ciphertext_str, &vk) {
+                    if let Some((microcredits, data)) =
+                        Self::decrypt_record_parts(ciphertext_str, &vk)
+                    {
                         results.push(AleoRecord {
                             program_id,
                             owner: owner_addr,
@@ -182,7 +184,12 @@ impl RecordScanner {
     /// The invariant is now guarded by `tests/record_decryption_test.rs`, which
     /// feeds in a record encrypted for a different account and requires it to be
     /// rejected.
-    fn decrypt_record(
+    ///
+    /// Shared with [`crate::scanner::OwnedRecord::decrypt`], which receives
+    /// ciphertexts from a remote service rather than from `records/all`. "Is this
+    /// record mine?" must be decided in exactly one place, or the two paths can
+    /// drift apart.
+    pub(crate) fn decrypt_record_parts(
         ciphertext_str: &str,
         vk: &ViewKey<TestnetV0>,
     ) -> Option<(u64, BTreeMap<String, String>)> {

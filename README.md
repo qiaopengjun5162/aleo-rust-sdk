@@ -40,6 +40,8 @@ A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — 
 | aleo-rust-sdk (execution) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/execution/index.html) | Authorize, execute, prove, package transactions |
 | aleo-rust-sdk (network) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/network/index.html) | v2 JSON-RPC + REST HTTP client + **ProvableQuery** (live state path) |
 | aleo-rust-sdk (record) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/record/index.html) | Record discovery, decryption, and coin selection |
+| aleo-rust-sdk (delegated) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/delegated/index.html) | Delegated proving via Provable's TEE (DPS) |
+| aleo-rust-sdk (scanner) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/scanner/index.html) | Record scanning via Provable's TEE (RSS) |
 | aleo-rust-sdk (client) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/client/index.html) | High-level `AleoClient` orchestrator |
 
 The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a separate crate that consumes this SDK.
@@ -53,6 +55,7 @@ The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a sepa
 | **⚡ Local Execution** | Authorize and execute Aleo program transitions locally **without broadcasting** — ideal for dry-runs and testing. |
 | **🔐 Proof Generation** | Generate zero-knowledge proofs (Varuna V2) for local execution. Fee proving with V0 fee keys for testnet. |
 | **🛡️ Delegated Proving** (v0.10.0+) | Hand proving to Provable's TEE prover (DPS). The authorization travels in a libsodium sealed box and comes back as a broadcast-ready transaction — 15–60s of local CPU becomes one network round-trip. |
+| **🔍 Record Scanning** (v0.10.0+) | Register a view key with Provable's record scanner (RSS) so the TEE indexes it once, then query owned records by `uuid` instead of walking `records/all`. Returned ciphertexts are still decrypted locally, so a forged response cannot invent a spendable record. |
 | **🌐 Network Queries** | Query block height, state root, program source, and mapping values via REST + JSON-RPC. |
 | **🔗 Live State Paths** (v0.5.0+) | `ProvableQuery` fetches real Merkle paths from Provable API v2 (`api.provable.com/v2/testnet/statePath/{commitment}`) — no dummy queries, no 502 errors. |
 | **📋 Record Management** | Fetch, decrypt, and filter private `credits.aleo` records by owner. Scan record ciphertexts across block ranges. |

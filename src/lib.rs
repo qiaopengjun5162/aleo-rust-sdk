@@ -11,8 +11,8 @@
 //!
 //! ## Architecture
 //!
-//! The SDK is organized into nine modules — eight of them functional layers,
-//! one of them support:
+//! The SDK is organized into eleven modules — nine of them functional layers,
+//! two of them support:
 //!
 //! | Module | Purpose |
 //! |--------|---------|
@@ -22,8 +22,10 @@
 //! | [`delegated`] | Delegated proving: hand the proof to Provable's TEE prover |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
 //! | [`record`] | Record discovery, decryption, and coin selection |
+//! | [`scanner`] | Record scanning: let Provable's TEE index a view key |
 //! | [`sealance`] | Merkle exclusion proofs for compliant-stablecoin freeze lists |
 //! | [`client`] | High-level `AleoClient` orchestrating the full lifecycle |
+//! | [`hosted`] | Shared plumbing for the TEE services (auth, sealed boxes) |
 //! | [`version`] | Crate version constant |
 //!
 //! ## Proving: locally or delegated
@@ -34,6 +36,15 @@
 //! inside a TEE and returns a ready-to-broadcast transaction. The request is
 //! encrypted with a libsodium sealed box, so the private inputs are only
 //! readable inside the enclave.
+//!
+//! ## Finding records: locally or delegated
+//!
+//! The same split applies to record discovery. [`record::RecordScanner`] walks
+//! `records/all` and decrypts locally — trustless, but O(chain).
+//! [`scanner::RecordScanService`] registers the view key (encrypted the same
+//! way) with Provable's record scanning service, which indexes once and then
+//! answers queries by `uuid`. Records it returns are still decrypted locally,
+//! so a forged response cannot produce a spendable-looking record.
 //!
 //! ## Error handling
 //!
@@ -91,9 +102,11 @@ pub mod account;
 pub mod client;
 pub mod delegated;
 pub mod execution;
+pub mod hosted;
 pub mod network;
 pub mod program;
 pub mod record;
+pub mod scanner;
 pub mod sealance;
 pub mod version;
 
@@ -104,3 +117,4 @@ pub use delegated::{ApiAuth, DelegatedProver, ProvingRequest, ProvingResponse};
 pub use execution::{ExecutionEngine, consensus_version_to_varuna};
 pub use network::{AleoHttpClient, ConfirmationPoll, FixedStateRootQuery, ProvableQuery};
 pub use program::AleoProgram;
+pub use scanner::{OwnedFilter, OwnedRecord, RecordScanService, Registration};

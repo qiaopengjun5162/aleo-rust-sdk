@@ -65,34 +65,27 @@
 //! # }
 //! ```
 
-use anyhow::{Context, Result, anyhow, bail};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use crypto_box::PublicKey as SealedBoxPublicKey;
-use rand::rngs::OsRng;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, COOKIE, SET_COOKIE};
+use anyhow::{Context, Result, bail};
+use reqwest::header::{CONTENT_TYPE, COOKIE, SET_COOKIE};
 use serde::Deserialize;
 use snarkvm::ledger::block::Transaction;
 use snarkvm::prelude::{Authorization, TestnetV0};
 use snarkvm::utilities::{FromBytes, ToBytes};
 use std::fmt;
 use std::io::Cursor;
-use std::sync::Mutex;
-use std::time::Duration;
 use zeroize::Zeroizing;
+
+use crate::hosted::{AuthProvider, REQUEST_TIMEOUT, session_cookie, truncate};
+
+// Re-exported so `delegated::ApiAuth` (and its documented paths) keep working
+// now that the envelope is shared with [`crate::scanner`].
+pub use crate::hosted::{ApiAuth, EphemeralKey};
 
 /// Default prover host. The per-network path segment is appended by
 /// [`DelegatedProver::new`].
 const DEFAULT_PROVER_HOST: &str = "https://prover.provable.prove";
 /// Origin that mints JWTs for the legacy `api.provable.com` gateway.
 const DEFAULT_API_ORIGIN: &str = "https://api.provable.com";
-/// Header carrying a provisioned API key on the edge gateway.
-const DEFAULT_API_KEY_HEADER: &str = "X-API-Key";
-/// Refresh the JWT this long before it expires, so an in-flight prove request
-/// cannot straddle the boundary.
-const JWT_REFRESH_MARGIN_SECS: u64 = 300;
-/// Proving itself takes seconds, but a queued TEE job can take longer than a
-/// normal API call; 120s is generous without hanging a caller forever.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 
 // ── Proving request ──────────────────────────────────────────────────────
 
@@ -217,73 +210,10 @@ impl fmt::Debug for ProvingRequest {
 /// produces different ciphertexts — which is what makes the one-time `key_id`
 /// meaningful.
 pub fn seal_for_prover(recipient_public_key_b64: &str, plaintext: &[u8]) -> Result<String> {
-    let raw = BASE64
-        .decode(recipient_public_key_b64.trim())
-        .context("DPS public_key is not valid base64")?;
-    let public_key = SealedBoxPublicKey::from_slice(&raw)
-        .map_err(|_| anyhow!("DPS public_key must be 32 bytes, got {}", raw.len()))?;
-
-    let sealed = public_key
-        .seal(&mut OsRng, plaintext)
-        .map_err(|_| anyhow!("Sealed-box encryption failed"))?;
-    Ok(BASE64.encode(sealed))
+    crate::hosted::seal_sealed_box(recipient_public_key_b64, plaintext)
 }
 
 // ── HTTP client ──────────────────────────────────────────────────────────
-
-/// How to authenticate against the prover.
-///
-/// The current edge gateway (`edge.provable.com`) is unauthenticated, which is
-/// why [`ApiAuth::None`] is the default. The legacy `api.provable.com` gateway
-/// requires a JWT; this crate mints and refreshes it from an
-/// `api_key`/`consumer_id` pair, so callers never handle tokens themselves.
-#[derive(Clone, Debug)]
-pub enum ApiAuth {
-    /// Send no auth headers.
-    None,
-    /// Send a provisioned key verbatim on every request.
-    ApiKey {
-        /// The provisioned key.
-        value: String,
-        /// Header to carry it in; `X-API-Key` when `None`.
-        header: Option<String>,
-    },
-    /// Mint a short-lived JWT at `/jwts/{consumer_id}` and send it as
-    /// `Authorization`.
-    Jwt {
-        /// Key used for the mint call only.
-        api_key: String,
-        /// Consumer the JWT is minted for.
-        consumer_id: String,
-    },
-}
-
-impl ApiAuth {
-    /// Shorthand for [`ApiAuth::ApiKey`] with the default header.
-    pub fn api_key(value: impl Into<String>) -> Self {
-        Self::ApiKey {
-            value: value.into(),
-            header: None,
-        }
-    }
-
-    /// Shorthand for [`ApiAuth::Jwt`].
-    pub fn jwt(api_key: impl Into<String>, consumer_id: impl Into<String>) -> Self {
-        Self::Jwt {
-            api_key: api_key.into(),
-            consumer_id: consumer_id.into(),
-        }
-    }
-}
-
-/// The prover's one-time encryption key.
-#[derive(Clone, Debug, Deserialize)]
-pub struct EphemeralKey {
-    /// Identifier the prover uses to find the matching private key.
-    pub key_id: String,
-    /// X25519 public key, base64 (RFC 4648 standard).
-    pub public_key: String,
-}
 
 /// What the prover reports about the broadcast it performed.
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -315,22 +245,13 @@ impl ProvingResponse {
     }
 }
 
-#[derive(Clone)]
-struct CachedJwt {
-    token: String,
-    /// Unix seconds, as reported by the mint response's `exp`.
-    expires_at: u64,
-}
-
 /// Client for the Delegated Proving Service.
 pub struct DelegatedProver {
     http: reqwest::Client,
     /// Per-network prover base, e.g. `https://prover.provable.prove/testnet`.
     prover_base: String,
-    /// Origin used for JWT minting, e.g. `https://api.provable.com`.
-    api_origin: String,
-    auth: ApiAuth,
-    jwt: Mutex<Option<CachedJwt>>,
+    /// Credentials for both `/pubkey` and the encrypted POST.
+    auth: AuthProvider,
 }
 
 impl DelegatedProver {
@@ -362,11 +283,9 @@ impl DelegatedProver {
             .build()
             .context("Failed to build HTTP client")?;
         Ok(Self {
-            http,
             prover_base: prover_base.into().trim_end_matches('/').to_string(),
-            api_origin: api_origin.into().trim_end_matches('/').to_string(),
-            auth,
-            jwt: Mutex::new(None),
+            auth: AuthProvider::new(http.clone(), api_origin, auth),
+            http,
         })
     }
 
@@ -474,92 +393,7 @@ impl DelegatedProver {
 
     /// Resolve the auth headers for one request, minting a JWT when needed.
     pub async fn auth_headers(&self) -> Result<Vec<(String, String)>> {
-        match &self.auth {
-            ApiAuth::None => Ok(self
-                .cached_jwt()
-                .map(|jwt| vec![(AUTHORIZATION.to_string(), jwt)])
-                .unwrap_or_default()),
-            ApiAuth::ApiKey { value, header } => Ok(vec![(
-                header.clone().unwrap_or_else(|| DEFAULT_API_KEY_HEADER.to_string()),
-                value.clone(),
-            )]),
-            ApiAuth::Jwt {
-                api_key,
-                consumer_id,
-            } => {
-                if self.jwt_is_fresh() {
-                    let jwt = self.cached_jwt().context("JWT cache vanished")?;
-                    return Ok(vec![(AUTHORIZATION.to_string(), jwt)]);
-                }
-                let minted = self.mint_jwt(api_key, consumer_id).await?;
-                let token = minted.token.clone();
-                self.store_jwt(minted);
-                Ok(vec![(AUTHORIZATION.to_string(), token)])
-            }
-        }
-    }
-
-    /// Mint a fresh JWT at `/jwts/{consumer_id}`.
-    ///
-    /// The token comes back in the **`authorization` response header**, not the
-    /// JSON body; the body only carries `exp`. Reading the body's token field
-    /// is a common integration mistake, so it is spelled out here.
-    async fn mint_jwt(&self, api_key: &str, consumer_id: &str) -> Result<CachedJwt> {
-        let response = self
-            .http
-            .post(format!("{}/jwts/{consumer_id}", self.api_origin))
-            .header("X-Provable-API-Key", api_key)
-            .send()
-            .await
-            .context("JWT mint request failed")?;
-
-        let status = response.status();
-        let token = response
-            .headers()
-            .get("authorization")
-            .and_then(|value| value.to_str().ok())
-            .map(|value| value.trim_start_matches("Bearer ").to_string());
-        let body = response.text().await.context("Failed to read JWT mint body")?;
-
-        if !status.is_success() {
-            bail!("JWT mint returned {status}: {}", truncate(&body));
-        }
-        let token = token.context("JWT mint response carried no authorization header")?;
-
-        #[derive(Deserialize)]
-        struct MintBody {
-            #[serde(default)]
-            exp: Option<u64>,
-        }
-        let exp = serde_json::from_str::<MintBody>(&body)
-            .context("Failed to parse JWT mint body")?
-            .exp
-            .context("JWT mint body carried no `exp`")?;
-
-        Ok(CachedJwt {
-            token,
-            expires_at: exp,
-        })
-    }
-
-    fn cached_jwt(&self) -> Option<String> {
-        self.jwt
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .map(|jwt| jwt.token.clone())
-    }
-
-    fn jwt_is_fresh(&self) -> bool {
-        let guard = self.jwt.lock().unwrap_or_else(|e| e.into_inner());
-        match guard.as_ref() {
-            Some(jwt) => now_secs() + JWT_REFRESH_MARGIN_SECS < jwt.expires_at,
-            None => false,
-        }
-    }
-
-    fn store_jwt(&self, jwt: CachedJwt) {
-        *self.jwt.lock().unwrap_or_else(|e| e.into_inner()) = Some(jwt);
+        self.auth.headers().await
     }
 }
 
@@ -567,63 +401,24 @@ impl fmt::Debug for DelegatedProver {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DelegatedProver")
             .field("prover_base", &self.prover_base)
-            .field("api_origin", &self.api_origin)
             .field("auth", &self.auth)
             .finish_non_exhaustive()
     }
 }
 
-// ── helpers ──────────────────────────────────────────────────────────────
-
-/// Keep only the `name=value` part of a `Set-Cookie` header.
-fn session_cookie(raw: &str) -> String {
-    raw.split(';').next().unwrap_or(raw).trim().to_string()
-}
-
-/// Cap an error body so a proxied HTML error page cannot flood the log.
-fn truncate(body: &str) -> String {
-    const LIMIT: usize = 400;
-    let trimmed = body.trim();
-    if trimmed.chars().count() <= LIMIT {
-        return trimmed.to_string();
-    }
-    let cut: String = trimmed.chars().take(LIMIT).collect();
-    format!("{cut}…")
-}
-
-fn now_secs() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
-    /// Ciphertext produced by **libsodium itself** (`PyNaCl`'s `SealedBox`) for
-    /// recipient secret key `00 01 02 … 1f` and message `hello aleo dps`.
-    ///
-    /// This is the compatibility contract: if `crypto_box` ever changes the tag
-    /// ordering or the nonce derivation, the prover would silently fail to
-    /// decrypt our requests, and this test catches it without a network call.
-    const LIBSODIUM_SEALED_B64: &str =
-        "kNPwwmdgdwegq6mpyIrjRHEtV+s7PjaK6ANbM+m4201RiTKKAZw4i22gGxd2xACrXbR1XB1TpEQVAHyPL9I=";
+    /// X25519 key pair used by the vector in [`crate::hosted`]; reused here so
+    /// the DPS-facing wrapper is exercised with the same bytes.
     const RECIPIENT_PUBLIC_KEY_B64: &str = "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8=";
     const RECIPIENT_SECRET_SEED: [u8; 32] = [
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
         0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
         0x1e, 0x1f,
     ];
-
-    #[test]
-    fn sealed_box_opens_libsodium_ciphertext() {
-        let secret = crypto_box::SecretKey::from(RECIPIENT_SECRET_SEED);
-        let sealed = BASE64.decode(LIBSODIUM_SEALED_B64).unwrap();
-        let plaintext = secret.unseal(&sealed).expect("libsodium ciphertext must open");
-        assert_eq!(plaintext, b"hello aleo dps");
-    }
 
     #[test]
     fn seal_for_prover_round_trips() {
@@ -651,16 +446,5 @@ mod tests {
     #[test]
     fn seal_rejects_non_base64_public_key() {
         assert!(seal_for_prover("not*base64", b"x").is_err());
-    }
-
-    #[test]
-    fn session_cookie_drops_attributes() {
-        assert_eq!(session_cookie("sid=abc123; Path=/; HttpOnly"), "sid=abc123");
-    }
-
-    #[test]
-    fn truncate_caps_long_bodies() {
-        let long = "x".repeat(1000);
-        assert!(truncate(&long).chars().count() <= 401);
     }
 }
