@@ -52,6 +52,7 @@ The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a sepa
 | **📦 Program Loading** | Fetch programs from the network via REST API, parse `.aleo` source files, inspect function/mapping definitions. |
 | **⚡ Local Execution** | Authorize and execute Aleo program transitions locally **without broadcasting** — ideal for dry-runs and testing. |
 | **🔐 Proof Generation** | Generate zero-knowledge proofs (Varuna V2) for local execution. Fee proving with V0 fee keys for testnet. |
+| **🛡️ Delegated Proving** (v0.10.0+) | Hand proving to Provable's TEE prover (DPS). The authorization travels in a libsodium sealed box and comes back as a broadcast-ready transaction — 15–60s of local CPU becomes one network round-trip. |
 | **🌐 Network Queries** | Query block height, state root, program source, and mapping values via REST + JSON-RPC. |
 | **🔗 Live State Paths** (v0.5.0+) | `ProvableQuery` fetches real Merkle paths from Provable API v2 (`api.provable.com/v2/testnet/statePath/{commitment}`) — no dummy queries, no 502 errors. |
 | **📋 Record Management** | Fetch, decrypt, and filter private `credits.aleo` records by owner. Scan record ciphertexts across block ranges. |
