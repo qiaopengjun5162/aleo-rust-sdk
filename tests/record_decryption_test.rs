@@ -547,3 +547,340 @@ fn manager_exposes_its_view_key_and_address() {
     assert_eq!(mgr.view_key().to_string(), acct.view_key.to_string());
     assert_eq!(*mgr.address(), acct.address);
 }
+
+// ── Hosted source: the same manager, backed by the Record Scanning Service ──
+
+/// These tests exist because the two sources are *not* interchangeable in the
+/// small print: the hosted one registers a view key, reuses a uuid across
+/// scans, filters by a height the service reports, and is the only source that
+/// can tell you a record is spent. Every one of those is a place the manager
+/// could silently report the wrong balance.
+mod hosted_source {
+    use super::*;
+    use aleo_rust_sdk::hosted::ApiAuth;
+    use aleo_rust_sdk::record::{BlockRange, HostedScanner, RecordSource, ScanWindow};
+    use aleo_rust_sdk::scanner::RecordScanService;
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use crypto_box::SecretKey;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use wiremock::{Request, Respond};
+
+    fn service(server: &MockServer) -> RecordScanService {
+        RecordScanService::with_endpoints(server.uri(), server.uri(), ApiAuth::None).unwrap()
+    }
+
+    /// `/pubkey` answered `times` times — the count is the assertion that a
+    /// second scan does not re-register.
+    async fn mock_pubkey(server: &MockServer, times: u64) {
+        Mock::given(method("GET"))
+            .and(path("/pubkey"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key_id": "key-1",
+                "public_key": BASE64.encode(SecretKey::from([7u8; 32]).public_key().to_bytes()),
+            })))
+            .expect(times)
+            .mount(server)
+            .await;
+    }
+
+    /// `/register/encrypted` answering with `uuids` in order, then repeating
+    /// the last. Two mocks on the same matcher would leave the winner up to
+    /// wiremock's ordering, which is not something a test should depend on.
+    async fn mock_register(server: &MockServer, uuids: &[&str], times: u64) {
+        let responses: Vec<ResponseTemplate> = uuids
+            .iter()
+            .map(|uuid| {
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "uuid": uuid, "status": "pending" }))
+            })
+            .collect();
+
+        Mock::given(method("POST"))
+            .and(path("/register/encrypted"))
+            .respond_with(Sequence {
+                responses,
+                calls: Arc::new(AtomicUsize::new(0)),
+            })
+            .expect(times)
+            .mount(server)
+            .await;
+    }
+
+    fn owned_record(
+        program: &str,
+        ciphertext: &str,
+        height: Option<u32>,
+        spent: bool,
+    ) -> serde_json::Value {
+        let mut value = serde_json::json!({
+            "program_name": program,
+            "record_name": "credits",
+            "record_ciphertext": ciphertext,
+            "spent": spent,
+        });
+        if let Some(height) = height {
+            value["block_height"] = height.into();
+        }
+        value
+    }
+
+    /// `/records/owned` that answers with `responses` in order, repeating the
+    /// last one. A plain `Mock` cannot express "422 first, then 200", and
+    /// mounting two mocks leaves the winner up to wiremock's ordering.
+    struct Sequence {
+        responses: Vec<ResponseTemplate>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl Respond for Sequence {
+        fn respond(&self, _request: &Request) -> ResponseTemplate {
+            let index = self.calls.fetch_add(1, Ordering::SeqCst);
+            self.responses
+                .get(index)
+                .unwrap_or_else(|| self.responses.last().expect("non-empty"))
+                .clone()
+        }
+    }
+
+    /// Mount `Sequence` and return the shared call counter.
+    async fn mock_owned(server: &MockServer, responses: Vec<ResponseTemplate>) -> Arc<AtomicUsize> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        Mock::given(method("POST"))
+            .and(path("/records/owned"))
+            .respond_with(Sequence {
+                responses,
+                calls: Arc::clone(&calls),
+            })
+            .mount(server)
+            .await;
+        calls
+    }
+
+    fn array(body: serde_json::Value) -> ResponseTemplate {
+        ResponseTemplate::new(200).set_body_json(body)
+    }
+
+    /// One registration, two scans. The second scan must reuse the uuid instead
+    /// of minting a new one, and the record must be decrypted locally even
+    /// though the service already claims a plaintext.
+    #[tokio::test]
+    async fn hosted_source_registers_once_and_decrypts_locally() {
+        let rng = &mut TestRng::default();
+        let acct = account(rng);
+        let ciphertext = encrypted_record(&acct, "750u64", rng);
+
+        let server = MockServer::start().await;
+        mock_pubkey(&server, 1).await;
+        mock_register(&server, &["uuid-1"], 1).await;
+        let calls = mock_owned(
+            &server,
+            vec![array(serde_json::json!([owned_record(
+                "credits.aleo",
+                &ciphertext,
+                Some(10),
+                false
+            )]))],
+        )
+        .await;
+
+        let mut mgr = RecordManager::with_source(
+            RecordSource::Hosted(HostedScanner::new(service(&server), 0)),
+            &acct.view_key.to_string(),
+        )
+        .unwrap();
+
+        let records = mgr.scan_range(0, 100).await.unwrap().to_vec();
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].microcredits, 750,
+            "the amount must come from local decryption"
+        );
+        assert_eq!(mgr.balance(), 750);
+
+        // Same uuid, no new registration.
+        assert_eq!(mgr.scan_range(0, 100).await.unwrap().len(), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    /// A 422 means the uuid is gone. Re-registering once is the prescribed
+    /// recovery; retrying the same uuid, or looping, is not.
+    #[tokio::test]
+    async fn hosted_source_reregisters_once_when_the_uuid_goes_stale() {
+        let rng = &mut TestRng::default();
+        let acct = account(rng);
+        let ciphertext = encrypted_record(&acct, "42u64", rng);
+
+        let server = MockServer::start().await;
+        mock_pubkey(&server, 2).await;
+        // Two registrations, in order: the first uuid goes stale.
+        mock_register(&server, &["uuid-1", "uuid-2"], 2).await;
+        let calls = mock_owned(
+            &server,
+            vec![
+                ResponseTemplate::new(422).set_body_string("uuid not found"),
+                array(serde_json::json!([owned_record(
+                    "credits.aleo",
+                    &ciphertext,
+                    Some(3),
+                    false
+                )])),
+            ],
+        )
+        .await;
+
+        let mut source = RecordSource::Hosted(HostedScanner::new(service(&server), 0));
+        let records = source
+            .fetch(&acct.view_key, ScanWindow::All)
+            .await
+            .expect("the retry after re-registration must succeed");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].microcredits, 42);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "one stale response, one retry — no loop"
+        );
+
+        // The retry must carry the *new* uuid: re-registering but then querying
+        // the dead one would look identical from the outside.
+        let received = server.received_requests().await.unwrap();
+        let last = received
+            .iter()
+            .rfind(|r| r.url.path() == "/records/owned")
+            .expect("two /records/owned calls");
+        assert!(
+            String::from_utf8_lossy(&last.body).contains("uuid-2"),
+            "the retry used the stale uuid: {}",
+            String::from_utf8_lossy(&last.body)
+        );
+    }
+
+    /// Ranges are applied on the height the service reports, because the
+    /// service filters by its registration window rather than per request.
+    /// A record with no reported height is kept: dropping it would under-report.
+    #[tokio::test]
+    async fn hosted_source_filters_by_the_reported_block_height() {
+        let rng = &mut TestRng::default();
+        let acct = account(rng);
+        let in_range = encrypted_record(&acct, "10u64", rng);
+        let too_old = encrypted_record(&acct, "20u64", rng);
+        let unknown = encrypted_record(&acct, "40u64", rng);
+
+        let server = MockServer::start().await;
+        mock_pubkey(&server, 1).await;
+        mock_register(&server, &["uuid-1"], 1).await;
+        mock_owned(
+            &server,
+            vec![array(serde_json::json!([
+                owned_record("credits.aleo", &in_range, Some(5), false),
+                owned_record("credits.aleo", &too_old, Some(500), false),
+                owned_record("credits.aleo", &unknown, None, false),
+            ]))],
+        )
+        .await;
+
+        let mut source = RecordSource::Hosted(HostedScanner::new(service(&server), 0));
+        let records = source
+            .fetch(&acct.view_key, ScanWindow::Range(BlockRange::new(1, 100)))
+            .await
+            .unwrap();
+        let amounts: Vec<u64> = records.iter().map(|r| r.microcredits).collect();
+        assert_eq!(
+            amounts,
+            vec![40, 10],
+            "height 500 is out of range; the heightless record stays; largest first"
+        );
+    }
+
+    /// Records that decrypt but were since spent must drop out of the balance.
+    /// This is why the default filter is "everything": `unspent()` would stop
+    /// the second scan from ever learning about the spend.
+    #[tokio::test]
+    async fn hosted_source_refreshes_spent_status_on_rescan() {
+        let rng = &mut TestRng::default();
+        let acct = account(rng);
+        let ciphertext = encrypted_record(&acct, "100u64", rng);
+
+        let server = MockServer::start().await;
+        mock_pubkey(&server, 1).await;
+        mock_register(&server, &["uuid-1"], 1).await;
+        mock_owned(
+            &server,
+            vec![
+                array(serde_json::json!([owned_record(
+                    "credits.aleo",
+                    &ciphertext,
+                    Some(1),
+                    false
+                )])),
+                array(serde_json::json!([owned_record(
+                    "credits.aleo",
+                    &ciphertext,
+                    Some(1),
+                    true
+                )])),
+            ],
+        )
+        .await;
+
+        let mut mgr = RecordManager::with_source(
+            RecordSource::Hosted(HostedScanner::new(service(&server), 0)),
+            &acct.view_key.to_string(),
+        )
+        .unwrap();
+
+        assert_eq!(mgr.get_balance().await.unwrap(), 100);
+        assert_eq!(mgr.scan().await.unwrap().len(), 1);
+        assert_eq!(mgr.balance(), 0, "the rescan must overwrite spent status");
+    }
+
+    /// A response whose records do not decrypt is a protocol break, not an
+    /// empty wallet. Returning zero here is the failure mode that makes a
+    /// funded account look drained.
+    #[tokio::test]
+    async fn hosted_source_refuses_to_report_an_empty_balance_on_undecryptable_records() {
+        let rng = &mut TestRng::default();
+        let acct = account(rng);
+        let someone_else = account(rng);
+        let foreign = encrypted_record(&someone_else, "999u64", rng);
+
+        let server = MockServer::start().await;
+        mock_pubkey(&server, 1).await;
+        mock_register(&server, &["uuid-1"], 1).await;
+        mock_owned(
+            &server,
+            vec![array(serde_json::json!([owned_record(
+                "credits.aleo",
+                &foreign,
+                Some(1),
+                false
+            )]))],
+        )
+        .await;
+
+        let mut mgr = RecordManager::with_source(
+            RecordSource::Hosted(HostedScanner::new(service(&server), 0)),
+            &acct.view_key.to_string(),
+        )
+        .unwrap();
+
+        let err = mgr.get_balance().await.unwrap_err();
+        assert!(
+            err.to_string().contains("none decrypted"),
+            "expected a refusal, got: {err}"
+        );
+    }
+
+    /// Only the hosted source knows about spends; the local one must not
+    /// pretend otherwise.
+    #[test]
+    fn only_the_hosted_source_reports_spent_status() {
+        let rng = &mut TestRng::default();
+        let acct = account(rng);
+        let mgr = RecordManager::new(client_stub(), &acct.view_key.to_string()).unwrap();
+        assert!(!mgr.reports_spent());
+        assert!(matches!(mgr.source(), RecordSource::Local(_)));
+    }
+}

@@ -6,16 +6,46 @@
 //! This module provides:
 //!
 //! - [`RecordScanner`]: block-level scanning via JSON-RPC + decryption with a view key
+//! - [`HostedScanner`]: the same shape, backed by Provable's Record Scanning Service
 //! - [`AleoRecord`]: a decrypted, typed record
 //! - [`RecordManager`]: high-level lifecycle (discover → decrypt → select → cache)
 //! - [`SelectedRecords`]: coin selection result for spending
 //!
+//! ## Where records come from
+//!
+//! [`RecordManager`] does not care *how* ciphertexts are found, only that they
+//! are decrypted locally. [`RecordSource`] is that seam, with two
+//! implementations:
+//!
+//! | Source | Finds records by | Cost | Knows which are spent |
+//! |--------|------------------|------|-----------------------|
+//! | [`RecordSource::Local`] | walking `records/all` page by page | O(chain) | no |
+//! | [`RecordSource::Hosted`] | asking the RSS, which indexed the ledger once | one query | yes |
+//!
+//! Both decrypt with your view key, so a lying source cannot invent a balance —
+//! it can only hide records.
+//!
+//! ```no_run
+//! use aleo_rust_sdk::hosted::ApiAuth;
+//! use aleo_rust_sdk::record::{HostedScanner, RecordManager, RecordSource};
+//! use aleo_rust_sdk::scanner::RecordScanService;
+//!
+//! # async fn run() -> anyhow::Result<()> {
+//! let service = RecordScanService::new("testnet", ApiAuth::None)?;
+//! let source = RecordSource::Hosted(HostedScanner::new(service, 0));
+//! let mut mgr = RecordManager::with_source(source, "AViewKey1...")?;
+//! println!("{} microcredits", mgr.get_balance().await?);
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ## Architecture
 //!
 //! ```text
-//! RecordScanner ──scan──▶ AleoRecord ──select──▶ SelectedRecords
-//!      │                 (decrypted)       (coin selection)
-//!      └── JSON-RPC: records/all, records/isOwner
+//! RecordSource ──fetch──▶ AleoRecord ──select──▶ SelectedRecords
+//!      │                  (decrypted)       (coin selection)
+//!      ├── Local: JSON-RPC records/all
+//!      └── Hosted: RSS /records/owned
 //! ```
 //!
 //! ## Usage
@@ -52,6 +82,49 @@ use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use crate::network::AleoHttpClient;
+use crate::scanner::{OwnedFilter, OwnedRecord, RecordScanService, StaleRegistration};
+
+/// How far back [`RecordSource::Local`] looks for [`ScanWindow::All`].
+///
+/// 100_000 blocks is roughly two weeks of testnet. A local scan is O(chain), so
+/// "everything" has to be bounded by something; the hosted source has no such
+/// limit because the service indexed the ledger once.
+const DEFAULT_SCAN_BLOCKS: u32 = 100_000;
+
+/// An inclusive block range, as asked for by [`RecordManager::scan_range`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlockRange {
+    /// First block height to include.
+    pub start: u32,
+    /// Last block height to include.
+    pub end: u32,
+}
+
+impl BlockRange {
+    /// Build a range covering `start..=end`.
+    pub fn new(start: u32, end: u32) -> Self {
+        Self { start, end }
+    }
+
+    /// Whether `height` falls inside this range.
+    pub fn contains(&self, height: u32) -> bool {
+        (self.start..=self.end).contains(&height)
+    }
+}
+
+/// What slice of the chain a fetch should cover.
+///
+/// This is a *filter*, not a promise: a source that cannot see as far back as
+/// asked returns fewer records rather than failing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScanWindow {
+    /// Everything the source can see (100 000 blocks back, locally).
+    All,
+    /// The most recent `n` blocks.
+    Recent(u32),
+    /// An explicit inclusive range.
+    Range(BlockRange),
+}
 
 /// A decrypted Aleo record, ready for inspection or spending.
 ///
@@ -250,56 +323,298 @@ fn parse_u64_entry(raw: &str) -> Option<u64> {
     digits.trim().parse::<u64>().ok()
 }
 
+/// [`RecordScanService`] adapted to the [`RecordSource`] shape.
+///
+/// The service indexes a view key once and then answers by `uuid`, so this
+/// adapter registers **lazily** — on the first fetch — and never twice, except
+/// when the service reports the uuid stale (HTTP 422), which is the one failure
+/// re-registering actually fixes.
+///
+/// ## What the registration fixes forever
+///
+/// `start_block` is sent at registration time and cannot be widened later: a
+/// registration that starts at block 5_000_000 will never return a record from
+/// block 4_999_999. Choose it as the lowest height you will ever need — `0` for
+/// "from genesis".
+pub struct HostedScanner {
+    service: RecordScanService,
+    /// Height the registration asks the service to index from.
+    start_block: u32,
+    /// Applied on every query. Defaults to no filter, which is the only setting
+    /// that keeps `spent` current — see [`Self::with_filter`].
+    filter: OwnedFilter,
+    uuid: Option<String>,
+}
+
+impl HostedScanner {
+    /// Wrap a service client. `start_block = 0` scans from genesis.
+    pub fn new(service: RecordScanService, start_block: u32) -> Self {
+        Self {
+            service,
+            start_block,
+            filter: OwnedFilter::default(),
+            uuid: None,
+        }
+    }
+
+    /// Narrow what the service returns.
+    ///
+    /// The default (no filter) fetches spent *and* unspent records, because
+    /// otherwise a record that has since been spent would stay in the
+    /// manager's cache forever, still counted as unspent. Filtering to
+    /// [`OwnedFilter::unspent`] makes responses smaller but freezes cached
+    /// spend status at whatever it was when the record first appeared.
+    pub fn with_filter(mut self, filter: OwnedFilter) -> Self {
+        self.filter = filter;
+        self
+    }
+
+    /// The `uuid` from the registration, once one has happened.
+    pub fn uuid(&self) -> Option<&str> {
+        self.uuid.as_deref()
+    }
+
+    /// The underlying service client.
+    pub fn service(&self) -> &RecordScanService {
+        &self.service
+    }
+
+    /// Fetch the records the service attributes to this view key.
+    ///
+    /// Every returned ciphertext is decrypted here, with the local view key —
+    /// the service's own `record_plaintext` field is ignored.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the registration fails, the query fails twice (once before and
+    /// once after a re-registration), or the response contained records but
+    /// none of them decrypted. The last case is a protocol break — a renamed
+    /// field, an encrypted payload — and returning an empty list there would
+    /// read as "your wallet is empty".
+    pub async fn fetch(
+        &mut self,
+        view_key: &ViewKey<TestnetV0>,
+        window: ScanWindow,
+    ) -> Result<Vec<AleoRecord>> {
+        let owned = self.owned(view_key).await?;
+        let range = match window {
+            ScanWindow::Range(range) => Some(range),
+            // The service filters by its registration window, not per request,
+            // and nothing here knows the chain tip, so `Recent(n)` cannot be
+            // honoured without either guessing or a second endpoint. Returning
+            // everything is the safe direction: too much, never too little.
+            ScanWindow::All | ScanWindow::Recent(_) => None,
+        };
+
+        let total = owned.len();
+        let mut candidates = 0usize;
+        let mut records = Vec::with_capacity(total);
+
+        for (index, entry) in owned.iter().enumerate() {
+            // A record with no reported height is kept: dropping it because we
+            // cannot prove it is in range would under-report the balance.
+            if let (Some(range), Some(height)) = (range, entry.block_height)
+                && !range.contains(height)
+            {
+                continue;
+            }
+            candidates += 1;
+
+            match entry.decrypt(view_key) {
+                Ok(record) => records.push(record),
+                // Not ours, or forged. Either way it is not spendable, so the
+                // scan continues — but it is logged, since a correct service
+                // should never trigger this.
+                Err(err) => tracing::warn!("Dropping record #{index} from the scanner: {err}"),
+            }
+        }
+
+        if candidates > 0 && records.is_empty() {
+            anyhow::bail!(
+                "Scanner returned {candidates} records in range but none decrypted with this view key"
+            );
+        }
+
+        records.sort_by_key(|a| std::cmp::Reverse(a.microcredits));
+        Ok(records)
+    }
+
+    /// `records/owned`, registering first and healing a stale uuid once.
+    async fn owned(&mut self, view_key: &ViewKey<TestnetV0>) -> Result<Vec<OwnedRecord>> {
+        if self.uuid.is_none() {
+            self.register(view_key).await?;
+        }
+        let uuid = self.uuid.clone().context("registration returned no uuid")?;
+
+        match self.service.records_owned(&uuid, self.filter.clone()).await {
+            Ok(records) => Ok(records),
+            Err(err) if err.downcast_ref::<StaleRegistration>().is_some() => {
+                // A stale uuid stays stale: exactly one re-registration, then
+                // whatever happens happens.
+                tracing::warn!("Scanner rejected the uuid; re-registering once");
+                self.register(view_key).await?;
+                let uuid = self.uuid.clone().context("registration returned no uuid")?;
+                self.service.records_owned(&uuid, self.filter.clone()).await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn register(&mut self, view_key: &ViewKey<TestnetV0>) -> Result<()> {
+        let registration = self.service.register(view_key, self.start_block).await?;
+        tracing::info!(
+            "Registered view key with the scanner: {}",
+            registration.uuid
+        );
+        self.uuid = Some(registration.uuid);
+        Ok(())
+    }
+}
+
+/// Where [`RecordManager`] gets ciphertexts from.
+///
+/// The two sources differ in *discovery*, not in trust: both decrypt every
+/// record locally with your view key, so neither can fabricate a spendable
+/// record. What the hosted source can do is tell you which records are spent,
+/// which the local scanner cannot (it walks ciphertexts, and a spent record
+/// stays in the block it was created in).
+///
+/// ```no_run
+/// use aleo_rust_sdk::hosted::ApiAuth;
+/// use aleo_rust_sdk::record::{HostedScanner, RecordSource};
+/// use aleo_rust_sdk::scanner::RecordScanService;
+///
+/// let service = RecordScanService::new("testnet", ApiAuth::None).unwrap();
+/// let source = RecordSource::Hosted(HostedScanner::new(service, 0));
+/// assert!(source.reports_spent());
+/// ```
+#[non_exhaustive]
+pub enum RecordSource {
+    /// Walk `records/all` over JSON-RPC and decrypt each page locally.
+    Local(RecordScanner),
+    /// Ask Provable's Record Scanning Service for the records it indexed.
+    Hosted(HostedScanner),
+}
+
+impl RecordSource {
+    /// Whether this source learns *which* records are spent.
+    ///
+    /// `false` means [`AleoRecord::spent`] is always `false`, i.e. "not known
+    /// to be spent" — not "confirmed unspent". A balance computed from a local
+    /// scan can therefore be too high; it is never too low.
+    pub fn reports_spent(&self) -> bool {
+        matches!(self, Self::Hosted(_))
+    }
+
+    /// Fetch the records `view_key` owns.
+    ///
+    /// # Errors
+    ///
+    /// Propagates transport and decryption failures from the active source; see
+    /// [`HostedScanner::fetch`] for the hosted-specific ones.
+    pub async fn fetch(
+        &mut self,
+        view_key: &ViewKey<TestnetV0>,
+        window: ScanWindow,
+    ) -> Result<Vec<AleoRecord>> {
+        match self {
+            Self::Local(scanner) => {
+                let view_key = view_key.to_string();
+                match window {
+                    ScanWindow::All => scanner.scan_recent(&view_key, DEFAULT_SCAN_BLOCKS).await,
+                    ScanWindow::Recent(blocks) => scanner.scan_recent(&view_key, blocks).await,
+                    ScanWindow::Range(range) => {
+                        scanner.scan_blocks(&view_key, range.start, range.end).await
+                    }
+                }
+            }
+            Self::Hosted(hosted) => hosted.fetch(view_key, window).await,
+        }
+    }
+}
+
 /// High-level record manager providing cached scanning and coin selection.
 ///
 /// ## Lifecycle
 ///
-/// 1. **Create** — `RecordManager::new(client, view_key_str)`
+/// 1. **Create** — `RecordManager::new(client, view_key_str)` (local scan) or
+///    `RecordManager::with_source(source, view_key_str)` (local or hosted)
 /// 2. **Scan** — `mgr.get_balance().await?` or `mgr.scan().await?`
 /// 3. **Select** — `mgr.select_records(amount)` for spending
 /// 4. **Mark spent** — `mgr.mark_spent(ciphertext)` after a successful broadcast
 pub struct RecordManager {
-    scanner: RecordScanner,
+    source: RecordSource,
     view_key: ViewKey<TestnetV0>,
     address: Address<TestnetV0>,
     records: Vec<AleoRecord>,
 }
 
 impl RecordManager {
-    /// Create a new manager with the given HTTP client and view key.
+    /// Create a manager that finds records by scanning blocks locally.
     pub fn new(client: AleoHttpClient, view_key: &str) -> Result<Self> {
+        Self::with_source(RecordSource::Local(RecordScanner::new(client)), view_key)
+    }
+
+    /// Create a manager over an explicit source.
+    ///
+    /// Everything downstream is source-agnostic: coin selection, dedupe,
+    /// balance, and `spent` bookkeeping all live here, and run the same way
+    /// whichever source filled the cache.
+    pub fn with_source(source: RecordSource, view_key: &str) -> Result<Self> {
         let vk = ViewKey::<TestnetV0>::from_str(view_key)
             .map_err(|e| anyhow::anyhow!("Invalid view key: {e}"))?;
         let address = vk.to_address();
         Ok(Self {
-            scanner: RecordScanner::new(client),
+            source,
             view_key: vk,
             address,
             records: Vec::new(),
         })
     }
 
-    /// Scan the latest blocks (up to 100K) and update the internal cache.
+    /// The source this manager fetches from.
+    pub fn source(&self) -> &RecordSource {
+        &self.source
+    }
+
+    /// Whether the source reports which records are spent.
+    ///
+    /// See [`RecordSource::reports_spent`]. The hosted source is the only one
+    /// that ever sets [`AleoRecord::spent`] from remote data.
+    pub fn reports_spent(&self) -> bool {
+        self.source.reports_spent()
+    }
+
+    /// Scan the latest blocks (up to 100K locally, everything the service has
+    /// when hosted) and update the internal cache.
     pub async fn scan(&mut self) -> Result<&[AleoRecord]> {
-        let vk_str = self.view_key.to_string();
-        let new_records = self.scanner.scan_recent(&vk_str, 100_000).await?;
-        self.merge_records(new_records);
+        let fetched = self.source.fetch(&self.view_key, ScanWindow::All).await?;
+        self.merge_records(fetched);
         Ok(&self.records)
     }
 
     /// Scan the latest `num_blocks` blocks and update the internal cache.
+    ///
+    /// A hosted source has no per-request window — it was registered with a
+    /// fixed `start_block` — so it returns every record it indexed instead of
+    /// narrowing to `num_blocks`. That is more than asked, never less; use
+    /// [`Self::scan_range`] when a specific window matters.
     pub async fn scan_recent(&mut self, num_blocks: u32) -> Result<&[AleoRecord]> {
-        let vk_str = self.view_key.to_string();
-        let new_records = self.scanner.scan_recent(&vk_str, num_blocks).await?;
-        self.merge_records(new_records);
+        let fetched = self.source.fetch(&self.view_key, ScanWindow::Recent(num_blocks)).await?;
+        self.merge_records(fetched);
         Ok(&self.records)
     }
 
     /// Scan a specific block range and update the cache.
     pub async fn scan_range(&mut self, start: u32, end: u32) -> Result<&[AleoRecord]> {
-        let vk_str = self.view_key.to_string();
-        let new_records = self.scanner.scan_blocks(&vk_str, start, end).await?;
-        self.merge_records(new_records);
+        let fetched = self
+            .source
+            .fetch(
+                &self.view_key,
+                ScanWindow::Range(BlockRange::new(start, end)),
+            )
+            .await?;
+        self.merge_records(fetched);
         Ok(&self.records)
     }
 
@@ -397,6 +712,58 @@ pub struct SelectedRecords {
 mod tests {
     use super::*;
 
+    /// Build a manager whose cache is pre-filled, so no scan is needed.
+    ///
+    /// The source is never exercised by these tests; they cover the
+    /// source-agnostic half (dedupe, balance, coin selection, spend marking).
+    fn manager_with(
+        records: Vec<AleoRecord>,
+        view_key: ViewKey<TestnetV0>,
+        address: Address<TestnetV0>,
+    ) -> RecordManager {
+        RecordManager {
+            source: RecordSource::Local(RecordScanner::new(
+                AleoHttpClient::new("http://localhost:9999").unwrap(),
+            )),
+            view_key,
+            address,
+            records,
+        }
+    }
+
+    #[test]
+    fn block_range_contains_is_inclusive() {
+        let range = BlockRange::new(10, 20);
+        assert!(!range.contains(9));
+        assert!(range.contains(10));
+        assert!(range.contains(20));
+        assert!(!range.contains(21));
+    }
+
+    /// A fresh hosted scanner has no uuid yet — it must not pretend to be
+    /// registered, because every query needs the uuid the service handed back.
+    #[test]
+    fn hosted_scanner_starts_unregistered_and_keeps_its_filter() {
+        let service = RecordScanService::with_endpoints(
+            "http://127.0.0.1:1",
+            "http://127.0.0.1:1",
+            crate::hosted::ApiAuth::None,
+        )
+        .unwrap();
+
+        let scanner = HostedScanner::new(service, 7);
+        assert_eq!(scanner.uuid(), None);
+        assert_eq!(scanner.service().scanner_base(), "http://127.0.0.1:1");
+
+        let scanner = scanner.with_filter(OwnedFilter::unspent().program("credits.aleo"));
+        assert_eq!(
+            scanner.filter.unspent,
+            Some(true),
+            "the builder must keep what it was given"
+        );
+        assert_eq!(scanner.filter.program.as_deref(), Some("credits.aleo"));
+    }
+
     #[test]
     fn test_aleo_record_struct() {
         // SnarkVM address from a known test private key
@@ -453,12 +820,7 @@ mod tests {
 
         // Build a manager with these pre-loaded records
         let view_key = snarkvm::prelude::ViewKey::try_from(&pk).unwrap();
-        let mgr = RecordManager {
-            scanner: RecordScanner::new(AleoHttpClient::new("http://localhost:9999").unwrap()),
-            view_key,
-            address: addr,
-            records,
-        };
+        let mgr = manager_with(records, view_key, addr);
 
         // Select 600_000 microcredits — should pick largest (1M) first
         let selection = mgr.select_records(600_000).unwrap();
@@ -483,11 +845,8 @@ mod tests {
         let addr = snarkvm::prelude::Address::try_from(&pk).unwrap();
         let view_key = snarkvm::prelude::ViewKey::try_from(&pk).unwrap();
 
-        let mgr = RecordManager {
-            scanner: RecordScanner::new(AleoHttpClient::new("http://localhost:9999").unwrap()),
-            view_key,
-            address: addr,
-            records: vec![
+        let mgr = manager_with(
+            vec![
                 AleoRecord {
                     program_id: "credits.aleo".into(),
                     owner: addr,
@@ -505,7 +864,9 @@ mod tests {
                     spent: false,
                 },
             ],
-        };
+            view_key,
+            addr,
+        );
 
         assert_eq!(mgr.balance(), 1_000_000);
     }
@@ -517,11 +878,8 @@ mod tests {
         let addr = snarkvm::prelude::Address::try_from(&pk).unwrap();
 
         let view_key = snarkvm::prelude::ViewKey::try_from(&pk).unwrap();
-        let mut mgr = RecordManager {
-            scanner: RecordScanner::new(AleoHttpClient::new("http://localhost:9999").unwrap()),
-            view_key,
-            address: addr,
-            records: vec![AleoRecord {
+        let mut mgr = manager_with(
+            vec![AleoRecord {
                 program_id: "credits.aleo".into(),
                 owner: addr,
                 microcredits: 1_000_000,
@@ -529,7 +887,9 @@ mod tests {
                 ciphertext: "record_to_spend".into(),
                 spent: false,
             }],
-        };
+            view_key,
+            addr,
+        );
 
         assert_eq!(mgr.balance(), 1_000_000);
         mgr.mark_spent("record_to_spend");
