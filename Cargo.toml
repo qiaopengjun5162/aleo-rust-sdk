@@ -37,6 +37,11 @@ rand = "0.8"
 snarkvm = { version = "4.12.0", default-features = true, features = [
     "ledger",
     "synthesizer",
+    # `snarkvm::fields` is not in snarkVM's default feature set, but account seed
+    # recovery needs `PrimeField::from_bytes_le_mod_order` — the same reduction
+    # the JS binding performs. The crate is already compiled transitively, so
+    # this only re-exports it.
+    "fields",
 ] }
 # Delegated proving (Provable DPS). `crypto_box`'s `seal` feature implements
 # libsodium's `crypto_box_seal`; the DPS only decrypts inside its TEE, so the
