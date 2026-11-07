@@ -3,6 +3,24 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.10.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.9.0...aleo-rust-sdk-v0.10.0) (2026-11-07)
+
+
+### Features
+
+* **account:** seed recovery, per-record view keys, and signing ([#30](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/30)) ([eb51824](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/eb518245ac1c22b900c6610a972c90e5c311bbbe))
+* **client:** verify proofs against the consensus version of their own era ([#24](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/24)) ([d409855](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/d4098554105e80908cc087547e07fe7582e43a86))
+* **delegated:** add Provable DPS delegated proving client ([#28](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/28)) ([af1a0eb](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/af1a0eba3a37cc8982eb3bdccc264ca186bb2d1f))
+* **network:** add the chain-read surface (blocks, transactions, committees, balances) ([#32](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/32)) ([8ef0252](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/8ef0252f43ec718dce9a626b9da9b222aa19eec1))
+* **options:** configure every service base from one network name ([#33](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/33)) ([2223b46](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/2223b46691099436bae7569e4b7a64d1acba5b20))
+* **record:** make the record source switchable (local scan or hosted scan) ([#31](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/31)) ([122b428](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/122b42807495244f967b8265d4e987d6894cefb4))
+* **scanner:** add Provable record scanning service client ([#29](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/29)) ([272955a](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/272955a8751226b790e7e2d642249b465a217a56))
+
+
+### Bug Fixes
+
+* **sealance:** sibling paths must carry depth+1 elements ([#26](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/26)) ([b24edc8](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/b24edc86e19b24da11be4c81cc667f140bf0912e))
+
 ## [0.9.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.8.2...aleo-rust-sdk-v0.9.0) (2026-10-29)
 
 
