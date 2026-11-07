@@ -30,6 +30,7 @@
 //! }
 //! ```
 
+use crate::credits::{CreditsCall, TransferKind, plan_join, plan_split, plan_transfer};
 use crate::execution::ExecutionEngine;
 use crate::execution::consensus_version_to_varuna;
 use crate::network::{AleoHttpClient, ProvableQuery};
@@ -38,6 +39,7 @@ use anyhow::Result;
 use snarkvm::console::program::{ProgramID, Value};
 use snarkvm::ledger::block::Transaction;
 use snarkvm::prelude::{Network, PrivateKey, TestRng, TestnetV0};
+use std::str::FromStr;
 
 /// Inputs for the prove pipeline.
 enum PipelineInputs<'a> {
@@ -45,6 +47,15 @@ enum PipelineInputs<'a> {
     Strings(Vec<&'a str>),
     /// Pre-parsed values, required when inputs contain record ciphertexts.
     Values(Vec<Value<TestnetV0>>),
+}
+
+/// How the prove pipeline pays for the transaction.
+enum PipelineFee {
+    /// `credits.aleo/fee_public` with this priority fee, in microcredits.
+    Public(u64),
+    /// No fee at all. Only `credits.aleo/split` may do this — see
+    /// [`ExecutionEngine::prove_and_package_feeless`].
+    None,
 }
 
 /// High-level Aleo client that orchestrates the full lifecycle.
@@ -172,7 +183,7 @@ impl AleoClient {
         program_id: &ProgramID<TestnetV0>,
         function_name: &str,
         inputs: PipelineInputs<'_>,
-        priority_fee: u64,
+        fee: PipelineFee,
     ) -> Result<Transaction<TestnetV0>> {
         let mut rng = TestRng::default();
 
@@ -208,17 +219,51 @@ impl AleoClient {
         let varuna_version = consensus_version_to_varuna(consensus_version);
         let query = ProvableQuery::new(state_root, block_height, &self.network.base_url);
 
-        engine.prove_and_package(
-            trace,
-            private_key,
-            program_id,
-            function_name,
-            priority_fee,
-            consensus_version,
-            varuna_version,
-            &query,
-            &mut rng,
-        )
+        match fee {
+            PipelineFee::Public(priority_fee) => engine.prove_and_package(
+                trace,
+                private_key,
+                program_id,
+                function_name,
+                priority_fee,
+                consensus_version,
+                varuna_version,
+                &query,
+                &mut rng,
+            ),
+            PipelineFee::None => engine.prove_and_package_feeless(
+                trace,
+                program_id,
+                function_name,
+                consensus_version,
+                varuna_version,
+                &query,
+                &mut rng,
+            ),
+        }
+    }
+
+    /// Run a planned `credits.aleo` call through the prove pipeline and
+    /// broadcast it. Returns the transaction ID.
+    async fn run_credits_call(
+        &self,
+        account: &crate::account::AleoAccount,
+        call: &CreditsCall,
+        fee: PipelineFee,
+    ) -> Result<String> {
+        let program_id = ProgramID::<TestnetV0>::from_str("credits.aleo")?;
+        let inputs: Vec<&str> = call.inputs.iter().map(String::as_str).collect();
+        let tx = self
+            .prove_pipeline(
+                &account.private_key,
+                &program_id,
+                call.function,
+                PipelineInputs::Strings(inputs),
+                fee,
+            )
+            .await?;
+        let raw = self.network.broadcast_transaction(serde_json::to_string(&tx)?).await?;
+        Ok(raw.trim_matches('"').to_string())
     }
 
     /// Full pipeline: authorize → execute → prove → return Transaction JSON (no broadcast).
@@ -240,7 +285,7 @@ impl AleoClient {
                 program_id,
                 function_name,
                 PipelineInputs::Strings(inputs),
-                priority_fee,
+                PipelineFee::Public(priority_fee),
             )
             .await?;
 
@@ -265,7 +310,7 @@ impl AleoClient {
                 program_id,
                 function_name,
                 PipelineInputs::Strings(inputs),
-                priority_fee,
+                PipelineFee::Public(priority_fee),
             )
             .await?;
 
@@ -293,12 +338,95 @@ impl AleoClient {
                 program_id,
                 function_name,
                 PipelineInputs::Values(values),
-                priority_fee,
+                PipelineFee::Public(priority_fee),
             )
             .await?;
 
         let raw = self.network.broadcast_transaction(serde_json::to_string(&tx)?).await?;
         Ok(raw.trim_matches('"').to_string())
+    }
+
+    // ── credits.aleo value operations (JS ProgramManager parity) ────────
+
+    /// Transfer credits — the JS `ProgramManager.transfer()` /
+    /// `buildTransferTransaction()`.
+    ///
+    /// `amount_microcredits` is the amount sent; for the two private-in kinds
+    /// ([`TransferKind::Private`], [`TransferKind::PrivateToPublic`]) pass the
+    /// funding record as a **plaintext record literal** in `amount_record`
+    /// (see [`crate::credits`] — decrypt ciphertexts first). The public kinds
+    /// ignore it.
+    ///
+    /// `priority_fee_microcredits` is paid on top of the computed base fee,
+    /// from the account's public balance (`fee_public`). Paying the fee from a
+    /// private record (`fee_private`, the JS `privateFee` flag) is not yet
+    /// supported here.
+    ///
+    /// Returns the transaction ID, like the JS `transfer()` rather than the
+    /// raw `Transaction` of `buildTransferTransaction()`.
+    pub async fn transfer(
+        &self,
+        kind: TransferKind,
+        amount_microcredits: u64,
+        recipient: &str,
+        amount_record: Option<&str>,
+        priority_fee_microcredits: u64,
+    ) -> Result<String> {
+        let account = self.require_account()?;
+        let call = plan_transfer(kind, amount_microcredits, recipient, amount_record)?;
+        self.run_credits_call(
+            account,
+            &call,
+            PipelineFee::Public(priority_fee_microcredits),
+        )
+        .await
+    }
+
+    /// Join two credits records into one — the JS `ProgramManager.join()`.
+    ///
+    /// Both records are plaintext record literals (see [`crate::credits`]).
+    /// The fee is `fee_public` with `priority_fee_microcredits` on top.
+    pub async fn join(
+        &self,
+        record_one: &str,
+        record_two: &str,
+        priority_fee_microcredits: u64,
+    ) -> Result<String> {
+        let account = self.require_account()?;
+        let call = plan_join(record_one, record_two)?;
+        self.run_credits_call(
+            account,
+            &call,
+            PipelineFee::Public(priority_fee_microcredits),
+        )
+        .await
+    }
+
+    /// Split one credits record into two — the JS `ProgramManager.split()`.
+    ///
+    /// `split_amount_microcredits` is carved out of `amount_record` (a
+    /// plaintext record literal) into a new record; the remainder returns as
+    /// change. `credits.aleo/split` is the one call the protocol allows
+    /// **without a fee**, so there is no priority-fee parameter — matching the
+    /// JS `split()`, which packages with a `None` fee.
+    pub async fn split(
+        &self,
+        split_amount_microcredits: u64,
+        amount_record: &str,
+    ) -> Result<String> {
+        let account = self.require_account()?;
+        let call = plan_split(split_amount_microcredits, amount_record)?;
+        self.run_credits_call(account, &call, PipelineFee::None).await
+    }
+
+    /// Check that the current account's public balance covers a fee —
+    /// the JS `ProgramManager.checkFee()`.
+    ///
+    /// `fee_amount_microcredits` is compared against the account's public
+    /// `credits.aleo` balance; an account with no mapping entry counts as 0.
+    pub async fn check_fee(&self, fee_amount_microcredits: u64) -> Result<()> {
+        let address = self.require_account()?.address_str();
+        self.network.check_fee(&address, fee_amount_microcredits).await
     }
 
     // ── Deployment (program publishing) ─────────────────────────────────
