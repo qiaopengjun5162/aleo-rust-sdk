@@ -40,6 +40,8 @@
 | aleo-rust-sdk (execution) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/execution/index.html) | 授权、执行、证明、打包交易 |
 | aleo-rust-sdk (network) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/network/index.html) | v2 JSON-RPC + REST HTTP 客户端 + **ProvableQuery**（实时状态路径） |
 | aleo-rust-sdk (record) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/record/index.html) | 记录发现、解密和币选择 |
+| aleo-rust-sdk (delegated) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/delegated/index.html) | 委托证明：交给 Provable 的 TEE（DPS） |
+| aleo-rust-sdk (scanner) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/scanner/index.html) | 记录扫描：交给 Provable 的 TEE（RSS） |
 | aleo-rust-sdk (client) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/client/index.html) | 高层 `AleoClient` 编排器 |
 
 CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个独立的 crate，构建在本 SDK 之上。
@@ -53,6 +55,7 @@ CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个�
 | **⚡ 本地执行** | 本地授权并执行 Aleo 程序 transition，**不上链广播**——适合脱机模拟和测试。 |
 | **🔐 证明生成** | 为本地执行生成零知识证明（Varuna V2）。测试网 fee 证明支持 V0 fee 密钥。 |
 | **🛡️ 委托证明** (v0.10.0+) | 把证明交给 Provable 的 TEE 证明服务（DPS）。授权用 libsodium sealed box 加密传输，返回可直接广播的交易——15–60 秒本地 CPU 换成一次网络往返。 |
+| **🔍 记录扫描** (v0.10.0+) | 把 view key 加密注册给 Provable 的记录扫描服务（RSS），由 TEE 一次性索引，之后按 `uuid` 查询，不必再翻 `records/all`。返回的密文仍在本地解密，伪造响应造不出可花的记录。 |
 | **🌐 网络查询** | 通过 REST + JSON-RPC 查询区块高度、状态根、程序源码、映射值。 |
 | **🔗 实时状态路径** (v0.5.0+) | `ProvableQuery` 从 `api.provable.com/v2/testnet/statePath/{commitment}` 实时获取 Merkle 路径——不再有哑查询或 502 错误。 |
 | **📋 记录管理** | 按 Owner 取出、解密、过滤私密 `credits.aleo` 记录。跨区块范围扫描记录密文。 |

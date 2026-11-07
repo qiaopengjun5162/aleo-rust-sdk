@@ -847,3 +847,306 @@ mod delegated {
         );
     }
 }
+
+// ── Record scanning (Provable RSS) ───────────────────────────────────
+//
+// Kept in this target rather than a new `tests/*.rs`, for the same reason as
+// the delegated-proving module above: each integration-test file is a separate
+// instrumented binary, and one more target costs minutes of CI rebuild.
+mod record_scan {
+    use aleo_rust_sdk::account::AleoAccount;
+    use aleo_rust_sdk::hosted::ApiAuth;
+    use aleo_rust_sdk::scanner::{OwnedFilter, RecordScanService, StaleRegistration};
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use crypto_box::SecretKey;
+    use indexmap::IndexMap;
+    use serde_json::json;
+    use snarkvm::console::program::{Entry, Identifier, Literal, Plaintext, Record};
+    use snarkvm::prelude::{FromStr, Network, Owner, Scalar, TestRng, TestnetV0, U8};
+    use snarkvm::utilities::ToBytes;
+    use snarkvm::utilities::rand::Uniform;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn service(server: &MockServer) -> RecordScanService {
+        RecordScanService::with_endpoints(server.uri(), server.uri(), ApiAuth::None).unwrap()
+    }
+
+    /// Build a genuine `credits` record encrypted under `account`'s view key,
+    /// exactly as the chain would carry it.
+    fn encrypted_credits_record(account: &AleoAccount, amount: &str, rng: &mut TestRng) -> String {
+        // snarkVM requires `nonce == g_scalar_multiply(randomizer)`; that is how
+        // the view key later recovers `nonce * vk == address * randomizer`.
+        let randomizer = Scalar::rand(rng);
+        let nonce = TestnetV0::g_scalar_multiply(&randomizer);
+        let owner = Owner::Private(Plaintext::from(Literal::Address(account.address)));
+
+        let mut data = IndexMap::new();
+        data.insert(
+            Identifier::from_str("microcredits").unwrap(),
+            Entry::Private(Plaintext::from_str(amount).unwrap()),
+        );
+
+        let plaintext = Record::<TestnetV0, Plaintext<TestnetV0>>::from_plaintext(
+            owner,
+            data,
+            nonce,
+            U8::new(0),
+        )
+        .unwrap();
+        plaintext.encrypt(randomizer).unwrap().to_string()
+    }
+
+    /// End-to-end over HTTP: the mock scanner holds the X25519 secret, opens the
+    /// registration we sent, and checks it is `view_key ‖ u32 LE (start_block)`.
+    /// Drift in the tag ordering, the nonce derivation, the field order, or the
+    /// endianness of the start block breaks this without any network call.
+    #[tokio::test]
+    async fn registration_is_sealed_for_the_scanner_to_open() {
+        let mut rng = TestRng::default();
+        let account = AleoAccount::new_random(&mut rng).unwrap();
+        let view_key = account.view_key;
+        let view_key_bytes = view_key.to_bytes_le().unwrap();
+
+        let server = MockServer::start().await;
+        let scanner_secret = SecretKey::from([21u8; 32]);
+
+        Mock::given(method("GET"))
+            .and(path("/pubkey"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "key_id": "key-1",
+                "public_key": BASE64.encode(scanner_secret.public_key().to_bytes()),
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/register/encrypted"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "uuid": "5291249998620209321712738612705518874926462927543783711572375085855029172391field",
+                "status": "pending",
+            })))
+            .mount(&server)
+            .await;
+
+        let registration = service(&server).register(&view_key, 42).await.unwrap();
+        assert!(
+            registration.uuid.ends_with("field"),
+            "uuid is a field literal"
+        );
+        assert_eq!(registration.status.as_deref(), Some("pending"));
+
+        let received = server.received_requests().await.unwrap();
+        let post = received
+            .iter()
+            .find(|r| r.method == wiremock::http::Method::POST)
+            .expect("no POST reached the mock scanner");
+        let body: serde_json::Value = serde_json::from_slice(&post.body).unwrap();
+        assert_eq!(body["key_id"], "key-1");
+
+        let ciphertext = BASE64.decode(body["ciphertext"].as_str().unwrap()).unwrap();
+        let plaintext = scanner_secret
+            .unseal(&ciphertext)
+            .expect("the scanner must be able to open the registration we sent");
+
+        assert_eq!(
+            &plaintext[..view_key_bytes.len()],
+            view_key_bytes.as_slice(),
+            "the view key must be the first field, in little-endian"
+        );
+        assert_eq!(
+            &plaintext[view_key_bytes.len()..],
+            &42u32.to_le_bytes(),
+            "the start block must follow the view key, little-endian"
+        );
+    }
+
+    /// A 422 means "this uuid is gone", which needs a re-registration rather
+    /// than a retry — so it must be distinguishable from every other failure.
+    #[tokio::test]
+    async fn a_422_marks_the_registration_stale() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/records/owned"))
+            .respond_with(ResponseTemplate::new(422).set_body_string("uuid not found"))
+            .mount(&server)
+            .await;
+
+        let err = service(&server)
+            .records_owned("uuid-1", OwnedFilter::unspent())
+            .await
+            .unwrap_err();
+
+        assert!(
+            err.downcast_ref::<StaleRegistration>().is_some(),
+            "expected StaleRegistration, got: {err:?}"
+        );
+        assert!(
+            err.to_string().contains("422"),
+            "status must survive: {err}"
+        );
+    }
+
+    /// `/status` and `/revoke` take a bare JSON string. The published guide says
+    /// `{uuid: ...}`, which the service rejects, so this pins the real shape.
+    #[tokio::test]
+    async fn status_and_revoke_send_a_bare_json_string() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "synced": true,
+                "percentage": 100,
+            })))
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/revoke"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(""))
+            .mount(&server)
+            .await;
+
+        let service = service(&server);
+        let status = service
+            .status(
+                "5291249998620209321712738612705518874926462927543783711572375085855029172391field",
+            )
+            .await
+            .unwrap();
+        assert!(status.synced);
+        assert_eq!(status.percentage, 100.0);
+
+        service
+            .revoke(
+                "5291249998620209321712738612705518874926462927543783711572375085855029172391field",
+            )
+            .await
+            .unwrap();
+
+        let received = server.received_requests().await.unwrap();
+        assert_eq!(received.len(), 2);
+        for request in &received {
+            let body = String::from_utf8(request.body.clone()).unwrap();
+            assert_eq!(
+                body,
+                "\"5291249998620209321712738612705518874926462927543783711572375085855029172391field\"",
+                "body must be a bare JSON string, not {{\"uuid\": ...}}"
+            );
+        }
+    }
+
+    /// The service says *which* records are ours; the ciphertext still has to
+    /// decrypt locally. A response that lies about the plaintext must not change
+    /// what we believe the record holds.
+    #[tokio::test]
+    async fn owned_records_are_decrypted_locally_not_trusted() {
+        let mut rng = TestRng::default();
+        let account = AleoAccount::new_random(&mut rng).unwrap();
+        let ciphertext = encrypted_credits_record(&account, "2000000u64", &mut rng);
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/records/owned"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                // `data` wrapper: the other documented shape, covered here too.
+                "data": [{
+                    "program_name": "credits.aleo",
+                    "record_name": "credits",
+                    "record_ciphertext": ciphertext,
+                    // A lie: 2_000_000 microcredits were encrypted, not this.
+                    "record_plaintext": "{ owner: aleo1fake.private, microcredits: 999u64.private }",
+                    "spent": false,
+                    "block_height": 123,
+                    "transaction_id": "at1fake",
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let owned = service(&server)
+            .records_owned("uuid-1", OwnedFilter::unspent().program("credits.aleo"))
+            .await
+            .unwrap();
+        assert_eq!(owned.len(), 1);
+
+        let decrypted = owned[0]
+            .decrypt(&account.view_key)
+            .expect("a record encrypted for this view key must decrypt");
+        assert_eq!(
+            decrypted.microcredits, 2_000_000,
+            "local decryption must win over the service's plaintext"
+        );
+        assert_eq!(decrypted.program_id, "credits.aleo");
+        assert_eq!(decrypted.ciphertext, ciphertext);
+        assert!(!decrypted.spent);
+    }
+
+    /// The filter has to reach the service: asking for unspent `credits` records
+    /// and silently getting everything would waste a round trip and mislead the
+    /// caller about what was filtered.
+    #[tokio::test]
+    async fn owned_filter_reaches_the_request_body() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/records/owned"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+            .mount(&server)
+            .await;
+
+        let owned = service(&server)
+            .records_owned(
+                "uuid-1",
+                OwnedFilter::unspent().program("credits.aleo").record_name("credits"),
+            )
+            .await
+            .unwrap();
+        assert!(owned.is_empty());
+
+        let received = server.received_requests().await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&received[0].body).unwrap();
+        assert_eq!(body["uuid"], "uuid-1");
+        assert_eq!(body["unspent"], json!(true));
+        assert_eq!(body["filter"]["program"], "credits.aleo");
+        assert_eq!(body["filter"]["record"], "credits");
+    }
+
+    /// Live end-to-end run, kept out of the PR gate:
+    ///
+    /// ```bash
+    /// RSS_URL=https://api.provable.com/scanner/testnet \
+    ///   cargo test --test network_coverage -- --ignored live_record_scan
+    /// ```
+    #[tokio::test]
+    #[ignore = "live: needs RSS_URL and a view key that owns records"]
+    async fn live_record_scan() {
+        let Ok(base) = std::env::var("RSS_URL") else {
+            eprintln!("RSS_URL not set — skipping");
+            return;
+        };
+        let Ok(view_key_str) = std::env::var("RSS_VIEW_KEY") else {
+            eprintln!("RSS_VIEW_KEY not set — skipping");
+            return;
+        };
+
+        let view_key = snarkvm::prelude::ViewKey::<TestnetV0>::from_str(&view_key_str).unwrap();
+        let service =
+            RecordScanService::with_endpoints(base, "https://api.provable.com", ApiAuth::None)
+                .unwrap();
+
+        let registration = service.register(&view_key, 0).await.unwrap();
+        println!("registered as {}", registration.uuid);
+
+        let owned =
+            service.records_owned(&registration.uuid, OwnedFilter::unspent()).await.unwrap();
+        println!("{} unspent records", owned.len());
+        for record in &owned {
+            println!(
+                "  {} microcredits",
+                record.decrypt(&view_key).unwrap().microcredits
+            );
+        }
+    }
+}
