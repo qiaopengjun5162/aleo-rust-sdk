@@ -155,7 +155,7 @@ impl AleoAccount {
     ///
     /// # Errors
     ///
-    /// Returns an error if `seed` is not exactly [`SEED_LEN`] bytes. The JS
+    /// Returns an error if `seed` is not exactly 32 bytes. The JS
     /// binding `unwrap()`s its `try_into` and panics instead; panicking on
     /// caller-supplied data is not something a library should do, so this
     /// returns `Err`.
@@ -272,7 +272,7 @@ impl AleoAccount {
     /// Equivalent to JS SDK `account.ownsRecordCiphertext(ciphertext)`.
     ///
     /// This is the cheap membership test: it decrypts the record's owner field,
-    /// not its data entries. Unparseable input returns `false` (the JS binding
+    /// not its data entries. Input that does not parse returns `false` (the JS binding
     /// catches the parse error and returns `false` too) rather than surfacing an
     /// error — a caller filtering a list wants "skip it", not "abort".
     pub fn owns_record_ciphertext(&self, ciphertext: &str) -> bool {
@@ -861,7 +861,7 @@ mod tests {
         assert!(account.verify(message, &signature));
 
         // A signature is bound to the message...
-        assert!(!account.verify(b"hello worlD", &signature));
+        assert!(!account.verify(b"hello world!", &signature));
         // ...and to the key that produced it.
         assert!(!stranger.verify(message, &signature));
 
