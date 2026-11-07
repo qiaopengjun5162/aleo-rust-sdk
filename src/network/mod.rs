@@ -18,6 +18,7 @@
 //! | Item | Submodule | Role |
 //! |------|-----------|------|
 //! | [`AleoHttpClient`] | `client` | Async REST + JSON-RPC transport (`reqwest`) |
+//! | chain reads (`impl AleoHttpClient`) | `chain` | Blocks, transactions, program metadata, committees, mempool |
 //! | [`ProvableQuery`] | `query` | Live Merkle state paths for proving (`ureq`) |
 //! | [`FixedStateRootQuery`] | `query` | Offline stub that returns a pinned root |
 //!
@@ -40,9 +41,11 @@
 //! # }
 //! ```
 
+mod chain;
 mod client;
 mod query;
 
+pub use chain::MAX_BLOCKS_PER_REQUEST;
 pub use client::{AleoHttpClient, ConfirmationPoll};
 pub use query::{FixedStateRootQuery, ProvableQuery};
 
