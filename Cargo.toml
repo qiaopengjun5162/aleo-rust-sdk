@@ -38,6 +38,14 @@ snarkvm = { version = "4.12.0", default-features = true, features = [
     "ledger",
     "synthesizer",
 ] }
+# Delegated proving (Provable DPS). `crypto_box`'s `seal` feature implements
+# libsodium's `crypto_box_seal`; the DPS only decrypts inside its TEE, so the
+# wire format has to match libsodium byte-for-byte (X25519 + XSalsa20-Poly1305,
+# tag before ciphertext, nonce = BLAKE2b-192(ephemeral_pk ‖ recipient_pk)).
+# base64 is pinned to 0.22 because snarkvm already pulls that version in —
+# bumping it here would compile a second copy for no benefit.
+crypto_box = { version = "0.9", features = ["seal"] }
+base64 = "0.22"
 
 [dev-dependencies]
 wiremock = "0.6"

@@ -52,6 +52,7 @@ CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个�
 | **📦 程序加载** | 通过 REST API 从网络获取程序、解析 `.aleo` 源文件、检查函数/映射定义。 |
 | **⚡ 本地执行** | 本地授权并执行 Aleo 程序 transition，**不上链广播**——适合脱机模拟和测试。 |
 | **🔐 证明生成** | 为本地执行生成零知识证明（Varuna V2）。测试网 fee 证明支持 V0 fee 密钥。 |
+| **🛡️ 委托证明** (v0.10.0+) | 把证明交给 Provable 的 TEE 证明服务（DPS）。授权用 libsodium sealed box 加密传输，返回可直接广播的交易——15–60 秒本地 CPU 换成一次网络往返。 |
 | **🌐 网络查询** | 通过 REST + JSON-RPC 查询区块高度、状态根、程序源码、映射值。 |
 | **🔗 实时状态路径** (v0.5.0+) | `ProvableQuery` 从 `api.provable.com/v2/testnet/statePath/{commitment}` 实时获取 Merkle 路径——不再有哑查询或 502 错误。 |
 | **📋 记录管理** | 按 Owner 取出、解密、过滤私密 `credits.aleo` 记录。跨区块范围扫描记录密文。 |

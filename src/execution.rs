@@ -22,8 +22,8 @@ use snarkvm::circuit::AleoTestnetV0;
 use snarkvm::console::program::{Identifier, ProgramID, ProgramOwner, Value};
 use snarkvm::ledger::block::{Deployment, Transaction};
 use snarkvm::prelude::{
-    Address, ConsensusVersion, CryptoRng, InclusionVersion, PrivateKey, Process, Program, Response,
-    Rng, TestRng, TestnetV0,
+    Address, Authorization, ConsensusVersion, CryptoRng, InclusionVersion, PrivateKey, Process,
+    Program, Response, Rng, TestRng, TestnetV0,
 };
 use snarkvm::synthesizer::process::{Stack, Trace, deployment_cost, execution_cost};
 use std::str::FromStr;
@@ -124,6 +124,26 @@ impl ExecutionEngine {
         Ok((response, trace))
     }
 
+    /// Authorize a function call and return the `Authorization` itself.
+    ///
+    /// This is what delegated proving needs: the DPS proves an authorization
+    /// server-side, so the local side stops after authorization and never pays
+    /// the proving cost. [`authorize_and_execute`](Self::authorize_and_execute)
+    /// is the local-execution path and builds on this.
+    pub fn authorize(
+        &self,
+        private_key: &PrivateKey<TestnetV0>,
+        program_id: &ProgramID<TestnetV0>,
+        function_name: &str,
+        inputs: Vec<&str>,
+        rng: &mut TestRng,
+    ) -> Result<Authorization<TestnetV0>> {
+        let fn_id = Identifier::<TestnetV0>::from_str(function_name)?;
+        self.process
+            .authorize::<AleoTestnetV0, _>(private_key, *program_id, fn_id, inputs.into_iter(), rng)
+            .context("Authorization failed")
+    }
+
     /// Authorize and execute locally. Returns response + trace.
     ///
     /// Inputs are parsed as snarkVM `Value`s — record ciphertexts (e.g. `record1...`)
@@ -137,11 +157,7 @@ impl ExecutionEngine {
         rng: &mut TestRng,
     ) -> Result<(Response<TestnetV0>, Trace<TestnetV0>)> {
         tracing::info!("Authorizing...");
-        let fn_id = Identifier::<TestnetV0>::from_str(function_name)?;
-        let authorization = self
-            .process
-            .authorize::<AleoTestnetV0, _>(private_key, *program_id, fn_id, inputs.into_iter(), rng)
-            .context("Authorization failed")?;
+        let authorization = self.authorize(private_key, program_id, function_name, inputs, rng)?;
 
         tracing::info!("Executing locally...");
         let (response, trace) = self
@@ -246,6 +262,40 @@ impl ExecutionEngine {
 
         Transaction::<TestnetV0>::from_execution(execution, Some(fee))
             .context("Failed to package transaction")
+    }
+
+    /// Authorize a **public fee** against an existing authorization.
+    ///
+    /// Delegated proving needs the fee authorization *before* the proof exists,
+    /// so the execution ID is derived from the (unproven) transitions of
+    /// `authorization` via `Authorization::to_execution_id()`. That is the same
+    /// ID the prover will commit to when it proves the execution, which is why
+    /// this stays valid end-to-end.
+    ///
+    /// `base_fee` is not computed here: the real cost is only knowable from a
+    /// proven execution. Pass the value from
+    /// [`ExecutionEngine::deployment_cost_minimum`] for deployments, or a value
+    /// obtained from a prior local run; the chain rejects anything below the
+    /// minimum for the current consensus version.
+    pub fn authorize_fee_public_authorization(
+        &self,
+        private_key: &PrivateKey<TestnetV0>,
+        base_fee: u64,
+        priority_fee: u64,
+        authorization: &Authorization<TestnetV0>,
+        rng: &mut TestRng,
+    ) -> Result<Authorization<TestnetV0>> {
+        let execution_id =
+            authorization.to_execution_id().context("Failed to derive execution ID")?;
+        self.process
+            .authorize_fee_public::<AleoTestnetV0, _>(
+                private_key,
+                base_fee,
+                priority_fee,
+                execution_id,
+                rng,
+            )
+            .context("Failed to authorize fee")
     }
 
     /// Reference to the inner `Process`.

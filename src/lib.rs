@@ -11,19 +11,29 @@
 //!
 //! ## Architecture
 //!
-//! The SDK is organized into eight modules — six of them functional layers,
-//! two of them support:
+//! The SDK is organized into nine modules — eight of them functional layers,
+//! one of them support:
 //!
 //! | Module | Purpose |
 //! |--------|---------|
 //! | [`account`] | Key chain: `PrivateKey → ViewKey → ComputeKey → Address` |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions |
+//! | [`delegated`] | Delegated proving: hand the proof to Provable's TEE prover |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
 //! | [`record`] | Record discovery, decryption, and coin selection |
 //! | [`sealance`] | Merkle exclusion proofs for compliant-stablecoin freeze lists |
 //! | [`client`] | High-level `AleoClient` orchestrating the full lifecycle |
 //! | [`version`] | Crate version constant |
+//!
+//! ## Proving: locally or delegated
+//!
+//! [`ExecutionEngine`] proves locally, which is free but costs tens of seconds
+//! of CPU per transaction. [`delegated::DelegatedProver`] sends the same
+//! authorization to Provable's delegated proving service, which proves it
+//! inside a TEE and returns a ready-to-broadcast transaction. The request is
+//! encrypted with a libsodium sealed box, so the private inputs are only
+//! readable inside the enclave.
 //!
 //! ## Error handling
 //!
@@ -79,6 +89,7 @@
 
 pub mod account;
 pub mod client;
+pub mod delegated;
 pub mod execution;
 pub mod network;
 pub mod program;
@@ -89,6 +100,7 @@ pub mod version;
 // Re-export the main types at the crate root for convenience
 pub use account::AleoAccount;
 pub use client::AleoClient;
+pub use delegated::{ApiAuth, DelegatedProver, ProvingRequest, ProvingResponse};
 pub use execution::{ExecutionEngine, consensus_version_to_varuna};
 pub use network::{AleoHttpClient, ConfirmationPoll, FixedStateRootQuery, ProvableQuery};
 pub use program::AleoProgram;
