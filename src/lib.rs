@@ -16,7 +16,7 @@
 //!
 //! | Module | Purpose |
 //! |--------|---------|
-//! | [`account`] | Key chain: `PrivateKey → ViewKey → ComputeKey → Address` |
+//! | [`account`] | Key chain, encrypted-key storage, signing, per-record view keys |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions |
 //! | [`delegated`] | Delegated proving: hand the proof to Provable's TEE prover |
@@ -111,7 +111,7 @@ pub mod sealance;
 pub mod version;
 
 // Re-export the main types at the crate root for convenience
-pub use account::AleoAccount;
+pub use account::{AleoAccount, RecordPlaintext};
 pub use client::AleoClient;
 pub use delegated::{ApiAuth, DelegatedProver, ProvingRequest, ProvingResponse};
 pub use execution::{ExecutionEngine, consensus_version_to_varuna};
