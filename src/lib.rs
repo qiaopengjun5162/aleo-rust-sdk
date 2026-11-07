@@ -11,8 +11,8 @@
 //!
 //! ## Architecture
 //!
-//! The SDK is organized into eleven modules — nine of them functional layers,
-//! two of them support:
+//! The SDK is organized into twelve modules — nine of them functional layers,
+//! three of them support:
 //!
 //! | Module | Purpose |
 //! |--------|---------|
@@ -25,8 +25,33 @@
 //! | [`scanner`] | Record scanning: let Provable's TEE index a view key |
 //! | [`sealance`] | Merkle exclusion proofs for compliant-stablecoin freeze lists |
 //! | [`client`] | High-level `AleoClient` orchestrating the full lifecycle |
+//! | [`options`] | [`AleoNetworkOptions`]: one network name, every service base |
 //! | [`hosted`] | Shared plumbing for the TEE services (auth, sealed boxes) |
 //! | [`version`] | Crate version constant |
+//!
+//! ## Endpoints
+//!
+//! Five services are involved: REST reads, JSON-RPC record queries, delegated
+//! proving, record scanning, and the JWT mint. [`AleoNetworkOptions`] states
+//! the network once and derives every service base from it, so switching to
+//! mainnet is one value rather than four call sites:
+//!
+//! ```no_run
+//! use aleo_rust_sdk::AleoNetworkOptions;
+//!
+//! # fn run() -> anyhow::Result<()> {
+//! let options = AleoNetworkOptions::new("testnet")?;
+//! let client = options.client()?;              // REST + JSON-RPC
+//! let prover = options.prover()?;              // delegated proving
+//! let scanner = options.scanner()?;            // record scanning
+//! # let _ = (client, prover, scanner);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! The individual constructors ([`AleoClient::new`], [`DelegatedProver::new`],
+//! [`RecordScanService::new`]) remain available; the options type is for when
+//! more than one of them is in play.
 //!
 //! ## Proving: locally or delegated
 //!
@@ -109,6 +134,7 @@ pub mod delegated;
 pub mod execution;
 pub mod hosted;
 pub mod network;
+pub mod options;
 pub mod program;
 pub mod record;
 pub mod scanner;
@@ -121,5 +147,6 @@ pub use client::AleoClient;
 pub use delegated::{ApiAuth, DelegatedProver, ProvingRequest, ProvingResponse};
 pub use execution::{ExecutionEngine, consensus_version_to_varuna};
 pub use network::{AleoHttpClient, ConfirmationPoll, FixedStateRootQuery, ProvableQuery};
+pub use options::AleoNetworkOptions;
 pub use program::AleoProgram;
 pub use scanner::{OwnedFilter, OwnedRecord, RecordScanService, Registration};

@@ -1627,3 +1627,194 @@ mod chain_reads {
         );
     }
 }
+
+/// Wiring for [`AleoNetworkOptions`]: one network name, every service base.
+///
+/// The unit tests in `src/options.rs` can only show that a URL string was
+/// assembled. These mount a mock at the *exact* path each service should hit,
+/// so a missing or misplaced network segment surfaces as a 404 instead of as a
+/// client that quietly reads the wrong chain.
+mod options_wiring {
+    use aleo_rust_sdk::AleoNetworkOptions;
+    use serde_json::json;
+    use snarkvm::prelude::{PrivateKey, TestRng, TestnetV0, ViewKey};
+    use std::time::Duration;
+    use wiremock::matchers::{body_json, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn view_key() -> ViewKey<TestnetV0> {
+        let mut rng = TestRng::default();
+        let private_key = PrivateKey::<TestnetV0>::new(&mut rng).unwrap();
+        ViewKey::try_from(&private_key).unwrap()
+    }
+
+    /// A syntactically valid ephemeral key: 32 base64 bytes, which is what both
+    /// TEE services mint before a sealed-box request.
+    fn ephemeral_key_body() -> serde_json::Value {
+        json!({
+            "key_id": "key-1",
+            "public_key": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8=",
+        })
+    }
+
+    #[tokio::test]
+    async fn rest_reads_land_under_the_network_segment() {
+        let server = MockServer::start().await;
+        // A path prefix on top of the network segment, so the assertion cannot
+        // pass on a bare `<base>/<route>`: it must be `<base>/<network>/<route>`.
+        let options = AleoNetworkOptions::testnet()
+            .with_rest_base(format!("{}/v1", server.uri()))
+            .with_rpc_url(format!("{}/rpc", server.uri()));
+
+        Mock::given(method("GET"))
+            .and(path("/v1/testnet/block/height/latest"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("4242"))
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            options.http_client().unwrap().fetch_block_height().await.unwrap(),
+            4242
+        );
+    }
+
+    #[tokio::test]
+    async fn json_rpc_uses_the_configured_endpoint_verbatim() {
+        let server = MockServer::start().await;
+        let options = AleoNetworkOptions::testnet()
+            .with_rest_base(format!("{}/v1", server.uri()))
+            .with_rpc_url(format!("{}/rpc", server.uri()));
+
+        Mock::given(method("GET"))
+            .and(path("/v1/testnet/block/height/latest"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("900"))
+            .mount(&server)
+            .await;
+        // `/rpc`, not `/rpc/testnet`: this endpoint is a complete URL whose
+        // network lives in the hostname, so nothing is appended to it.
+        Mock::given(method("POST"))
+            .and(path("/rpc"))
+            .and(body_json(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "records/isOwner",
+                "params": ["AViewKey1test", 0, 900],
+            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"jsonrpc": "2.0", "id": 1, "result": []})),
+            )
+            .mount(&server)
+            .await;
+
+        let records = options.http_client().unwrap().fetch_records("AViewKey1test").await.unwrap();
+        assert_eq!(records.trim(), "[]");
+    }
+
+    #[tokio::test]
+    async fn the_prover_base_gets_the_network_segment() {
+        let server = MockServer::start().await;
+        let options =
+            AleoNetworkOptions::testnet().with_prover_base(format!("{}/prove", server.uri()));
+
+        Mock::given(method("GET"))
+            .and(path("/prove/testnet/pubkey"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ephemeral_key_body()))
+            .mount(&server)
+            .await;
+
+        let (key, cookie) = options.prover().unwrap().fetch_pubkey().await.unwrap();
+        assert_eq!(key.key_id, "key-1");
+        assert!(cookie.is_none(), "the mock sent no Set-Cookie");
+    }
+
+    #[tokio::test]
+    async fn the_scanner_base_gets_the_network_segment() {
+        let server = MockServer::start().await;
+        let options =
+            AleoNetworkOptions::testnet().with_scanner_base(format!("{}/scan", server.uri()));
+
+        Mock::given(method("GET"))
+            .and(path("/scan/testnet/pubkey"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ephemeral_key_body()))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/scan/testnet/register/encrypted"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"uuid": "123field"})))
+            .mount(&server)
+            .await;
+
+        let registration = options.scanner().unwrap().register(&view_key(), 0).await.unwrap();
+        assert_eq!(registration.uuid, "123field");
+    }
+
+    #[tokio::test]
+    async fn one_network_name_reaches_every_service() {
+        let server = MockServer::start().await;
+        let options = AleoNetworkOptions::new("mainnet")
+            .unwrap()
+            .with_rest_base(format!("{}/v2", server.uri()))
+            .with_rpc_url(format!("{}/rpc", server.uri()))
+            .with_prover_base(format!("{}/prove", server.uri()))
+            .with_scanner_base(format!("{}/scan", server.uri()));
+
+        // Only `mainnet` paths are mounted. A client that leaked `testnet`
+        // anywhere answers 404, which is the failure this test is for.
+        Mock::given(method("GET"))
+            .and(path("/v2/mainnet/block/height/latest"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("7"))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/prove/mainnet/pubkey"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ephemeral_key_body()))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/scan/mainnet/pubkey"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ephemeral_key_body()))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/scan/mainnet/register/encrypted"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"uuid": "456field"})))
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            options.client().unwrap().get_block_height().await.unwrap(),
+            7
+        );
+        options.prover().unwrap().fetch_pubkey().await.unwrap();
+        options.scanner().unwrap().register(&view_key(), 0).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_supplied_http_client_is_used_verbatim() {
+        let server = MockServer::start().await;
+        let options = AleoNetworkOptions::testnet()
+            .with_rest_base(server.uri())
+            .with_rpc_url(format!("{}/rpc", server.uri()))
+            .with_http_client(
+                reqwest::Client::builder().timeout(Duration::from_millis(50)).build().unwrap(),
+            );
+
+        // The response is slower than the injected timeout and far faster than
+        // the 120s default, so only the injected client can fail this call.
+        Mock::given(method("GET"))
+            .and(path("/testnet/block/height/latest"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(600))
+                    .set_body_string("1"),
+            )
+            .mount(&server)
+            .await;
+
+        assert!(
+            options.http_client().unwrap().fetch_block_height().await.is_err(),
+            "the injected 50ms timeout was ignored"
+        );
+    }
+}

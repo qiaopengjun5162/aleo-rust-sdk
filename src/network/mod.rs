@@ -49,6 +49,8 @@ pub use chain::MAX_BLOCKS_PER_REQUEST;
 pub use client::{AleoHttpClient, ConfirmationPoll};
 pub use query::{FixedStateRootQuery, ProvableQuery};
 
+pub(crate) use client::default_http_client;
+
 /// Browser-like User-Agent to bypass Cloudflare WAF.
 ///
 /// Shared by both transports: the async `reqwest` client and the blocking

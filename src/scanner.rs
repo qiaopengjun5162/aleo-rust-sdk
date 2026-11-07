@@ -79,16 +79,13 @@ use snarkvm::utilities::ToBytes;
 use std::fmt;
 use zeroize::Zeroizing;
 
-use crate::hosted::{
-    ApiAuth, AuthProvider, EphemeralKey, REQUEST_TIMEOUT, session_cookie, truncate,
-};
+use crate::hosted::{ApiAuth, AuthProvider, EphemeralKey, session_cookie, truncate};
 use crate::record::{AleoRecord, RecordScanner};
 
-/// Default scanner host. The per-network path segment is appended by
-/// [`RecordScanService::new`].
-const DEFAULT_SCANNER_HOST: &str = "https://api.provable.com/scanner";
-/// Origin that mints JWTs for the legacy `api.provable.com` gateway.
-const DEFAULT_API_ORIGIN: &str = "https://api.provable.com";
+// The endpoint constants live in `options` so that this module and
+// [`crate::delegated`] cannot drift apart: both used to declare their own copy
+// of the JWT origin.
+use crate::options::PROVABLE_SCANNER_BASE;
 
 // ── Registration ─────────────────────────────────────────────────────────
 
@@ -360,8 +357,8 @@ impl RecordScanService {
             bail!("Network name must not be empty");
         }
         Self::with_endpoints(
-            format!("{DEFAULT_SCANNER_HOST}/{network}"),
-            DEFAULT_API_ORIGIN,
+            format!("{PROVABLE_SCANNER_BASE}/{network}"),
+            crate::options::PROVABLE_API_ORIGIN,
             auth,
         )
     }
@@ -375,11 +372,26 @@ impl RecordScanService {
         api_origin: impl Into<String>,
         auth: ApiAuth,
     ) -> Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .user_agent(crate::network::BROWSER_UA)
-            .build()
-            .context("Failed to build HTTP client")?;
+        Self::with_endpoints_and_http(scanner_base, api_origin, auth, None)
+    }
+
+    /// Build a client against explicit endpoints, optionally reusing an
+    /// already-built HTTP client.
+    ///
+    /// `http: None` builds one with the TEE timeout and browser User-Agent;
+    /// `Some` uses the supplied client verbatim, which is how
+    /// [`AleoNetworkOptions`](crate::AleoNetworkOptions) gives proving and
+    /// scanning one shared connection pool.
+    pub fn with_endpoints_and_http(
+        scanner_base: impl Into<String>,
+        api_origin: impl Into<String>,
+        auth: ApiAuth,
+        http: Option<reqwest::Client>,
+    ) -> Result<Self> {
+        let http = match http {
+            Some(http) => http,
+            None => crate::hosted::hosted_http_client()?,
+        };
         Ok(Self {
             scanner_base: scanner_base.into().trim_end_matches('/').to_string(),
             auth: AuthProvider::new(http.clone(), api_origin, auth),

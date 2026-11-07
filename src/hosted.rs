@@ -61,7 +61,10 @@ pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 /// why [`ApiAuth::None`] is the default. The legacy `api.provable.com` gateway
 /// requires a JWT; this crate mints and refreshes it from an
 /// `api_key`/`consumer_id` pair, so callers never handle tokens themselves.
-#[derive(Clone, Debug)]
+///
+/// `Debug` is hand-written: this type holds two kinds of secret, and a derive
+/// would print them into any `{:?}` that reaches a log line.
+#[derive(Clone)]
 pub enum ApiAuth {
     /// Send no auth headers.
     None,
@@ -98,6 +101,42 @@ impl ApiAuth {
             consumer_id: consumer_id.into(),
         }
     }
+}
+
+/// Prints the *shape* of the credential, never the credential.
+///
+/// A leaked key here is a billing and impersonation problem, and `{:?}` on a
+/// config struct is exactly how keys end up in shared logs.
+impl fmt::Debug for ApiAuth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => f.write_str("None"),
+            Self::ApiKey { header, .. } => f
+                .debug_struct("ApiKey")
+                .field("value", &"<redacted>")
+                .field("header", header)
+                .finish(),
+            Self::Jwt { consumer_id, .. } => f
+                .debug_struct("Jwt")
+                .field("api_key", &"<redacted>")
+                .field("consumer_id", consumer_id)
+                .finish(),
+        }
+    }
+}
+
+/// Build the HTTP client both TEE services use.
+///
+/// Same timeout and User-Agent for proving and scanning: they sit behind the
+/// same edge gateway, which rejects default agents. Shared here because two
+/// copies of this builder is how the two services end up with different
+/// timeouts after one of them is tuned.
+pub(crate) fn hosted_http_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .user_agent(crate::network::BROWSER_UA)
+        .build()
+        .context("Failed to build HTTP client")
 }
 
 #[derive(Clone)]
