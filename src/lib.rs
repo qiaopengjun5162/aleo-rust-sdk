@@ -11,7 +11,7 @@
 //!
 //! ## Architecture
 //!
-//! The SDK is organized into twelve modules — nine of them functional layers,
+//! The SDK is organized into thirteen modules — ten of them functional layers,
 //! three of them support:
 //!
 //! | Module | Purpose |
@@ -19,6 +19,7 @@
 //! | [`account`] | Key chain, encrypted-key storage, signing, per-record view keys |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions |
+//! | [`credits`] | credits.aleo value operations: transfers, joins, splits |
 //! | [`delegated`] | Delegated proving: hand the proof to Provable's TEE prover |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
 //! | [`record`] | Record discovery (local or hosted), decryption, coin selection |
@@ -130,6 +131,7 @@
 
 pub mod account;
 pub mod client;
+pub mod credits;
 pub mod delegated;
 pub mod execution;
 pub mod hosted;
@@ -144,6 +146,7 @@ pub mod version;
 // Re-export the main types at the crate root for convenience
 pub use account::{AleoAccount, RecordPlaintext};
 pub use client::AleoClient;
+pub use credits::{CreditsCall, TransferKind};
 pub use delegated::{ApiAuth, DelegatedProver, ProvingRequest, ProvingResponse};
 pub use execution::{ExecutionEngine, consensus_version_to_varuna};
 pub use network::{AleoHttpClient, ConfirmationPoll, FixedStateRootQuery, ProvableQuery};

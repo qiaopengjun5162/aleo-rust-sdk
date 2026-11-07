@@ -593,3 +593,84 @@ async fn test_verify_execution_depends_on_consensus_height() {
         "the same proof must verify at its own height {mined_at}; got: {via_mined_height:?}"
     );
 }
+
+// ── credits.aleo value operations: client-level seams ───────────────────────
+//
+// The proving happy path needs real circuits and real records (see
+// `real_prove.rs`); what runs here is everything around it: the account
+// gate, plan-validation errors surfacing to the caller, and `check_fee`.
+
+#[tokio::test]
+async fn test_credits_ops_require_an_account() {
+    let server = setup_mock().await;
+    let client = make_client(&server, &server.uri());
+
+    let err = client
+        .transfer(
+            aleo_rust_sdk::TransferKind::Public,
+            1,
+            "aleo1recipient",
+            None,
+            0,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("No account set"), "{err}");
+
+    let err = client.join("not-a-record", "not-a-record", 0).await.unwrap_err().to_string();
+    assert!(err.contains("No account set"), "{err}");
+
+    let err = client.split(1, "not-a-record").await.unwrap_err().to_string();
+    assert!(err.contains("No account set"), "{err}");
+}
+
+/// The plan layer's validation errors reach the caller unchanged —
+/// the JS SDK fails the same way before any proving starts.
+#[tokio::test]
+async fn test_transfer_plan_error_reaches_the_client() {
+    let server = setup_mock().await;
+    let mut client = make_client(&server, &server.uri());
+    random_account(&mut client);
+
+    let err = client
+        .transfer(
+            aleo_rust_sdk::TransferKind::Private,
+            1,
+            "aleo1recipient",
+            None,
+            0,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("Amount record must be provided for private transfers"),
+        "{err}"
+    );
+
+    let err = client.join("record1bogus", "record1bogus", 0).await.unwrap_err().to_string();
+    assert!(err.contains("record_one"), "{err}");
+
+    let err = client.split(1, "record1bogus").await.unwrap_err().to_string();
+    assert!(err.contains("amount_record"), "{err}");
+}
+
+/// `AleoClient::check_fee` reads the **account's** balance (the mock answers
+/// 1_000_000 for any mapping key), with the inclusive boundary the JS
+/// `checkFee` has.
+#[tokio::test]
+async fn test_client_check_fee() {
+    let server = setup_mock().await;
+    let mut client = make_client(&server, &server.uri());
+    random_account(&mut client);
+
+    client.check_fee(1_000_000).await.unwrap();
+    client.check_fee(0).await.unwrap();
+    let err = client.check_fee(1_000_001).await.unwrap_err().to_string();
+    assert!(
+        err.contains("1001 microcredits") || err.contains("1000001 microcredits"),
+        "{err}"
+    );
+    assert!(err.contains("1000000 microcredits available"), "{err}");
+}

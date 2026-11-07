@@ -1626,6 +1626,60 @@ mod chain_reads {
             "at1byhash"
         );
     }
+
+    /// The JS `ProgramManager.checkFee`: a fee within the public balance
+    /// passes, and the boundary is inclusive — the whole balance may go to the
+    /// fee.
+    #[tokio::test]
+    async fn check_fee_accepts_a_fee_within_the_balance() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/program/credits.aleo/mapping/account/aleo1funded"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("5000u64"))
+            .mount(&server)
+            .await;
+        let client = mock_client(&server.uri());
+
+        client.check_fee("aleo1funded", 4_999).await.unwrap();
+        client.check_fee("aleo1funded", 5_000).await.unwrap();
+        client.check_fee("aleo1funded", 0).await.unwrap();
+    }
+
+    /// The refusal must name both numbers — the JS error does, and "insufficient
+    /// funds" without the amounts is undebuggable when the caller computed the
+    /// fee wrong.
+    #[tokio::test]
+    async fn check_fee_refuses_and_states_both_amounts() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/program/credits.aleo/mapping/account/aleo1poor"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("1000u64"))
+            .mount(&server)
+            .await;
+        let client = mock_client(&server.uri());
+
+        let err = client.check_fee("aleo1poor", 1_001).await.unwrap_err().to_string();
+        assert!(err.contains("1001 microcredits"), "{err}");
+        assert!(err.contains("1000 microcredits"), "{err}");
+    }
+
+    /// An account with no mapping entry holds 0, so a zero fee still passes and
+    /// any real fee is refused — the JS `getPublicBalance` path behaves the same
+    /// way (a missing entry reads as zero).
+    #[tokio::test]
+    async fn check_fee_treats_an_absent_account_as_zero() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/program/credits.aleo/mapping/account/aleo1fresh"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("Program not found"))
+            .mount(&server)
+            .await;
+        let client = mock_client(&server.uri());
+
+        client.check_fee("aleo1fresh", 0).await.unwrap();
+        let err = client.check_fee("aleo1fresh", 1).await.unwrap_err().to_string();
+        assert!(err.contains("0 microcredits available"), "{err}");
+    }
 }
 
 /// Wiring for [`AleoNetworkOptions`]: one network name, every service base.

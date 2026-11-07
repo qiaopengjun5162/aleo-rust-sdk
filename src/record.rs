@@ -320,7 +320,7 @@ impl RecordScanner {
 /// silently reporting a zero balance. Splitting on the visibility suffix and
 /// then the type suffix handles all three visibilities and any integer width
 /// that is not `u64` still fails the parse, which is what the caller wants.
-fn parse_u64_entry(raw: &str) -> Option<u64> {
+pub(crate) fn parse_u64_entry(raw: &str) -> Option<u64> {
     // Drop the `.private` / `.public` / `.constant` visibility suffix.
     let value = raw.rsplit_once('.').map_or(raw, |(value, _)| value);
     // Drop the `u64` type suffix.

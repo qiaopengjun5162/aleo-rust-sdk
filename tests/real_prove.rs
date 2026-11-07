@@ -316,3 +316,178 @@ fn regenerate_verify_fixture() {
         std::fs::metadata(&path).unwrap().len()
     );
 }
+
+// ── credits.aleo value operations: circuit-level checks ─────────────────────
+//
+// The plan layer (`aleo_rust_sdk::credits`) is unit-tested for shape; these
+// tests feed its outputs into the real circuits. A wrong input order or a
+// record literal snarkVM cannot read fails at `authorize`, not at broadcast.
+//
+// They stop at authorize+execute: `trace.prepare` needs a Merkle state path
+// for every spent record's commitment, and no such path exists for a record
+// minted offline (the live `statePath` endpoint answers 502 for commitments
+// that are not on chain). Full proving for record-consuming calls therefore
+// needs real on-chain records — a network test, not a unit one.
+
+/// A plaintext record owned by `owner`, holding `microcredits`.
+///
+/// The nonce must be `g^randomizer` or the record is malformed for snarkVM.
+fn owned_plaintext_record(
+    owner: Address<TestnetV0>,
+    microcredits: u64,
+    rng: &mut TestRng,
+) -> String {
+    use indexmap::IndexMap;
+    use snarkvm::console::program::{Entry, Identifier, Literal, Plaintext, Record};
+    use snarkvm::prelude::{Owner, Scalar, U8};
+    use snarkvm::utilities::rand::Uniform;
+
+    let randomizer = Scalar::rand(rng);
+    let nonce = TestnetV0::g_scalar_multiply(&randomizer);
+    let record_owner = Owner::Private(Plaintext::from(Literal::Address(owner)));
+    let mut data = IndexMap::new();
+    data.insert(
+        Identifier::from_str("microcredits").unwrap(),
+        Entry::Private(Plaintext::from_str(&format!("{microcredits}u64")).unwrap()),
+    );
+    Record::<TestnetV0, Plaintext<TestnetV0>>::from_plaintext(record_owner, data, nonce, U8::new(0))
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+#[ignore = "slow: credits circuit synthesis takes ~20s"]
+fn credits_transfer_private_authorized_from_planned_inputs() {
+    use aleo_rust_sdk::credits::{TransferKind, plan_transfer};
+
+    let mut rng = TestRng::default();
+    let pk: PrivateKey<TestnetV0> = PrivateKey::new(&mut rng).unwrap();
+    let sender = Address::try_from(&ComputeKey::try_from(&pk).unwrap()).unwrap();
+    let recipient_pk: PrivateKey<TestnetV0> = PrivateKey::new(&mut rng).unwrap();
+    let recipient = Address::try_from(&ComputeKey::try_from(&recipient_pk).unwrap()).unwrap();
+
+    let record = owned_plaintext_record(sender, 5_000_000, &mut rng);
+    let call = plan_transfer(
+        TransferKind::Private,
+        2_000_000,
+        &recipient.to_string(),
+        Some(&record),
+    )
+    .unwrap();
+    assert_eq!(call.function, "transfer_private");
+
+    let engine = ExecutionEngine::new().unwrap();
+    let program_id = ProgramID::<TestnetV0>::from_str("credits.aleo").unwrap();
+    let inputs: Vec<&str> = call.inputs.iter().map(String::as_str).collect();
+    let (response, _trace) = engine
+        .authorize_and_execute(&pk, &program_id, call.function, inputs, &mut rng)
+        .unwrap();
+    // transfer_private outputs two records: change to the sender, the amount
+    // to the recipient.
+    assert_eq!(response.outputs().len(), 2);
+}
+
+#[test]
+#[ignore = "slow: credits circuit synthesis takes ~20s"]
+fn credits_join_authorized_from_planned_inputs() {
+    use aleo_rust_sdk::credits::plan_join;
+
+    let mut rng = TestRng::default();
+    let pk: PrivateKey<TestnetV0> = PrivateKey::new(&mut rng).unwrap();
+    let owner = Address::try_from(&ComputeKey::try_from(&pk).unwrap()).unwrap();
+
+    let one = owned_plaintext_record(owner, 1_000_000, &mut rng);
+    let two = owned_plaintext_record(owner, 2_000_000, &mut rng);
+    let call = plan_join(&one, &two).unwrap();
+    assert_eq!(call.function, "join");
+
+    let engine = ExecutionEngine::new().unwrap();
+    let program_id = ProgramID::<TestnetV0>::from_str("credits.aleo").unwrap();
+    let inputs: Vec<&str> = call.inputs.iter().map(String::as_str).collect();
+    let (response, _trace) = engine
+        .authorize_and_execute(&pk, &program_id, call.function, inputs, &mut rng)
+        .unwrap();
+    // join outputs one record carrying the sum.
+    assert_eq!(response.outputs().len(), 1);
+}
+
+#[test]
+#[ignore = "slow: credits circuit synthesis takes ~20s"]
+fn credits_split_authorized_from_planned_inputs() {
+    use aleo_rust_sdk::credits::plan_split;
+
+    let mut rng = TestRng::default();
+    let pk: PrivateKey<TestnetV0> = PrivateKey::new(&mut rng).unwrap();
+    let owner = Address::try_from(&ComputeKey::try_from(&pk).unwrap()).unwrap();
+
+    let record = owned_plaintext_record(owner, 3_000_000, &mut rng);
+    let call = plan_split(1_000_000, &record).unwrap();
+    assert_eq!(call.function, "split");
+
+    let engine = ExecutionEngine::new().unwrap();
+    let program_id = ProgramID::<TestnetV0>::from_str("credits.aleo").unwrap();
+    let inputs: Vec<&str> = call.inputs.iter().map(String::as_str).collect();
+    let (response, _trace) = engine
+        .authorize_and_execute(&pk, &program_id, call.function, inputs, &mut rng)
+        .unwrap();
+    // split outputs the carved record and the remainder.
+    assert_eq!(response.outputs().len(), 2);
+}
+
+/// The fee-less packaging path (`Transaction::from_execution(execution, None)`),
+/// exercised on `hello.aleo` because it proves offline without state paths.
+///
+/// The protocol allows a `None` fee only for `credits.aleo/split`, so a
+/// fee-less hello.aleo transaction would be rejected on broadcast — but the
+/// local prove → verify → package code path is identical, which is what this
+/// covers. (Split itself cannot be proven offline; see the note above.)
+///
+/// Not `#[ignore]`d: it proves like `test_build_deployment_transaction_local`,
+/// which is also in the fast suite, and the fee-less path has no other
+/// coverage — `#[ignore]` would leave it unmeasured by `cargo llvm-cov`.
+#[test]
+fn test_prove_and_package_feeless_hello() {
+    let mut rng = TestRng::default();
+    let pk: PrivateKey<TestnetV0> = PrivateKey::new(&mut rng).unwrap();
+
+    let hello_src = "program hello.aleo;\nfunction hello:\n    input r0 as u32.public;\n    input r1 as u32.private;\n    add r0 r1 into r2;\n    output r2 as u32.private;\n";
+    let program = Program::<TestnetV0>::from_str(hello_src).unwrap();
+    let program_id = ProgramID::<TestnetV0>::from_str("hello.aleo").unwrap();
+
+    let engine = ExecutionEngine::new().unwrap();
+    engine.add_program(&program).unwrap();
+
+    let (_response, trace) = engine
+        .authorize_and_execute(&pk, &program_id, "hello", vec!["1u32", "2u32"], &mut rng)
+        .unwrap();
+
+    let state_root = <TestnetV0 as Network>::StateRoot::from_str(
+        "sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s",
+    )
+    .unwrap();
+    let query = FixedStateRootQuery {
+        state_root,
+        block_height: 42,
+    };
+
+    use snarkvm::prelude::ConsensusVersion;
+    let consensus_version = ConsensusVersion::V20;
+    let varuna_version = consensus_version_to_varuna(consensus_version);
+    let tx = engine
+        .prove_and_package_feeless(
+            trace,
+            &program_id,
+            "hello",
+            consensus_version,
+            varuna_version,
+            &query,
+            &mut rng,
+        )
+        .unwrap();
+
+    // A fee-less execution packages with no fee attached.
+    assert!(matches!(
+        tx,
+        snarkvm::ledger::block::Transaction::Execute(_, _, _, None)
+    ));
+}

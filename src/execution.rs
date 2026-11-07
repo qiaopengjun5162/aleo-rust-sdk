@@ -98,7 +98,9 @@ impl ExecutionEngine {
     }
 
     /// Authorize and execute locally using pre-parsed snarkVM `Value` inputs.
-    /// Use this variant when inputs include record ciphertexts that must be decrypted first.
+    /// Use this variant when the caller already built `Value`s — e.g. a record
+    /// input wrapped as [`snarkvm::prelude::Value::Record`], which holds a
+    /// **plaintext** record (the decrypted form, not the `record1...` string).
     pub fn authorize_and_execute_with_values(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -146,8 +148,11 @@ impl ExecutionEngine {
 
     /// Authorize and execute locally. Returns response + trace.
     ///
-    /// Inputs are parsed as snarkVM `Value`s — record ciphertexts (e.g. `record1...`)
-    /// are handled correctly, unlike raw string inputs.
+    /// Inputs are parsed as snarkVM `Value`s. Record inputs must be **plaintext
+    /// record literals** (`{ owner: ...private, microcredits: ...u64.private,
+    /// _nonce: ...group.public }`) — snarkVM's `Value` parser has no arm for
+    /// `record1...` ciphertexts, so a record must be decrypted before it can be
+    /// spent. See [`crate::credits`] for callers that format these.
     pub fn authorize_and_execute(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -261,6 +266,60 @@ impl ExecutionEngine {
             .context("Local fee verification FAILED")?;
 
         Transaction::<TestnetV0>::from_execution(execution, Some(fee))
+            .context("Failed to package transaction")
+    }
+
+    /// Prove execution and package a transaction **without a fee**.
+    ///
+    /// `credits.aleo/split` is the one call the protocol lets through unpaid —
+    /// the JS SDK's `buildSplitTransaction` packages with `None` where every
+    /// other builder passes a fee. Everything else must go through
+    /// [`prove_and_package`](Self::prove_and_package), which authorizes and
+    /// proves a `fee_public`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prove_and_package_feeless(
+        &self,
+        trace: Trace<TestnetV0>,
+        program_id: &ProgramID<TestnetV0>,
+        function_name: &str,
+        consensus_version: ConsensusVersion,
+        varuna_version: VarunaVersion,
+        query: &impl QueryTrait<TestnetV0>,
+        rng: &mut TestRng,
+    ) -> Result<Transaction<TestnetV0>> {
+        let locator = format!("{program_id}/{function_name}");
+
+        // 1. Prove execution
+        let mut exec_trace = trace;
+        exec_trace.prepare(query).context("Failed to prepare execution trace")?;
+        let execution = exec_trace
+            .prove_execution::<AleoTestnetV0, _>(&locator, varuna_version, rng)
+            .context("Failed to generate execution proof")?;
+
+        // 2. Build execution_stacks for verification
+        let mut execution_stacks: IndexMap<ProgramID<TestnetV0>, Arc<Stack<TestnetV0>>> =
+            IndexMap::new();
+        let guard = self.process.lock();
+        for transition in execution.transitions() {
+            let pid = *transition.program_id();
+            if !execution_stacks.contains_key(&pid) {
+                let stack = guard.get_stack(pid).context("Missing stack for verification")?;
+                execution_stacks.insert(pid, stack.clone());
+            }
+        }
+        drop(guard);
+
+        // 3. Local verification with the same consensus_version the chain uses
+        Process::<TestnetV0>::verify_execution(
+            consensus_version,
+            varuna_version,
+            InclusionVersion::V1,
+            &execution,
+            &execution_stacks,
+        )
+        .context("Local execution verification FAILED")?;
+
+        Transaction::<TestnetV0>::from_execution(execution, None)
             .context("Failed to package transaction")
     }
 

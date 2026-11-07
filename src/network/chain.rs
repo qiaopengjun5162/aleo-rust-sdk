@@ -13,7 +13,7 @@
 //! are returned as strings, and a body that is not a JSON string is an error —
 //! an id that was never fetched must not look like one that was.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
 use super::AleoHttpClient;
@@ -229,5 +229,22 @@ impl AleoHttpClient {
                 crate::hosted::truncate(&text)
             )
         })
+    }
+
+    /// Check that `address`'s public balance covers `fee_amount_microcredits` —
+    /// the JS `ProgramManager.checkFee()`.
+    ///
+    /// An account with no `credits.aleo/account` entry counts as a zero
+    /// balance (that is what [`fetch_public_balance`](Self::fetch_public_balance)
+    /// reports), so a fresh account can only pass a zero fee.
+    pub async fn check_fee(&self, address: &str, fee_amount_microcredits: u64) -> Result<()> {
+        let balance = self.fetch_public_balance(address).await?;
+        if fee_amount_microcredits > balance {
+            bail!(
+                "The desired execution requires a fee of {fee_amount_microcredits} microcredits, \
+                 but the account paying the fee has {balance} microcredits available."
+            );
+        }
+        Ok(())
     }
 }
