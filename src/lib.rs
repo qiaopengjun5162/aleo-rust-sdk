@@ -21,7 +21,7 @@
 //! | [`execution`] | Authorize, execute, prove, and package transactions |
 //! | [`delegated`] | Delegated proving: hand the proof to Provable's TEE prover |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
-//! | [`record`] | Record discovery, decryption, and coin selection |
+//! | [`record`] | Record discovery (local or hosted), decryption, coin selection |
 //! | [`scanner`] | Record scanning: let Provable's TEE index a view key |
 //! | [`sealance`] | Merkle exclusion proofs for compliant-stablecoin freeze lists |
 //! | [`client`] | High-level `AleoClient` orchestrating the full lifecycle |
@@ -45,6 +45,11 @@
 //! way) with Provable's record scanning service, which indexes once and then
 //! answers queries by `uuid`. Records it returns are still decrypted locally,
 //! so a forged response cannot produce a spendable-looking record.
+//!
+//! [`record::RecordSource`] is the seam between the two: [`record::RecordManager`]
+//! takes either, and everything above it — caching, dedupe, coin selection —
+//! is unchanged. `RecordManager::new` stays the local-only short form;
+//! `RecordManager::with_source` takes a `RecordSource` you built.
 //!
 //! ## Error handling
 //!
