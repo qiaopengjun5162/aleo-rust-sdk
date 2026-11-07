@@ -30,7 +30,10 @@
 //! }
 //! ```
 
-use crate::credits::{CreditsCall, TransferKind, plan_join, plan_split, plan_transfer};
+use crate::credits::{
+    CreditsCall, TransferKind, plan_bond_public, plan_bond_validator, plan_claim_unbond_public,
+    plan_join, plan_set_validator_state, plan_split, plan_transfer, plan_unbond_public,
+};
 use crate::execution::ExecutionEngine;
 use crate::execution::consensus_version_to_varuna;
 use crate::network::{AleoHttpClient, ProvableQuery};
@@ -417,6 +420,120 @@ impl AleoClient {
         let account = self.require_account()?;
         let call = plan_split(split_amount_microcredits, amount_record)?;
         self.run_credits_call(account, &call, PipelineFee::None).await
+    }
+
+    /// Bond credits as a delegator to a validator — the JS
+    /// `ProgramManager.bondPublic()`.
+    ///
+    /// `validator_address` must be a different address than the account: the
+    /// program refuses self-bonding (`bond_public` is the delegator entry;
+    /// bond as a validator with [`Self::bond_validator`]). `withdrawal_address`
+    /// receives the credits on unbond. The function asserts the amount is at
+    /// least 1 credit; committee-level minimums are finalize-time chain rules
+    /// (see [`crate::credits`]).
+    ///
+    /// The fee is `fee_public` with `priority_fee_microcredits` on top.
+    pub async fn bond_public(
+        &self,
+        validator_address: &str,
+        withdrawal_address: &str,
+        amount_microcredits: u64,
+        priority_fee_microcredits: u64,
+    ) -> Result<String> {
+        let account = self.require_account()?;
+        let call = plan_bond_public(validator_address, withdrawal_address, amount_microcredits)?;
+        self.run_credits_call(
+            account,
+            &call,
+            PipelineFee::Public(priority_fee_microcredits),
+        )
+        .await
+    }
+
+    /// Bond credits as a validator (self-bond) with a commission rate —
+    /// the JS `ProgramManager.bondValidator()`, minus one wrong argument.
+    ///
+    /// The account is the validator (the transaction signer); the deployed
+    /// `credits.aleo` takes only `(withdrawal_address, amount, commission)`.
+    /// The JS wrapper prepends a validator address — four inputs for a
+    /// three-input function; see [`crate::credits`] for the divergence.
+    /// `withdrawal_address` must differ from the account. `commission` is the
+    /// validator's take in percent; the program asserts it is at most 100.
+    pub async fn bond_validator(
+        &self,
+        withdrawal_address: &str,
+        amount_microcredits: u64,
+        commission: u8,
+        priority_fee_microcredits: u64,
+    ) -> Result<String> {
+        let account = self.require_account()?;
+        let call = plan_bond_validator(withdrawal_address, amount_microcredits, commission)?;
+        self.run_credits_call(
+            account,
+            &call,
+            PipelineFee::Public(priority_fee_microcredits),
+        )
+        .await
+    }
+
+    /// Unbond staked credits from a validator — the JS
+    /// `ProgramManager.unbondPublic()`.
+    ///
+    /// Shrinks the stake of `staker_address` by `amount_microcredits`; the
+    /// chain enforces what may remain bonded.
+    pub async fn unbond_public(
+        &self,
+        staker_address: &str,
+        amount_microcredits: u64,
+        priority_fee_microcredits: u64,
+    ) -> Result<String> {
+        let account = self.require_account()?;
+        let call = plan_unbond_public(staker_address, amount_microcredits)?;
+        self.run_credits_call(
+            account,
+            &call,
+            PipelineFee::Public(priority_fee_microcredits),
+        )
+        .await
+    }
+
+    /// Claim unbonded credits to a public balance — the JS
+    /// `ProgramManager.claimUnbondPublic()`.
+    ///
+    /// Run after [`Self::unbond_public`] and the unbonding period.
+    pub async fn claim_unbond_public(
+        &self,
+        staker_address: &str,
+        priority_fee_microcredits: u64,
+    ) -> Result<String> {
+        let account = self.require_account()?;
+        let call = plan_claim_unbond_public(staker_address)?;
+        self.run_credits_call(
+            account,
+            &call,
+            PipelineFee::Public(priority_fee_microcredits),
+        )
+        .await
+    }
+
+    /// Open or close the validator to new stakers — the JS
+    /// `ProgramManager.setValidatorState()`.
+    ///
+    /// `validator_state: true` opens the validator to new bonds; `false`
+    /// closes it (existing stakers can still bond and unbond).
+    pub async fn set_validator_state(
+        &self,
+        validator_state: bool,
+        priority_fee_microcredits: u64,
+    ) -> Result<String> {
+        let account = self.require_account()?;
+        let call = plan_set_validator_state(validator_state)?;
+        self.run_credits_call(
+            account,
+            &call,
+            PipelineFee::Public(priority_fee_microcredits),
+        )
+        .await
     }
 
     /// Check that the current account's public balance covers a fee —
