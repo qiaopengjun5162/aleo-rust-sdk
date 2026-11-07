@@ -436,3 +436,117 @@ async fn test_client_execute_local_no_account() {
         "Expected 'No account set' error, got: {err}"
     );
 }
+
+// ── Edge / error branches (offline, mock-only) ──────────────────────────
+
+/// Covers L79-80: ALEO_INSECURE_TLS opt-out warns and disables cert checks.
+///
+/// snarkVM rejects empty-function programs at deploy time, so a genuine
+/// `Deployment` with no functions cannot be produced via `deploy_program`;
+/// that guard (`build_deployment_transaction`) is covered separately only with
+/// a hand-built deployment (real keys) and is intentionally left out of the PR
+/// gate. Here we only confirm the TLS flag branch executes without breaking
+/// client construction.
+#[tokio::test]
+async fn test_client_insecure_tls_branch() {
+    // Only relaxes TLS acceptance; irrelevant for the plaintext mock servers,
+    // so leaving it set does not affect any other test in this file.
+    // `set_var` is `unsafe` since Rust 1.80 (concurrent access unsoundness).
+    unsafe {
+        std::env::set_var("ALEO_INSECURE_TLS", "1");
+    }
+    let client = AleoHttpClient::new_with_rpc("http://example.com", "http://example.com");
+    assert!(
+        client.is_ok(),
+        "client must still build with ALEO_INSECURE_TLS enabled"
+    );
+}
+
+/// Covers L148-149: a JSON-RPC response carrying `error` must bail, not be
+/// mistaken for a result. `fetch_records` routes through `json_rpc`.
+#[tokio::test]
+async fn test_json_rpc_error_bails() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path("/block/height/latest"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("5000"))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32000, "message": "boom"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let res = client.fetch_records("viewkey123").await;
+    assert!(res.is_err());
+    assert!(
+        res.unwrap_err().to_string().contains("JSON-RPC error"),
+        "JSON-RPC error must surface as an error, not a missing result"
+    );
+}
+
+/// Covers L316-320: a mapping value that is not a `u64` must yield `None`
+/// (logged), not panic or coerce to zero.
+#[tokio::test]
+async fn test_fetch_mapping_value_rest_non_u64_is_none() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"/program/.+"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("not_a_number"))
+        .mount(&mock_server)
+        .await;
+
+    let val = client
+        .fetch_mapping_value_rest("credits.aleo", "account", "anykey")
+        .await
+        .unwrap();
+    assert_eq!(val, None);
+}
+
+/// Covers L406-407: `records/all` returning an `error` field must bail.
+#[tokio::test]
+async fn test_fetch_all_records_error_bails() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"message": "bad"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let res = client.fetch_all_records(0, 100, 1, 10).await;
+    assert!(res.is_err());
+    assert!(
+        res.unwrap_err().to_string().contains("records/all error"),
+        "records/all error must surface as an error"
+    );
+}
+
+/// Covers L420-428: `fetch_stablecoin_merkle_tree` parses the freeze list.
+#[tokio::test]
+async fn test_fetch_stablecoin_merkle_tree() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path("/stablecoin/usdcx/merkle-tree"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!(["123", "456"])))
+        .mount(&mock_server)
+        .await;
+
+    let tree = client.fetch_stablecoin_merkle_tree("usdcx").await.unwrap();
+    assert_eq!(tree, vec!["123".to_string(), "456".to_string()]);
+}
