@@ -58,22 +58,25 @@ pub struct AleoClient {
 impl AleoClient {
     /// Create a new client pointing at an Aleo node.
     pub fn new(node_url: &str) -> Result<Self> {
-        let network = AleoHttpClient::new(node_url)?;
-        Ok(Self {
-            network,
-            account: None,
-            program: None,
-        })
+        Ok(Self::with_network(AleoHttpClient::new(node_url)?))
     }
 
     /// Create a client with a custom RPC URL (for testing with wiremock).
     pub fn new_with_rpc(rest_url: &str, rpc_url: &str) -> Result<Self> {
         let network = AleoHttpClient::new_with_rpc(rest_url, rpc_url)?;
-        Ok(Self {
+        Ok(Self::with_network(network))
+    }
+
+    /// Wrap an already-built network client.
+    ///
+    /// Used by [`AleoNetworkOptions::client`](crate::AleoNetworkOptions::client),
+    /// which resolves every endpoint from one configuration.
+    pub fn with_network(network: AleoHttpClient) -> Self {
+        Self {
             network,
             account: None,
             program: None,
-        })
+        }
     }
 
     // ── Account management ──────────────────────────────────────────────

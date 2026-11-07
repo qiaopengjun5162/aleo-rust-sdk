@@ -9,9 +9,7 @@ use snarkvm::prelude::{Network, Program, TestnetV0};
 use std::str::FromStr;
 
 use super::BROWSER_UA;
-
-/// JSON-RPC endpoint for Aleo testnet (used for mapping/records queries).
-const JSON_RPC_URL: &str = "https://testnetbeta.aleorpc.com";
+use crate::options::TESTNET_JSON_RPC_URL;
 
 /// Polling schedule for [`AleoHttpClient::wait_for_confirmation_with`].
 #[derive(Clone, Copy, Debug)]
@@ -57,48 +55,65 @@ pub struct AleoHttpClient {
     inner: reqwest::Client,
 }
 
+/// Build the HTTP client every REST read uses.
+///
+/// Extracted so that [`AleoNetworkOptions`](crate::AleoNetworkOptions) can hand
+/// out the same configuration — TLS and proxy handling below must not be
+/// re-implemented by a second constructor, because the copy that drifts is the
+/// one that keeps signing transactions while quietly skipping verification.
+pub(crate) fn default_http_client() -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .http1_only()
+        .timeout(std::time::Duration::from_secs(120));
+
+    // Certificate verification is ON by default. Behind a corporate TLS
+    // intercepting proxy you can opt out with ALEO_INSECURE_TLS=1 — but
+    // never disable it silently: this client signs and broadcasts
+    // transactions, so a MITM can steal funds.
+    if std::env::var("ALEO_INSECURE_TLS").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    {
+        tracing::warn!("ALEO_INSECURE_TLS is set — TLS certificate verification is DISABLED");
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+
+    // Respect HTTP_PROXY / HTTPS_PROXY env vars (e.g. Clash at 127.0.0.1:7890).
+    // No manual proxy detection needed — reqwest 0.12 respects these by default
+    // when Proxy::system() is used. We set custom() to control exactly.
+    if let Ok(proxy_url) = std::env::var("HTTP_PROXY")
+        .or_else(|_| std::env::var("http_proxy"))
+        .or_else(|_| std::env::var("HTTPS_PROXY"))
+        .or_else(|_| std::env::var("https_proxy"))
+        && let Ok(proxy) =
+            reqwest::Proxy::http(&proxy_url).or_else(|_| reqwest::Proxy::all(&proxy_url))
+    {
+        builder = builder.proxy(proxy);
+    }
+
+    builder.build().context("Failed to build HTTP client")
+}
+
 impl AleoHttpClient {
     /// Create a new client pointing at an Aleo node (default RPC endpoint).
     pub fn new(base_url: &str) -> Result<Self> {
-        Self::new_with_rpc(base_url, JSON_RPC_URL)
+        Self::new_with_rpc(base_url, TESTNET_JSON_RPC_URL)
     }
 
     /// Create a client with a custom RPC URL (useful for testing with wiremock).
     pub fn new_with_rpc(base_url: &str, rpc_url: &str) -> Result<Self> {
-        let mut builder = reqwest::Client::builder()
-            .http1_only()
-            .timeout(std::time::Duration::from_secs(120));
+        Ok(Self::with_http(base_url, rpc_url, default_http_client()?))
+    }
 
-        // Certificate verification is ON by default. Behind a corporate TLS
-        // intercepting proxy you can opt out with ALEO_INSECURE_TLS=1 — but
-        // never disable it silently: this client signs and broadcasts
-        // transactions, so a MITM can steal funds.
-        if std::env::var("ALEO_INSECURE_TLS")
-            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        {
-            tracing::warn!("ALEO_INSECURE_TLS is set — TLS certificate verification is DISABLED");
-            builder = builder.danger_accept_invalid_certs(true);
-        }
-
-        // Respect HTTP_PROXY / HTTPS_PROXY env vars (e.g. Clash at 127.0.0.1:7890).
-        // No manual proxy detection needed — reqwest 0.12 respects these by default
-        // when Proxy::system() is used. We set custom() to control exactly.
-        if let Ok(proxy_url) = std::env::var("HTTP_PROXY")
-            .or_else(|_| std::env::var("http_proxy"))
-            .or_else(|_| std::env::var("HTTPS_PROXY"))
-            .or_else(|_| std::env::var("https_proxy"))
-            && let Ok(proxy) =
-                reqwest::Proxy::http(&proxy_url).or_else(|_| reqwest::Proxy::all(&proxy_url))
-        {
-            builder = builder.proxy(proxy);
-        }
-
-        let inner = builder.build().context("Failed to build HTTP client")?;
-        Ok(Self {
+    /// Create a client around an already-built [`reqwest::Client`].
+    ///
+    /// Lets a caller share one connection pool (and one timeout) with the rest
+    /// of an application instead of keeping a pool per SDK client — see
+    /// [`AleoNetworkOptions::with_http_client`](crate::AleoNetworkOptions::with_http_client).
+    pub fn with_http(base_url: &str, rpc_url: &str, inner: reqwest::Client) -> Self {
+        Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             rpc_url: rpc_url.trim_end_matches('/').to_string(),
             inner,
-        })
+        }
     }
 
     fn headers() -> reqwest::header::HeaderMap {
