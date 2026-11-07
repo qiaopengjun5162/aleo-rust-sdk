@@ -86,9 +86,9 @@ use crate::scanner::{OwnedFilter, OwnedRecord, RecordScanService, StaleRegistrat
 
 /// How far back [`RecordSource::Local`] looks for [`ScanWindow::All`].
 ///
-/// 100_000 blocks is roughly two weeks of testnet. A local scan is O(chain), so
-/// "everything" has to be bounded by something; the hosted source has no such
-/// limit because the service indexed the ledger once.
+/// A local scan is O(chain), so "everything" has to be bounded by something.
+/// This is the depth `RecordManager::scan` has always used; changing it changes
+/// what "full scan" means for every existing caller.
 const DEFAULT_SCAN_BLOCKS: u32 = 100_000;
 
 /// An inclusive block range, as asked for by [`RecordManager::scan_range`].
@@ -143,6 +143,11 @@ pub struct AleoRecord {
     /// The original record ciphertext string (required for spending).
     pub ciphertext: String,
     /// Whether this record has been detected as spent.
+    ///
+    /// Only [`RecordSource::Hosted`] ever sets this to `true`. A local scan
+    /// reports every record as unspent, because a spent record stays in the
+    /// block it was created in — see [`RecordSource::reports_spent`] before
+    /// treating `false` as "safe to spend".
     pub spent: bool,
 }
 
