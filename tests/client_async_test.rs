@@ -623,6 +623,25 @@ async fn test_credits_ops_require_an_account() {
 
     let err = client.split(1, "not-a-record").await.unwrap_err().to_string();
     assert!(err.contains("No account set"), "{err}");
+
+    let err = client
+        .bond_public("aleo1validator", "aleo1withdrawal", 1, 0)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("No account set"), "{err}");
+
+    let err = client.bond_validator("aleo1withdrawal", 1, 0, 0).await.unwrap_err().to_string();
+    assert!(err.contains("No account set"), "{err}");
+
+    let err = client.unbond_public("aleo1staker", 1, 0).await.unwrap_err().to_string();
+    assert!(err.contains("No account set"), "{err}");
+
+    let err = client.claim_unbond_public("aleo1staker", 0).await.unwrap_err().to_string();
+    assert!(err.contains("No account set"), "{err}");
+
+    let err = client.set_validator_state(true, 0).await.unwrap_err().to_string();
+    assert!(err.contains("No account set"), "{err}");
 }
 
 /// The plan layer's validation errors reach the caller unchanged —

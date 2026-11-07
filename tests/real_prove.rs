@@ -434,6 +434,53 @@ fn credits_split_authorized_from_planned_inputs() {
     assert_eq!(response.outputs().len(), 2);
 }
 
+/// Every staking plan against the real `credits.aleo` circuits.
+///
+/// Each planned call is authorized and executed with a fresh keypair; the
+/// circuits parse the planned input strings exactly as they will on chain,
+/// which is what this checks (the state-dependent finalize runs at inclusion,
+/// not here). All five are async functions whose single output is the
+/// finalize future. The address constraints are the program's own:
+/// `bond_public` is delegator-only (validator ≠ caller) and `bond_validator`
+/// self-bonds (withdrawal ≠ signer).
+#[test]
+#[ignore = "slow: five credits circuits, synthesis dominates at ~20s each"]
+fn credits_staking_authorized_from_planned_inputs() {
+    use aleo_rust_sdk::credits::{
+        plan_bond_public, plan_bond_validator, plan_claim_unbond_public, plan_set_validator_state,
+        plan_unbond_public,
+    };
+
+    let mut rng = TestRng::default();
+    let pk: PrivateKey<TestnetV0> = PrivateKey::new(&mut rng).unwrap();
+    let staker = Address::try_from(&ComputeKey::try_from(&pk).unwrap()).unwrap().to_string();
+    let other_pk: PrivateKey<TestnetV0> = PrivateKey::new(&mut rng).unwrap();
+    let other = Address::try_from(&ComputeKey::try_from(&other_pk).unwrap())
+        .unwrap()
+        .to_string();
+
+    let ten_million_credits = 10_000_000_000_000u64;
+    let calls = [
+        // Delegator path: bond_public asserts caller != validator.
+        plan_bond_public(&other, &staker, ten_million_credits).unwrap(),
+        // Validator path: bond_validator asserts signer != withdrawal.
+        plan_bond_validator(&other, ten_million_credits, 25).unwrap(),
+        plan_unbond_public(&staker, 1_000_000).unwrap(),
+        plan_claim_unbond_public(&staker).unwrap(),
+        plan_set_validator_state(true).unwrap(),
+    ];
+
+    let engine = ExecutionEngine::new().unwrap();
+    let program_id = ProgramID::<TestnetV0>::from_str("credits.aleo").unwrap();
+    for call in &calls {
+        let inputs: Vec<&str> = call.inputs.iter().map(String::as_str).collect();
+        let (response, _trace) = engine
+            .authorize_and_execute(&pk, &program_id, call.function, inputs, &mut rng)
+            .unwrap_or_else(|e| panic!("{} failed: {e:#}", call.function));
+        assert_eq!(response.outputs().len(), 1, "{}", call.function);
+    }
+}
+
 /// The fee-less packaging path (`Transaction::from_execution(execution, None)`),
 /// exercised on `hello.aleo` because it proves offline without state paths.
 ///

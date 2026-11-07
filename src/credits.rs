@@ -1,8 +1,9 @@
-//! # credits.aleo value operations — transfers, joins, splits.
+//! # credits.aleo value operations — transfers, joins, splits, staking.
 //!
-//! The "create value transfers" half of the JS SDK's `ProgramManager`: plan the
-//! `credits.aleo` call for a transfer, a record join, or a record split, then
-//! run it through [`AleoClient`](crate::AleoClient)'s prove pipeline.
+//! The "create value transfers and stake credits" half of the JS SDK's
+//! `ProgramManager`: plan the `credits.aleo` call for a transfer, a record
+//! join, a record split, or a staking operation, then run it through
+//! [`AleoClient`](crate::AleoClient)'s prove pipeline.
 //!
 //! ## Units
 //!
@@ -42,6 +43,33 @@
 //! `credits.aleo/split` is also the one call the protocol allows **without a
 //! fee** — the JS `buildSplitTransaction` packages with a `None` fee. Use
 //! [`AleoClient::split`](crate::AleoClient::split), which does exactly that.
+//!
+//! ## Staking (bond / unbond / claim / validator state)
+//!
+//! The staking plans ([`plan_bond_public`], [`plan_bond_validator`],
+//! [`plan_unbond_public`], [`plan_claim_unbond_public`],
+//! [`plan_set_validator_state`]) follow the **deployed `credits.aleo`**
+//! (verified against both the snarkVM 4.12 embedded copy and the testnet
+//! program source) where the JS SDK's `build*Transaction` wrappers in
+//! `sdk/src/program-manager.ts` disagree with it. Divergences:
+//!
+//! * **`bond_validator` takes three inputs, not four.** The program is
+//!   `bond_validator(withdrawal_address, amount, commission)` — the validator
+//!   is the transaction signer. The JS wrapper prepends `validator_address`,
+//!   sending four inputs to a three-input function. This crate follows the
+//!   program.
+//! * **`bond_public` refuses self-bonding** (`assert.neq self.caller
+//!   validator`). The JS docstring says passing your own address "bonds as a
+//!   validator" — that is `bond_validator`'s job; `bond_public` is the
+//!   delegator entry only.
+//! * **Minimum amounts and the commission cap live in the program**, not in
+//!   either SDK: `bond_public`/`bond_validator` assert ≥ 1 credit in the
+//!   function body, and `bond_validator` asserts `commission ≤ 100` there too
+//!   (the JS docs' "an error will be thrown" is right — the circuit throws).
+//!   Committee-level minimums (validator vs delegator stake floors) are
+//!   finalize-time chain rules; the JS comments contradict each other on the
+//!   numbers (10M vs 1M validator, 10 vs 10,000 delegator) and neither SDK
+//!   enforces them.
 
 use anyhow::{Result, bail};
 use snarkvm::prelude::FromStr;
@@ -222,6 +250,94 @@ pub fn plan_split(split_amount_microcredits: u64, amount_record: &str) -> Result
     Ok(CreditsCall {
         function: "split",
         inputs: vec![record.to_string(), format!("{split_amount_microcredits}u64")],
+    })
+}
+
+/// Plan a bond as a delegator to a validator — the JS
+/// `buildBondPublicTransaction`'s intent, minus proving.
+///
+/// This is the **delegator** entry: `validator_address` must be a different
+/// address than the caller (the program asserts `self.caller != validator`).
+/// To bond as a validator oneself, use [`plan_bond_validator`].
+/// `withdrawal_address` receives the credits when they are later unbonded.
+/// The function asserts the amount is at least 1 credit; committee-level
+/// minimums are finalize-time chain rules (see the module notes).
+pub fn plan_bond_public(
+    validator_address: &str,
+    withdrawal_address: &str,
+    amount_microcredits: u64,
+) -> Result<CreditsCall> {
+    Ok(CreditsCall {
+        function: "bond_public",
+        inputs: vec![
+            validator_address.to_string(),
+            withdrawal_address.to_string(),
+            format!("{amount_microcredits}u64"),
+        ],
+    })
+}
+
+/// Plan a bond as a validator (self-bond) with a commission rate — the JS
+/// `buildBondValidatorTransaction`, minus proving and minus one wrong
+/// argument.
+///
+/// The deployed `credits.aleo` is
+/// `bond_validator(withdrawal_address, amount, commission)`: the validator is
+/// the transaction **signer**, so there is no validator-address input. The JS
+/// wrapper sends one (`[validator_address, withdrawal_address, amount,
+/// commission]`, four inputs for a three-input function) — see the module
+/// notes. `withdrawal_address` must differ from the signer (the program
+/// asserts it). `commission` is the validator's take in percent; the program
+/// asserts it is at most 100.
+pub fn plan_bond_validator(
+    withdrawal_address: &str,
+    amount_microcredits: u64,
+    commission: u8,
+) -> Result<CreditsCall> {
+    Ok(CreditsCall {
+        function: "bond_validator",
+        inputs: vec![
+            withdrawal_address.to_string(),
+            format!("{amount_microcredits}u64"),
+            format!("{commission}u8"),
+        ],
+    })
+}
+
+/// Plan an unbond of staked credits — the JS `buildUnbondPublicTransaction`,
+/// minus proving.
+///
+/// `staker_address` is the address whose stake shrinks; `amount_microcredits`
+/// unbonds part of the stake (the chain enforces what may remain).
+pub fn plan_unbond_public(staker_address: &str, amount_microcredits: u64) -> Result<CreditsCall> {
+    Ok(CreditsCall {
+        function: "unbond_public",
+        inputs: vec![staker_address.to_string(), format!("{amount_microcredits}u64")],
+    })
+}
+
+/// Plan a claim of unbonded credits — the JS
+/// `buildClaimUnbondPublicTransaction`, minus proving.
+///
+/// After [`plan_unbond_public`], the credits wait out the unbonding period and
+/// are then claimed to `staker_address`'s public balance.
+pub fn plan_claim_unbond_public(staker_address: &str) -> Result<CreditsCall> {
+    Ok(CreditsCall {
+        function: "claim_unbond_public",
+        inputs: vec![staker_address.to_string()],
+    })
+}
+
+/// Plan opening or closing a validator to new stakers — the JS
+/// `buildSetValidatorStateTransaction`, minus proving.
+///
+/// `validator_state: true` opens the validator to new bonds, `false` closes it
+/// (existing stakers can still bond and unbond). Formatted as the boolean
+/// literal `true`/`false`, exactly the input the wasm layer builds.
+pub fn plan_set_validator_state(validator_state: bool) -> Result<CreditsCall> {
+    Ok(CreditsCall {
+        function: "set_validator_state",
+        inputs: vec![validator_state.to_string()],
     })
 }
 
@@ -447,6 +563,64 @@ mod tests {
             "{err}"
         );
         plan_split(10_000_000, &raw).unwrap();
+    }
+
+    #[test]
+    fn bond_public_formats_three_inputs_in_js_order() {
+        let call =
+            plan_bond_public("aleo1validator", "aleo1withdrawal", 10_000_000_000_000).unwrap();
+        assert_eq!(call.function, "bond_public");
+        assert_eq!(
+            call.inputs,
+            vec![
+                "aleo1validator".to_string(),
+                "aleo1withdrawal".to_string(),
+                "10000000000000u64".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn bond_validator_carries_only_withdrawal_amount_and_commission() {
+        // The validator is the signer; the deployed credits.aleo has three
+        // inputs, while the JS wrapper wrongly prepends the validator address.
+        let call = plan_bond_validator("aleo1withdrawal", 2_000_000, 25).unwrap();
+        assert_eq!(call.function, "bond_validator");
+        assert_eq!(
+            call.inputs,
+            vec!["aleo1withdrawal".to_string(), "2000000u64".to_string(), "25u8".to_string(),]
+        );
+
+        // The 0–100 cap is asserted by the program circuit (gt r2 100u8);
+        // the plan layer formats whatever u8 it is given.
+        assert_eq!(plan_bond_validator("w", 1, 0).unwrap().inputs[2], "0u8");
+        assert_eq!(plan_bond_validator("w", 1, 100).unwrap().inputs[2], "100u8");
+    }
+
+    #[test]
+    fn unbond_public_scales_the_amount_like_every_other_amount() {
+        let call = plan_unbond_public("aleo1staker", 4_000_000).unwrap();
+        assert_eq!(call.function, "unbond_public");
+        assert_eq!(
+            call.inputs,
+            vec!["aleo1staker".to_string(), "4000000u64".to_string()]
+        );
+    }
+
+    #[test]
+    fn claim_unbond_public_carries_only_the_staker_address() {
+        let call = plan_claim_unbond_public("aleo1staker").unwrap();
+        assert_eq!(call.function, "claim_unbond_public");
+        assert_eq!(call.inputs, vec!["aleo1staker".to_string()]);
+    }
+
+    #[test]
+    fn set_validator_state_formats_the_boolean_literal() {
+        let open = plan_set_validator_state(true).unwrap();
+        assert_eq!(open.function, "set_validator_state");
+        assert_eq!(open.inputs, vec!["true".to_string()]);
+        let closed = plan_set_validator_state(false).unwrap();
+        assert_eq!(closed.inputs, vec!["false".to_string()]);
     }
 
     #[test]

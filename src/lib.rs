@@ -19,7 +19,7 @@
 //! | [`account`] | Key chain, encrypted-key storage, signing, per-record view keys |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions |
-//! | [`credits`] | credits.aleo value operations: transfers, joins, splits |
+//! | [`credits`] | credits.aleo value operations: transfers, joins, splits, staking |
 //! | [`delegated`] | Delegated proving: hand the proof to Provable's TEE prover |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
 //! | [`record`] | Record discovery (local or hosted), decryption, coin selection |
