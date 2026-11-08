@@ -20,12 +20,12 @@ use indexmap::IndexMap;
 use snarkvm::algorithms::snark::varuna::VarunaVersion;
 use snarkvm::circuit::AleoTestnetV0;
 use snarkvm::console::program::{
-    Identifier, ProgramID, ProgramOwner, RegisterType, Value, ValueType,
+    Identifier, Plaintext, ProgramID, ProgramOwner, Record, RegisterType, Value, ValueType,
 };
-use snarkvm::ledger::block::{Deployment, Transaction};
+use snarkvm::ledger::block::{Deployment, Execution, Transaction};
 use snarkvm::prelude::{
-    Address, Authorization, ComputeKey, ConsensusVersion, CryptoRng, InclusionVersion, PrivateKey,
-    Process, Program, Response, Rng, TestRng, TestnetV0,
+    Address, Authorization, ComputeKey, ConsensusVersion, CryptoRng, Field, InclusionVersion,
+    PrivateKey, Process, Program, Response, Rng, TestRng, TestnetV0,
 };
 use snarkvm::synthesizer::process::{
     Stack, Trace, deployment_cost, execution_cost, execution_cost_for_authorization,
@@ -305,46 +305,50 @@ impl ExecutionEngine {
     /// the given `consensus_version`, instead of expecting a hardcoded value.
     /// This fixes broadcast failures that occur when the consensus version advances
     /// (e.g. V14→V20 changed the minimum cost from 100_000 to 2_725).
+    /// Prove an execution trace and compute its dynamic base fee.
+    ///
+    /// Shared by the public and private fee packagers — the only part that
+    /// differs between them is how the fee authorization is built. Returns the
+    /// proven `Execution` plus the fee inputs the authorization needs.
     #[allow(clippy::too_many_arguments)]
-    pub fn prove_and_package(
+    fn prepare_proven_execution(
         &self,
         trace: Trace<TestnetV0>,
-        private_key: &PrivateKey<TestnetV0>,
         program_id: &ProgramID<TestnetV0>,
         function_name: &str,
-        priority_fee: u64,
         consensus_version: ConsensusVersion,
         varuna_version: VarunaVersion,
         query: &impl QueryTrait<TestnetV0>,
         rng: &mut TestRng,
-    ) -> Result<Transaction<TestnetV0>> {
+    ) -> Result<(Execution<TestnetV0>, u64, Field<TestnetV0>)> {
         let locator = format!("{program_id}/{function_name}");
-
-        // 1. Prove execution
         let mut exec_trace = trace;
         exec_trace.prepare(query).context("Failed to prepare execution trace")?;
         let execution = exec_trace
             .prove_execution::<AleoTestnetV0, _>(&locator, varuna_version, rng)
             .context("Failed to generate execution proof")?;
-
-        // 2. Dynamically compute the correct base_fee
         let execution_id = execution.to_execution_id()?;
         let (minimum_cost, _) = execution_cost(&self.process, &execution, consensus_version)?;
-        tracing::info!(
-            "Dynamic fee: minimum_cost={minimum_cost} (hardcoded was 100_000), priority_fee={priority_fee}"
-        );
+        Ok((execution, minimum_cost, execution_id))
+    }
 
-        // 3. Fee authorization with dynamically computed base_fee
-        let fee_authorization = self
-            .process
-            .authorize_fee_public::<AleoTestnetV0, _>(
-                private_key,
-                minimum_cost,
-                priority_fee,
-                execution_id,
-                rng,
-            )
-            .context("Failed to authorize fee")?;
+    /// Prove the fee transition for an already-proven execution, verify both
+    /// proofs locally, and package them into a `Transaction`.
+    ///
+    /// Shared by [`prove_and_package`](Self::prove_and_package) and
+    /// [`prove_and_package_with_private_fee`](Self::prove_and_package_with_private_fee) —
+    /// the two only differ in how the fee authorization is built.
+    #[allow(clippy::too_many_arguments)]
+    fn prove_fee_and_package(
+        &self,
+        execution: Execution<TestnetV0>,
+        fee_authorization: Authorization<TestnetV0>,
+        consensus_version: ConsensusVersion,
+        varuna_version: VarunaVersion,
+        query: &impl QueryTrait<TestnetV0>,
+        rng: &mut TestRng,
+    ) -> Result<Transaction<TestnetV0>> {
+        let execution_id = execution.to_execution_id()?;
 
         let (_fee_response, mut fee_trace) = self
             .process
@@ -356,7 +360,7 @@ impl ExecutionEngine {
             .prove_fee::<AleoTestnetV0, _>(varuna_version, rng)
             .context("Failed to generate fee proof")?;
 
-        // 4. Build execution_stacks for verification
+        // Build execution_stacks for verification
         let mut execution_stacks: IndexMap<ProgramID<TestnetV0>, Arc<Stack<TestnetV0>>> =
             IndexMap::new();
         let guard = self.process.lock();
@@ -369,7 +373,7 @@ impl ExecutionEngine {
         }
         drop(guard);
 
-        // 5. Local verification with the same consensus_version the chain uses
+        // Local verification with the same consensus_version the chain uses
         tracing::info!("Verifying proofs locally (consensus={consensus_version:?})...");
         Process::<TestnetV0>::verify_execution(
             consensus_version,
@@ -393,6 +397,59 @@ impl ExecutionEngine {
 
         Transaction::<TestnetV0>::from_execution(execution, Some(fee))
             .context("Failed to package transaction")
+    }
+
+    /// Prove execution + fee, verify, package into `Transaction`.
+    ///
+    /// Dynamically computes the correct `base_fee` via `execution_cost()` using
+    /// the given `consensus_version`, instead of expecting a hardcoded value.
+    /// This fixes broadcast failures that occur when the consensus version advances
+    /// (e.g. V14→V20 changed the minimum cost from 100_000 to 2_725).
+    #[allow(clippy::too_many_arguments)]
+    pub fn prove_and_package(
+        &self,
+        trace: Trace<TestnetV0>,
+        private_key: &PrivateKey<TestnetV0>,
+        program_id: &ProgramID<TestnetV0>,
+        function_name: &str,
+        priority_fee: u64,
+        consensus_version: ConsensusVersion,
+        varuna_version: VarunaVersion,
+        query: &impl QueryTrait<TestnetV0>,
+        rng: &mut TestRng,
+    ) -> Result<Transaction<TestnetV0>> {
+        let (execution, minimum_cost, execution_id) = self.prepare_proven_execution(
+            trace,
+            program_id,
+            function_name,
+            consensus_version,
+            varuna_version,
+            query,
+            rng,
+        )?;
+        tracing::info!(
+            "Dynamic fee: minimum_cost={minimum_cost} (hardcoded was 100_000), priority_fee={priority_fee}"
+        );
+
+        let fee_authorization = self
+            .process
+            .authorize_fee_public::<AleoTestnetV0, _>(
+                private_key,
+                minimum_cost,
+                priority_fee,
+                execution_id,
+                rng,
+            )
+            .context("Failed to authorize fee")?;
+
+        self.prove_fee_and_package(
+            execution,
+            fee_authorization,
+            consensus_version,
+            varuna_version,
+            query,
+            rng,
+        )
     }
 
     /// Prove execution and package a transaction **without a fee**.
@@ -449,6 +506,66 @@ impl ExecutionEngine {
             .context("Failed to package transaction")
     }
 
+    /// Prove execution + **private** fee, verify, package into `Transaction`.
+    ///
+    /// Identical to [`prove_and_package`](Self::prove_and_package) except the
+    /// fee transition spends `record` (a plaintext `credits.aleo` record
+    /// literal owned by `private_key`) rather than drawing from the public
+    /// balance. Use this when the caller wants the fee to be paid privately —
+    /// the JS SDK's `privateFee` path. The record must cover the dynamically
+    /// computed `base_fee` plus `priority_fee` in microcredits.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prove_and_package_with_private_fee(
+        &self,
+        trace: Trace<TestnetV0>,
+        private_key: &PrivateKey<TestnetV0>,
+        program_id: &ProgramID<TestnetV0>,
+        function_name: &str,
+        record: &str,
+        priority_fee: u64,
+        consensus_version: ConsensusVersion,
+        varuna_version: VarunaVersion,
+        query: &impl QueryTrait<TestnetV0>,
+        rng: &mut TestRng,
+    ) -> Result<Transaction<TestnetV0>> {
+        let (execution, minimum_cost, execution_id) = self.prepare_proven_execution(
+            trace,
+            program_id,
+            function_name,
+            consensus_version,
+            varuna_version,
+            query,
+            rng,
+        )?;
+        tracing::info!(
+            "Dynamic fee (private): minimum_cost={minimum_cost}, priority_fee={priority_fee}"
+        );
+
+        // Private fee authorization: spend `record` instead of public balance.
+        let credits_record: Record<TestnetV0, Plaintext<TestnetV0>> = Record::from_str(record)
+            .context("Failed to parse the fee record as a plaintext credits record")?;
+        let fee_authorization = self
+            .process
+            .authorize_fee_private::<AleoTestnetV0, _>(
+                private_key,
+                credits_record,
+                minimum_cost,
+                priority_fee,
+                execution_id,
+                rng,
+            )
+            .context("Failed to authorize private fee")?;
+
+        self.prove_fee_and_package(
+            execution,
+            fee_authorization,
+            consensus_version,
+            varuna_version,
+            query,
+            rng,
+        )
+    }
+
     /// Authorize a **public fee** against an existing authorization.
     ///
     /// Delegated proving needs the fee authorization *before* the proof exists,
@@ -481,6 +598,44 @@ impl ExecutionEngine {
                 rng,
             )
             .context("Failed to authorize fee")
+    }
+
+    /// Authorize a **private fee** against an existing authorization.
+    ///
+    /// This is the private-record counterpart of
+    /// [`authorize_fee_public_authorization`](Self::authorize_fee_public_authorization):
+    /// instead of drawing the fee from the caller's public `credits.aleo`
+    /// balance, the fee transition spends `record` — a plaintext
+    /// `credits.aleo` record literal owned by `private_key`. The record must
+    /// hold at least `base_fee + priority_fee` microcredits or the chain
+    /// rejects the transaction.
+    ///
+    /// Only the authorize step runs here — no proving — so this is cheap and
+    /// fully offline. The resulting authorization is the fee half of
+    /// [`prove_and_package_with_private_fee`](Self::prove_and_package_with_private_fee).
+    pub fn authorize_fee_private_authorization(
+        &self,
+        private_key: &PrivateKey<TestnetV0>,
+        record: &str,
+        base_fee: u64,
+        priority_fee: u64,
+        authorization: &Authorization<TestnetV0>,
+        rng: &mut TestRng,
+    ) -> Result<Authorization<TestnetV0>> {
+        let credits_record: Record<TestnetV0, Plaintext<TestnetV0>> = Record::from_str(record)
+            .context("Failed to parse the fee record as a plaintext credits record")?;
+        let execution_id =
+            authorization.to_execution_id().context("Failed to derive execution ID")?;
+        self.process
+            .authorize_fee_private::<AleoTestnetV0, _>(
+                private_key,
+                credits_record,
+                base_fee,
+                priority_fee,
+                execution_id,
+                rng,
+            )
+            .context("Failed to authorize private fee")
     }
 
     /// Reference to the inner `Process`.

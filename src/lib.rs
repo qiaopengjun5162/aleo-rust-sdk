@@ -145,7 +145,7 @@ pub mod version;
 
 // Re-export the main types at the crate root for convenience
 pub use account::{AleoAccount, RecordPlaintext};
-pub use client::AleoClient;
+pub use client::{AleoClient, PipelineFee};
 pub use credits::{CreditsCall, TransferKind};
 pub use delegated::{ApiAuth, DelegatedProver, ProvingRequest, ProvingResponse};
 pub use execution::{ExecutionEngine, consensus_version_to_varuna};

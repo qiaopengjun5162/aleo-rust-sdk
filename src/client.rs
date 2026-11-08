@@ -53,9 +53,22 @@ enum PipelineInputs<'a> {
 }
 
 /// How the prove pipeline pays for the transaction.
-enum PipelineFee {
+///
+/// Public by design: [`AleoClient::execute_credits`] lets callers pass an
+/// explicit fee choice, including paying from a private record.
+#[derive(Debug, Clone)]
+pub enum PipelineFee {
     /// `credits.aleo/fee_public` with this priority fee, in microcredits.
     Public(u64),
+    /// Pay the fee from a plaintext `credits.aleo` record literal (owned by
+    /// the account), with this priority fee on top — the JS `privateFee` path.
+    Private {
+        /// A plaintext `credits.aleo` record literal, e.g.
+        /// `{ owner: aleo1…private, microcredits: 1000000u64.private, _nonce: 0group.public }`.
+        record: String,
+        /// Priority fee, in microcredits, paid on top of the dynamic base fee.
+        priority_fee: u64,
+    },
     /// No fee at all. Only `credits.aleo/split` may do this — see
     /// [`ExecutionEngine::prove_and_package_feeless`].
     None,
@@ -234,6 +247,21 @@ impl AleoClient {
                 &query,
                 &mut rng,
             ),
+            PipelineFee::Private {
+                record,
+                priority_fee,
+            } => engine.prove_and_package_with_private_fee(
+                trace,
+                private_key,
+                program_id,
+                function_name,
+                &record,
+                priority_fee,
+                consensus_version,
+                varuna_version,
+                &query,
+                &mut rng,
+            ),
             PipelineFee::None => engine.prove_and_package_feeless(
                 trace,
                 program_id,
@@ -267,6 +295,35 @@ impl AleoClient {
             .await?;
         let raw = self.network.broadcast_transaction(serde_json::to_string(&tx)?).await?;
         Ok(raw.trim_matches('"').to_string())
+    }
+
+    /// Run a planned `credits.aleo` call with an explicit fee choice and broadcast it.
+    ///
+    /// This is the flexible entry point behind the convenience methods
+    /// (`transfer`, `bond_public`, …), exposed so callers can pick how the fee
+    /// is paid. Use [`PipelineFee::Private`] to pay from a record instead of
+    /// the public balance — the JS `privateFee` path:
+    ///
+    /// ```no_run
+    /// use aleo_rust_sdk::{AleoClient, PipelineFee, credits::{plan_transfer, TransferKind}};
+    ///
+    /// # async fn run() -> anyhow::Result<()> {
+    /// let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
+    /// client.set_account_from_private_key_str("APrivateKey1...")?;
+    /// let call = plan_transfer(TransferKind::Public, 1_000_000, "aleo1recipient", None)?;
+    /// let fee = PipelineFee::Private {
+    ///     record: "{ owner: aleo1…private, microcredits: 5000000u64.private, _nonce: 0group.public }".into(),
+    ///     priority_fee: 0,
+    /// };
+    /// let tx_id = client.execute_credits(&call, fee).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Returns the transaction ID.
+    pub async fn execute_credits(&self, call: &CreditsCall, fee: PipelineFee) -> Result<String> {
+        let account = self.require_account()?;
+        self.run_credits_call(account, call, fee).await
     }
 
     /// Full pipeline: authorize → execute → prove → return Transaction JSON (no broadcast).

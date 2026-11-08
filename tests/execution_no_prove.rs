@@ -13,7 +13,8 @@
 
 use aleo_rust_sdk::{AleoClient, AleoProgram, ExecutionEngine, consensus_version_to_varuna};
 use snarkvm::prelude::{
-    ConsensusVersion, FromStr as _, PrivateKey, Program, ProgramID, TestRng, TestnetV0, Value,
+    Address, Authorization, ConsensusVersion, FromStr as _, PrivateKey, Program, ProgramID,
+    TestRng, TestnetV0, Value,
 };
 use snarkvm::synthesizer::program::StackTrait;
 
@@ -392,4 +393,86 @@ fn test_client_fee_estimation_wrappers() {
         .authorize(&pk, program.id(), "hello", vec!["1u32", "2u32"], &mut rng)
         .unwrap();
     assert!(client.estimate_fee_for_authorization(&auth, HELLO_SRC).unwrap() > 0);
+}
+
+// ── Private / public fee authorization (JS `privateFee` / `fee_public`) ──
+
+/// Build a syntactically valid plaintext `credits.aleo` record literal owned
+/// by `owner`. Offline-only: the nonce is `g^randomizer` (the only shape a
+/// record commitment accepts) and the owner is the address, so this is a
+/// self-consistent record — but it is not spendable on chain without real
+/// credits behind it.
+fn plaintext_credits_record(owner: Address<TestnetV0>, microcredits: u64) -> String {
+    use indexmap::IndexMap;
+    use snarkvm::console::program::{Entry, Identifier, Literal, Owner, Plaintext, Record, U8};
+    use snarkvm::prelude::{Network, Scalar};
+    use snarkvm::utilities::rand::Uniform;
+
+    let mut rng = TestRng::default();
+    let randomizer = Scalar::<TestnetV0>::rand(&mut rng);
+    let nonce = TestnetV0::g_scalar_multiply(&randomizer);
+    let owner_p = Owner::Private(Plaintext::from(Literal::Address(owner)));
+    let mut data = IndexMap::new();
+    data.insert(
+        Identifier::from_str("microcredits").unwrap(),
+        Entry::Private(Plaintext::from_str(&format!("{microcredits}u64")).unwrap()),
+    );
+    let record =
+        Record::<TestnetV0, Plaintext<TestnetV0>>::from_plaintext(owner_p, data, nonce, U8::new(0))
+            .unwrap();
+    record.to_string()
+}
+
+/// An execution authorization to derive a fee execution ID from.
+fn hello_authorization(engine: &ExecutionEngine) -> Authorization<TestnetV0> {
+    let program = Program::<TestnetV0>::from_str(HELLO_SRC).unwrap();
+    engine.add_program(&program).unwrap();
+    let mut rng = TestRng::default();
+    let pk = PrivateKey::new(&mut rng).unwrap();
+    engine
+        .authorize(&pk, program.id(), "hello", vec!["1u32", "2u32"], &mut rng)
+        .unwrap()
+}
+
+#[test]
+fn authorize_fee_public_authorization_builds_a_single_transition() {
+    let engine = ExecutionEngine::new().unwrap();
+    let mut rng = TestRng::default();
+    let pk = PrivateKey::new(&mut rng).unwrap();
+    let auth = hello_authorization(&engine);
+
+    let fee_auth = engine
+        .authorize_fee_public_authorization(&pk, 1_000_000, 0, &auth, &mut rng)
+        .unwrap();
+    assert_eq!(fee_auth.transitions().len(), 1);
+}
+
+#[test]
+fn authorize_fee_private_authorization_spends_the_record() {
+    let engine = ExecutionEngine::new().unwrap();
+    let mut rng = TestRng::default();
+    let pk = PrivateKey::new(&mut rng).unwrap();
+    let address = Address::try_from(snarkvm::prelude::ComputeKey::try_from(&pk).unwrap()).unwrap();
+    let auth = hello_authorization(&engine);
+
+    let record = plaintext_credits_record(address, 5_000_000);
+
+    let fee_auth = engine
+        .authorize_fee_private_authorization(&pk, &record, 1_000_000, 0, &auth, &mut rng)
+        .unwrap();
+    assert_eq!(fee_auth.transitions().len(), 1);
+}
+
+#[test]
+fn authorize_fee_private_rejects_a_malformed_record_with_its_reason() {
+    let engine = ExecutionEngine::new().unwrap();
+    let mut rng = TestRng::default();
+    let pk = PrivateKey::new(&mut rng).unwrap();
+    let auth = hello_authorization(&engine);
+
+    let err = engine
+        .authorize_fee_private_authorization(&pk, "not a record", 1_000_000, 0, &auth, &mut rng)
+        .unwrap_err()
+        .to_string();
+    assert!(!err.is_empty(), "{err}");
 }
