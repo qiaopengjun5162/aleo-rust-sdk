@@ -148,7 +148,7 @@ pub use account::{AleoAccount, RecordPlaintext};
 pub use client::{AleoClient, PipelineFee};
 pub use credits::{CreditsCall, TransferKind};
 pub use delegated::{ApiAuth, DelegatedProver, ProvingRequest, ProvingResponse};
-pub use execution::{ExecutionEngine, consensus_version_to_varuna};
+pub use execution::{DeploymentKind, ExecutionEngine, consensus_version_to_varuna};
 pub use network::{AleoHttpClient, ConfirmationPoll, FixedStateRootQuery, ProvableQuery};
 pub use options::AleoNetworkOptions;
 pub use program::AleoProgram;

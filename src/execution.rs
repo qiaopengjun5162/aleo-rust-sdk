@@ -60,6 +60,20 @@ pub fn consensus_version_to_varuna(cv: ConsensusVersion) -> VarunaVersion {
     varuna_version_from_consensus(cv)
 }
 
+/// Whether a deployment publishes a new program or upgrades an existing one.
+///
+/// The on-wire difference is the program `edition`: a fresh deployment must
+/// carry edition 0, while an upgrade carries `on_chain_edition + 1`. snarkVM
+/// computes the latter when the currently deployed source was loaded first
+/// with [`ExecutionEngine::add_program_with_edition`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeploymentKind {
+    /// First deployment of a program; the edition is reset to 0.
+    Fresh,
+    /// Upgrade of an already deployed program; the edition is preserved.
+    Upgrade,
+}
+
 /// Execution engine wrapping a snarkVM `Process`.
 pub struct ExecutionEngine {
     pub process: Process<TestnetV0>,
@@ -100,6 +114,42 @@ impl ExecutionEngine {
     pub fn add_program(&self, program: &Program<TestnetV0>) -> Result<()> {
         // `add_program` is on ProcessExclusiveGuard, accessed via lock()
         self.process.lock().add_program(program)?;
+        Ok(())
+    }
+
+    /// Add a program **at a known on-chain edition**.
+    ///
+    /// This is the first half of a program upgrade: the currently deployed
+    /// source is fetched from the node, then loaded at its real edition with
+    /// [`AleoHttpClient::fetch_latest_program_edition`](crate::network::AleoHttpClient::fetch_latest_program_edition).
+    /// A subsequent [`ExecutionEngine::deploy_program`] of the *new* source sees
+    /// that the program already exists and produces a deployment whose edition
+    /// is `edition + 1` (snarkVM `Stack::initialize`), which is what marks the
+    /// deployment as an upgrade rather than a fresh program.
+    ///
+    /// Plain [`ExecutionEngine::add_program`] always starts at edition 0 and is
+    /// therefore wrong for this path.
+    ///
+    /// > **Protocol constraint.** snarkVM 4.12 only accepts *changed* source
+    /// > on the next [`ExecutionEngine::deploy_program`] when the deployed
+    /// > program declares a `constructor` (`Stack::new` →
+    /// > `check_upgrade_is_valid`). Legacy programs without one fail with
+    /// > "already exists with different contents" — that is a chain rule,
+    /// > not something the SDK can bypass.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the program is malformed, its imports are missing,
+    /// or the existing stack fails snarkVM's consistency check.
+    pub fn add_program_with_edition(
+        &self,
+        program: &Program<TestnetV0>,
+        edition: u16,
+    ) -> Result<()> {
+        self.process
+            .lock()
+            .add_program_with_edition(program, edition)
+            .with_context(|| format!("Failed to load {} at edition {edition}", program.id()))?;
         Ok(())
     }
 
@@ -770,6 +820,44 @@ impl ExecutionEngine {
             .context("Failed to generate program deployment")
     }
 
+    /// Fill in the deployment metadata that snarkVM leaves to the caller.
+    ///
+    /// Pure and offline: no proving and no network access. A **fresh**
+    /// deployment must carry edition 0 — the on-chain validator rejects a
+    /// non-zero edition when the program does not exist yet. An **upgrade**
+    /// keeps the edition produced by [`ExecutionEngine::deploy_program`], which
+    /// is `on_chain_edition + 1` when the deployed source was loaded first with
+    /// [`ExecutionEngine::add_program_with_edition`].
+    ///
+    /// Returns a clone; the input is never mutated.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the program has no functions or the private key
+    /// cannot be converted to an address.
+    pub fn prepare_deployment_metadata(
+        deployment: &Deployment<TestnetV0>,
+        private_key: &PrivateKey<TestnetV0>,
+        kind: DeploymentKind,
+    ) -> Result<Deployment<TestnetV0>> {
+        if deployment.program().functions().is_empty() {
+            anyhow::bail!("Attempted to create an empty deployment");
+        }
+
+        let mut deployment = deployment.clone();
+        // `Process::deploy` computes its edition via `Stack::new`: when the
+        // program is already in the process (the usual SDK flow) that is 1 for
+        // a fresh deploy. Reset only for the fresh case — an upgrade must keep
+        // the incremented edition.
+        if kind == DeploymentKind::Fresh {
+            deployment.set_edition_raw(0);
+        }
+        let addr = Address::try_from(private_key)?;
+        deployment.set_program_owner_raw(Some(addr));
+        deployment.set_program_checksum_raw(Some(deployment.program().to_checksum()));
+        Ok(deployment)
+    }
+
     /// Full deployment pipeline: prove program → authorize fee → prove fee →
     /// verify → package into [`Transaction`].
     ///
@@ -791,21 +879,65 @@ impl ExecutionEngine {
         query: &impl QueryTrait<TestnetV0>,
         rng: &mut R,
     ) -> Result<Transaction<TestnetV0>> {
-        // Ensure the program has functions.
-        if deployment.program().functions().is_empty() {
-            anyhow::bail!("Attempted to create an empty deployment");
-        }
+        self.build_deployment_transaction_with_kind(
+            private_key,
+            deployment,
+            base_fee,
+            priority_fee_in_microcredits,
+            consensus_version,
+            query,
+            rng,
+            DeploymentKind::Fresh,
+        )
+    }
 
-        // Compute deployment ID and owner.
-        // NOTE: Process::deploy returns a deployment with edition set by Stack::new(process, program),
-        // which gives a non-zero edition. The on-chain validator checks `deployment.edition() == 0` for
-        // new deployments (non-zero edition → amendment path). Reset it to 0 for a fresh deploy.
-        let mut deployment = deployment.clone();
-        deployment.set_edition_raw(0);
-        let addr = Address::try_from(private_key)?;
-        deployment.set_program_owner_raw(Some(addr));
-        deployment.set_program_checksum_raw(Some(deployment.program().to_checksum()));
+    /// Full **upgrade** pipeline — the Rust counterpart of JS
+    /// `ProgramManager.buildUpgradeTransaction`.
+    ///
+    /// Identical to [`Self::build_deployment_transaction`] except that the
+    /// deployment's non-zero edition is **preserved** instead of reset to 0.
+    /// Before calling, load the currently deployed source with
+    /// [`Self::add_program_with_edition`] (using the node's
+    /// `latest_edition`), then generate the deployment from the *new* source
+    /// with [`Self::deploy_program`]. Skipping that step yields edition 1 and
+    /// the node will reject the upgrade.
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_upgrade_transaction<R: Rng + CryptoRng>(
+        &self,
+        private_key: &PrivateKey<TestnetV0>,
+        _program: &Program<TestnetV0>,
+        deployment: &Deployment<TestnetV0>,
+        base_fee: u64,
+        priority_fee_in_microcredits: u64,
+        consensus_version: ConsensusVersion,
+        query: &impl QueryTrait<TestnetV0>,
+        rng: &mut R,
+    ) -> Result<Transaction<TestnetV0>> {
+        self.build_deployment_transaction_with_kind(
+            private_key,
+            deployment,
+            base_fee,
+            priority_fee_in_microcredits,
+            consensus_version,
+            query,
+            rng,
+            DeploymentKind::Upgrade,
+        )
+    }
 
+    #[allow(clippy::too_many_arguments)]
+    fn build_deployment_transaction_with_kind<R: Rng + CryptoRng>(
+        &self,
+        private_key: &PrivateKey<TestnetV0>,
+        deployment: &Deployment<TestnetV0>,
+        base_fee: u64,
+        priority_fee_in_microcredits: u64,
+        consensus_version: ConsensusVersion,
+        query: &impl QueryTrait<TestnetV0>,
+        rng: &mut R,
+        kind: DeploymentKind,
+    ) -> Result<Transaction<TestnetV0>> {
+        let deployment = Self::prepare_deployment_metadata(deployment, private_key, kind)?;
         let deployment_id = deployment.to_deployment_id()?;
         let owner = ProgramOwner::new(private_key, deployment_id, rng)?;
 
@@ -835,7 +967,7 @@ impl ExecutionEngine {
             .context("Failed to prove fee")?;
 
         // Package into transaction.
-        Transaction::<TestnetV0>::from_deployment(owner, deployment.clone(), fee)
+        Transaction::<TestnetV0>::from_deployment(owner, deployment, fee)
             .context("Failed to package deployment transaction")
     }
 

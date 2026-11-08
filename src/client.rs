@@ -723,6 +723,42 @@ impl AleoClient {
         program_source: &str,
         priority_fee_in_microcredits: u64,
     ) -> Result<String> {
+        self.build_program_transaction(program_source, priority_fee_in_microcredits, false)
+            .await
+    }
+
+    /// Upgrade an **already deployed** program — the Rust counterpart of JS
+    /// `ProgramManager.buildUpgradeTransaction`.
+    ///
+    /// Unlike [`Self::deploy_program`], this first fetches the currently
+    /// deployed source and its `latest_edition` from the node, loads that
+    /// source into the process at the real edition, and then proves the new
+    /// source. The resulting deployment carries edition `latest + 1` and is
+    /// accepted as an upgrade; a fresh [`Self::deploy_program`] would instead
+    /// carry edition 0 and be rejected as "already exists".
+    ///
+    /// > **Protocol constraint.** snarkVM 4.12 only permits changing the
+    /// > source of a program that declares a `constructor`. For legacy
+    /// > programs without one, `deploy_program` fails with "already exists
+    /// > with different contents". See
+    /// > [`ExecutionEngine::add_program_with_edition`].
+    ///
+    /// Returns the transaction ID on success.
+    pub async fn upgrade_program(
+        &self,
+        program_source: &str,
+        priority_fee_in_microcredits: u64,
+    ) -> Result<String> {
+        self.build_program_transaction(program_source, priority_fee_in_microcredits, true)
+            .await
+    }
+
+    async fn build_program_transaction(
+        &self,
+        program_source: &str,
+        priority_fee_in_microcredits: u64,
+        upgrade: bool,
+    ) -> Result<String> {
         let account = self.require_account()?;
         let mut rng = TestRng::default();
 
@@ -732,8 +768,23 @@ impl AleoClient {
 
         // 2. Initialize engine with V0 fee keys
         let engine = ExecutionEngine::new_with_fee_keys()?;
-        // Register the program so its dependencies are available
-        engine.add_program(&program)?;
+        if upgrade {
+            let program_id = program.id().to_string();
+            let deployed = self
+                .network
+                .fetch_program(&program_id)
+                .await
+                .context("Failed to fetch the currently deployed program")?;
+            let edition = self
+                .network
+                .fetch_latest_program_edition(&program_id)
+                .await
+                .context("Failed to fetch the latest program edition")?;
+            engine.add_program_with_edition(&deployed, edition)?;
+        } else {
+            // Register the program so its dependencies are available
+            engine.add_program(&program)?;
+        }
 
         // 3. Generate deployment proof (pure proving, no fee yet)
         let deployment = engine.deploy_program(&program, &mut rng)?;
@@ -749,17 +800,31 @@ impl AleoClient {
         // 5. Build full deployment transaction (prove fee + package)
         let query = ProvableQuery::new(state_root, block_height, &self.network.base_url);
 
-        // 6. Build full deployment transaction (prove fee + package)
-        let tx = engine.build_deployment_transaction(
-            &account.private_key,
-            &program,
-            &deployment,
-            base_fee,
-            priority_fee_in_microcredits,
-            consensus_version,
-            &query,
-            &mut rng,
-        )?;
+        // 6. Build full deployment transaction (prove fee + package). An upgrade
+        //    keeps the non-zero edition; a fresh deploy resets it to 0.
+        let tx = if upgrade {
+            engine.build_upgrade_transaction(
+                &account.private_key,
+                &program,
+                &deployment,
+                base_fee,
+                priority_fee_in_microcredits,
+                consensus_version,
+                &query,
+                &mut rng,
+            )?
+        } else {
+            engine.build_deployment_transaction(
+                &account.private_key,
+                &program,
+                &deployment,
+                base_fee,
+                priority_fee_in_microcredits,
+                consensus_version,
+                &query,
+                &mut rng,
+            )?
+        };
 
         // 7. Serialize and broadcast
         let tx_json = serde_json::to_string(&tx)?;
