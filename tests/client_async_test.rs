@@ -693,3 +693,70 @@ async fn test_client_check_fee() {
     );
     assert!(err.contains("1000000 microcredits available"), "{err}");
 }
+
+// ── upgrade_program (error paths — no real proving) ────────────────────────
+
+const UPGRADE_SOURCE: &str = r"
+program upgrade_target.aleo;
+
+function hello:
+    input r0 as u32.public;
+    output r0 as u32.public;
+";
+
+#[tokio::test]
+async fn test_upgrade_program_no_account() {
+    let mock_server = MockServer::start().await;
+    let client = make_client(&mock_server, &mock_server.uri());
+    let err = client.upgrade_program(UPGRADE_SOURCE, 0).await.unwrap_err();
+    assert!(
+        err.to_string().contains("No account set"),
+        "expected 'No account set', got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn test_upgrade_program_invalid_source() {
+    let mock_server = MockServer::start().await;
+    let mut client = make_client(&mock_server, &mock_server.uri());
+    random_account(&mut client);
+    let err = client.upgrade_program("not valid aleo", 0).await.unwrap_err();
+    assert!(
+        err.to_string().contains("Failed to parse program"),
+        "expected parse error, got: {err}"
+    );
+}
+
+/// The upgrade path needs the *currently deployed* source. An unmocked node
+/// answers 404, so the call fails before any proving or broadcasting.
+#[tokio::test]
+async fn test_upgrade_program_requires_deployed_source() {
+    let mock_server = MockServer::start().await;
+    let mut client = make_client(&mock_server, &mock_server.uri());
+    random_account(&mut client);
+    let err = client.upgrade_program(UPGRADE_SOURCE, 0).await.unwrap_err();
+    assert!(
+        format!("{err:#}").contains("Failed to fetch the currently deployed program"),
+        "expected fetch context, got: {err:#}"
+    );
+}
+
+/// When the deployed source is available but `latest_edition` is not, the
+/// upgrade must fail rather than silently assuming edition 0.
+#[tokio::test]
+async fn test_upgrade_program_requires_latest_edition() {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v2/testnet/program/upgrade_target.aleo"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(UPGRADE_SOURCE))
+        .mount(&mock_server)
+        .await;
+
+    let mut client = make_client(&mock_server, &mock_server.uri());
+    random_account(&mut client);
+    let err = client.upgrade_program(UPGRADE_SOURCE, 0).await.unwrap_err();
+    assert!(
+        format!("{err:#}").contains("Failed to fetch the latest program edition"),
+        "expected edition context, got: {err:#}"
+    );
+}
