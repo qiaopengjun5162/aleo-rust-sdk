@@ -13,8 +13,8 @@
 
 use aleo_rust_sdk::{AleoClient, AleoProgram, ExecutionEngine, consensus_version_to_varuna};
 use snarkvm::prelude::{
-    Address, Authorization, ConsensusVersion, FromStr as _, PrivateKey, Program, ProgramID,
-    TestRng, TestnetV0, Value,
+    Address, Authorization, ConsensusVersion, FromStr as _, Identifier, PrivateKey, Program,
+    ProgramID, TestRng, TestnetV0, Value,
 };
 use snarkvm::synthesizer::program::StackTrait;
 
@@ -583,4 +583,80 @@ async fn build_transaction_from_authorization_requires_an_account() {
         .unwrap_err()
         .to_string();
     assert!(!err.is_empty(), "{err}");
+}
+
+// ── Key synthesis (JS synthesizeKeys / FunctionKeyProvider) ─────────────
+
+/// The only test here that actually builds a circuit (~20 s). Everything else
+/// reuses its engine or takes a fast error path, so we pay that cost once.
+#[test]
+fn synthesize_keys_builds_keys_and_is_idempotent() {
+    let engine = ExecutionEngine::new().unwrap();
+    let program = Program::<TestnetV0>::from_str(HELLO_SRC).unwrap();
+    let mut rng = TestRng::default();
+
+    // First call: program is not loaded yet, so it is added and its circuit is
+    // synthesized from scratch.
+    assert!(!engine.process.contains_program(program.id()));
+    let count = engine.synthesize_keys(&program, &mut rng).unwrap();
+    assert_eq!(count, 1);
+    assert!(engine.process.contains_program(program.id()));
+
+    let stack = engine.process.get_stack(program.id()).unwrap();
+    let hello = Identifier::<TestnetV0>::from_str("hello").unwrap();
+    assert!(stack.contains_proving_key(&hello));
+    assert!(stack.contains_verifying_key(&hello));
+
+    // Second call takes the "already loaded" branch and snarkVM's early
+    // return for present keys — no second circuit build.
+    assert_eq!(engine.synthesize_keys(&program, &mut rng).unwrap(), 1);
+
+    // The single-function entry point resolves a name and hits the same
+    // already-present keys.
+    engine.synthesize_key(program.id(), "hello", &mut rng).unwrap();
+}
+
+#[test]
+fn synthesize_key_rejects_an_invalid_function_name() {
+    let engine = ExecutionEngine::new().unwrap();
+    let credits_id = ProgramID::<TestnetV0>::from_str(CREDITS_ID).unwrap();
+
+    let err = engine
+        .synthesize_key(&credits_id, "not a valid name!", &mut TestRng::default())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Invalid function name"), "{err}");
+}
+
+#[test]
+fn synthesize_key_reports_a_program_that_is_not_loaded() {
+    let engine = ExecutionEngine::new().unwrap();
+    let missing = ProgramID::<TestnetV0>::from_str("not_loaded.aleo").unwrap();
+
+    let err = engine
+        .synthesize_key(&missing, "hello", &mut TestRng::default())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("Failed to synthesize key for not_loaded.aleo/hello"),
+        "{err}"
+    );
+}
+
+#[test]
+fn synthesize_keys_reports_a_program_that_cannot_be_loaded() {
+    let engine = ExecutionEngine::new().unwrap();
+    // An import of a program that does not exist makes add_program fail before
+    // any circuit work is attempted.
+    // Imports come *before* the program declaration in Aleo source.
+    let src = "import missing.aleo;\n\nprogram bad.aleo;\n\nfunction hi:\n    input r0 as u32.public;\n    add r0 r0 into r1;\n    output r1 as u32.private;\n";
+    let program = Program::<TestnetV0>::from_str(src).unwrap();
+
+    let result = engine.synthesize_keys(&program, &mut TestRng::default());
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("Failed to load bad.aleo for key synthesis"),
+        "{err}"
+    );
 }

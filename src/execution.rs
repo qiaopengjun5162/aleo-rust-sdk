@@ -103,6 +103,80 @@ impl ExecutionEngine {
         Ok(())
     }
 
+    /// Synthesize the proving and verifying key for one function.
+    ///
+    /// This is the Rust counterpart of pre-warming a JS `FunctionKeyProvider`:
+    /// the first execution of a function otherwise builds its circuit on
+    /// demand, which is the expensive part of authorizing and proving.
+    ///
+    /// The keys live in **this engine's** [`Process`] only. A fresh
+    /// [`ExecutionEngine::new`] starts with a new process, so it needs its own
+    /// synthesis pass — there is no on-disk key cache here. `rng` is supplied
+    /// by the caller for the same reason it is on the rest of this API: snarkVM
+    /// samples a burner key and input values while constructing the circuit.
+    ///
+    /// Calling this twice is cheap: snarkVM returns `Ok(())` immediately when
+    /// both keys already exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `function_name` is not a valid Aleo identifier, the
+    /// program is not loaded in this process, or circuit synthesis fails.
+    pub fn synthesize_key(
+        &self,
+        program_id: &ProgramID<TestnetV0>,
+        function_name: &str,
+        rng: &mut TestRng,
+    ) -> Result<()> {
+        let fn_id = Identifier::<TestnetV0>::from_str(function_name)
+            .with_context(|| format!("Invalid function name: {function_name}"))?;
+        self.synthesize_key_by_id(program_id, &fn_id, rng)
+    }
+
+    /// Synthesize the keys for **every function** in `program`.
+    ///
+    /// The JS `ProgramManager.synthesizeKeys` equivalent. The program is added
+    /// to the process first if this engine has not seen it yet, so one call can
+    /// pre-warm a program that was never executed here. Returns the number of
+    /// functions processed — already-present keys count, they are not rebuilt.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the program cannot be loaded, or if any function's
+    /// circuit synthesis fails. Keys synthesized before the failure stay in
+    /// this engine's process; the call is not transactional.
+    pub fn synthesize_keys(
+        &self,
+        program: &Program<TestnetV0>,
+        rng: &mut TestRng,
+    ) -> Result<usize> {
+        let program_id = program.id();
+        if !self.process.contains_program(program_id) {
+            self.add_program(program)
+                .with_context(|| format!("Failed to load {program_id} for key synthesis"))?;
+        }
+
+        let mut count = 0;
+        for fn_id in program.functions().keys() {
+            self.synthesize_key_by_id(program_id, fn_id, rng)?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    /// Shared implementation, so both public entry points report the failing
+    /// locator instead of a bare snarkVM error.
+    fn synthesize_key_by_id(
+        &self,
+        program_id: &ProgramID<TestnetV0>,
+        fn_id: &Identifier<TestnetV0>,
+        rng: &mut TestRng,
+    ) -> Result<()> {
+        self.process
+            .synthesize_key::<AleoTestnetV0, _>(program_id, fn_id, rng)
+            .with_context(|| format!("Failed to synthesize key for {program_id}/{fn_id}"))
+    }
+
     /// Authorize and execute locally using pre-parsed snarkVM `Value` inputs.
     /// Use this variant when the caller already built `Value`s — e.g. a record
     /// input wrapped as [`snarkvm::prelude::Value::Record`], which holds a
