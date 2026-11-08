@@ -150,7 +150,10 @@ pub use client::{AleoClient, PipelineFee};
 pub use credits::{CreditsCall, TransferKind};
 pub use delegated::{ApiAuth, DelegatedProver, ProvingRequest, ProvingResponse};
 pub use execution::{DeploymentKind, ExecutionEngine, consensus_version_to_varuna};
-pub use keys::{CreditsFunction, FunctionKeyPair, OfflineKeyProvider};
+pub use keys::{
+    AleoKeyProvider, AleoKeyProviderParams, CreditsFunction, FunctionKeyPair, KeyByteTransport,
+    OfflineKeyProvider, ReqwestKeyTransport,
+};
 pub use network::{AleoHttpClient, ConfirmationPoll, FixedStateRootQuery, ProvableQuery};
 pub use options::AleoNetworkOptions;
 pub use program::AleoProgram;
