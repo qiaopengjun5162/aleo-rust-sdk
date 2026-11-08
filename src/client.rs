@@ -38,10 +38,10 @@ use crate::execution::ExecutionEngine;
 use crate::execution::consensus_version_to_varuna;
 use crate::network::{AleoHttpClient, ProvableQuery};
 use crate::program::AleoProgram;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use snarkvm::console::program::{ProgramID, Value};
 use snarkvm::ledger::block::Transaction;
-use snarkvm::prelude::{Network, PrivateKey, Program, TestRng, TestnetV0};
+use snarkvm::prelude::{Authorization, Network, PrivateKey, Program, TestRng, TestnetV0};
 use std::str::FromStr;
 
 /// Inputs for the prove pipeline.
@@ -50,6 +50,10 @@ enum PipelineInputs<'a> {
     Strings(Vec<&'a str>),
     /// Pre-parsed values, required when inputs contain record ciphertexts.
     Values(Vec<Value<TestnetV0>>),
+    /// An authorization built earlier (possibly on another machine). Skips
+    /// the authorize step entirely — see
+    /// [`AleoClient::build_transaction_from_authorization`].
+    Authorization(Authorization<TestnetV0>),
 }
 
 /// How the prove pipeline pays for the transaction.
@@ -226,6 +230,9 @@ impl AleoClient {
                 values,
                 &mut rng,
             )?,
+            PipelineInputs::Authorization(authorization) => {
+                engine.execute_authorization(authorization, &mut rng)?
+            }
         };
 
         // State root + height decide the consensus version (hence the proving
@@ -349,6 +356,58 @@ impl AleoClient {
             )
             .await?;
 
+        Ok(serde_json::to_string(&tx)?)
+    }
+
+    /// Build a transaction from an authorization created earlier — the JS
+    /// `ProgramManager.buildTransactionFromAuthorization`.
+    ///
+    /// `authorization_json` is the JSON produced by
+    /// `ExecutionEngine::authorize(...).to_string()`. An authorization carries
+    /// its own program/function locator and requests, so it can be created
+    /// offline (even on another machine), persisted, and proved later. This
+    /// method parses it, derives the locator, and runs the usual execute →
+    /// prove → dynamic public fee → verify → package pipeline. The fee is
+    /// paid from the account's public balance; use
+    /// [`execute_credits`](Self::execute_credits) with [`PipelineFee::Private`]
+    /// for the record-paying variant.
+    ///
+    /// Requires an account ([`set_account_from_private_key_str`](Self::set_account_from_private_key_str))
+    /// to sign the fee authorization, and network access to resolve the
+    /// program and the current state root.
+    ///
+    /// ```no_run
+    /// use aleo_rust_sdk::AleoClient;
+    ///
+    /// # async fn run() -> anyhow::Result<()> {
+    /// // Saved earlier from `ExecutionEngine::authorize(...).to_string()`.
+    /// let authorization_json = std::fs::read_to_string("authorization.json")?;
+    /// let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
+    /// client.set_account_from_private_key_str("APrivateKey1...")?;
+    /// let tx_json = client.build_transaction_from_authorization(&authorization_json, 0).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Returns the serialized transaction as a JSON string (not broadcast).
+    pub async fn build_transaction_from_authorization(
+        &self,
+        authorization_json: &str,
+        priority_fee: u64,
+    ) -> Result<String> {
+        let authorization = Authorization::<TestnetV0>::from_str(authorization_json)
+            .context("Failed to parse the authorization JSON")?;
+        let (program_id, function_name) = ExecutionEngine::authorization_locator(&authorization)?;
+        let account = self.require_account()?;
+        let tx = self
+            .prove_pipeline(
+                &account.private_key,
+                &program_id,
+                &function_name,
+                PipelineInputs::Authorization(authorization),
+                PipelineFee::Public(priority_fee),
+            )
+            .await?;
         Ok(serde_json::to_string(&tx)?)
     }
 
@@ -624,7 +683,7 @@ impl AleoClient {
         engine.estimate_execution_fee(&program, function_name)
     }
 
-    /// Price an existing [`Authorization`](snarkvm::prelude::Authorization) —
+    /// Price an existing [`Authorization`] —
     /// the JS `ProgramManager.estimateFeeForAuthorization()`.
     pub fn estimate_fee_for_authorization(
         &self,

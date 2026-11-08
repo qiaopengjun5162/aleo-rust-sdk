@@ -476,3 +476,111 @@ fn authorize_fee_private_rejects_a_malformed_record_with_its_reason() {
         .to_string();
     assert!(!err.is_empty(), "{err}");
 }
+
+// ── Authorization pipeline (JS buildTransactionFromAuthorization) ────────
+
+/// A cheap authorization against the built-in `credits.aleo` program. Unlike
+/// `hello_authorization` this needs no `add_program`, hence no circuit synthesis.
+fn credits_authorization(engine: &ExecutionEngine) -> Authorization<TestnetV0> {
+    let mut rng = TestRng::default();
+    let pk = PrivateKey::new(&mut rng).unwrap();
+    let address: Address<TestnetV0> =
+        Address::try_from(snarkvm::prelude::ComputeKey::try_from(&pk).unwrap()).unwrap();
+    let address = address.to_string();
+    let program_id = ProgramID::<TestnetV0>::from_str(CREDITS_ID).unwrap();
+    engine
+        .authorize(
+            &pk,
+            &program_id,
+            "transfer_public",
+            vec![address.as_str(), "1u64"],
+            &mut rng,
+        )
+        .unwrap()
+}
+
+#[test]
+fn authorization_locator_recovers_the_root_call() {
+    let engine = ExecutionEngine::new().unwrap();
+    let auth = credits_authorization(&engine);
+
+    let (program_id, function_name) = ExecutionEngine::authorization_locator(&auth).unwrap();
+    assert_eq!(program_id.to_string(), CREDITS_ID);
+    assert_eq!(function_name, "transfer_public");
+}
+
+#[test]
+fn authorization_locator_rejects_an_empty_authorization() {
+    let empty =
+        Authorization::<TestnetV0>::from_str(r#"{"requests":[],"transitions":[]}"#).unwrap();
+    let err = ExecutionEngine::authorization_locator(&empty).unwrap_err().to_string();
+    assert!(err.contains("no requests"), "{err}");
+}
+
+#[test]
+fn authorization_survives_a_json_round_trip() {
+    let engine = ExecutionEngine::new().unwrap();
+    let auth = credits_authorization(&engine);
+
+    // `Display` is JSON and `FromStr` parses it back — this is what makes an
+    // authorization persistable / shippable to a proving service.
+    let json = auth.to_string();
+    assert!(json.contains("requests"), "{json}");
+    let restored = Authorization::<TestnetV0>::from_str(&json).unwrap();
+    assert_eq!(restored.len(), auth.len());
+    assert_eq!(
+        restored.to_execution_id().unwrap(),
+        auth.to_execution_id().unwrap()
+    );
+}
+
+#[test]
+fn execute_authorization_runs_an_authorization_built_earlier() {
+    let engine = ExecutionEngine::new().unwrap();
+    let auth = credits_authorization(&engine);
+    let mut rng = TestRng::default();
+
+    let (_response, _trace) = engine.execute_authorization(auth, &mut rng).unwrap();
+    // Reaching here means the saved authorization executed without re-authorizing.
+}
+
+#[test]
+fn execute_authorization_rejects_an_empty_authorization() {
+    let engine = ExecutionEngine::new().unwrap();
+    let empty =
+        Authorization::<TestnetV0>::from_str(r#"{"requests":[],"transitions":[]}"#).unwrap();
+
+    let err = engine
+        .execute_authorization(empty, &mut TestRng::default())
+        .unwrap_err()
+        .to_string();
+    assert!(!err.is_empty(), "{err}");
+}
+
+#[tokio::test]
+async fn build_transaction_from_authorization_rejects_bad_json() {
+    let client = AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+    let err = client
+        .build_transaction_from_authorization("not json", 0)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("Failed to parse the authorization JSON"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn build_transaction_from_authorization_requires_an_account() {
+    let engine = ExecutionEngine::new().unwrap();
+    let auth = credits_authorization(&engine);
+    let client = AleoClient::new("https://api.explorer.provable.com/v2/testnet").unwrap();
+
+    let err = client
+        .build_transaction_from_authorization(&auth.to_string(), 0)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(!err.is_empty(), "{err}");
+}

@@ -152,6 +152,22 @@ impl ExecutionEngine {
             .context("Authorization failed")
     }
 
+    /// Derive the `(program_id, function_name)` locator from an authorization.
+    ///
+    /// An [`Authorization`] carries its own requests, so a caller that saved
+    /// one offline does not need to remember which call produced it. Requests
+    /// are stored in pre-order (parents before children), so the first one is
+    /// the root call — exactly the locator the proving and fee steps need.
+    ///
+    /// This is the Rust counterpart of the JS `ProgramManager` remembering the
+    /// call behind `buildAuthorization`.
+    pub fn authorization_locator(
+        authorization: &Authorization<TestnetV0>,
+    ) -> Result<(ProgramID<TestnetV0>, String)> {
+        let request = authorization.peek_next().context("Authorization contains no requests")?;
+        Ok((*request.program_id(), request.function_name().to_string()))
+    }
+
     // ── Fee estimation (JS ProgramManager `estimate*` family) ────────────
     //
     // All three are offline computations — no network, no account, and no
@@ -289,13 +305,34 @@ impl ExecutionEngine {
     ) -> Result<(Response<TestnetV0>, Trace<TestnetV0>)> {
         tracing::info!("Authorizing...");
         let authorization = self.authorize(private_key, program_id, function_name, inputs, rng)?;
+        self.execute_authorization(authorization, rng)
+    }
 
-        tracing::info!("Executing locally...");
+    /// Execute an **already-built authorization** locally, returning its
+    /// response and trace.
+    ///
+    /// This is the second half of [`Self::authorize_and_execute`]
+    /// and the Rust counterpart of the JS `buildTransactionFromAuthorization`:
+    /// build an authorization with [`authorize`](Self::authorize) (offline,
+    /// possibly on another machine), persist it — `Authorization`'s `Display`
+    /// is JSON and its `FromStr` parses that JSON back — then hand it here
+    /// later. Feed the resulting trace to
+    /// [`prove_and_package`](Self::prove_and_package) to finish the transaction,
+    /// or use `AleoClient::build_transaction_from_authorization` to do both in
+    /// one call with network/state-root handling.
+    ///
+    /// The program behind the authorization must already be loaded in this
+    /// engine's process (see [`add_program`](Self::add_program)).
+    pub fn execute_authorization(
+        &self,
+        authorization: Authorization<TestnetV0>,
+        rng: &mut TestRng,
+    ) -> Result<(Response<TestnetV0>, Trace<TestnetV0>)> {
+        tracing::info!("Executing authorization locally...");
         let (response, trace) = self
             .process
             .execute::<AleoTestnetV0, _>(authorization, rng)
             .context("Local execution failed")?;
-
         Ok((response, trace))
     }
 
