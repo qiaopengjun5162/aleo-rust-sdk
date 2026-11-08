@@ -48,12 +48,24 @@
 //!
 //! ## Differences from the JS SDK
 //!
-//! - JS exposes 15 `insert*Keys()` / `*Keys()` methods and 15
-//!   `OfflineSearchParams.*Params()` constructors. Rust models the same set
-//!   as the [`CreditsFunction`] enum: `insert_credits_key(function, pk)`
-//!   replaces `insert*Keys(pk)`, `credits_keys(function)` replaces the
-//!   getters, and `CreditsFunction::from_transfer_visibility` covers
-//!   `transferKeys(visibility)`'s alias strings.
+//! - JS exposes 15 `insert*Keys()` methods, 15 `OfflineSearchParams.*Params()`
+//!   constructors, and a matching `*Keys()` getter per function. Rust models
+//!   the insert/search surface as the [`CreditsFunction`] enum:
+//!   `insert_credits_key(function, pk)` replaces `insert*Keys(pk)` and
+//!   [`OfflineKeyProvider::credits_keys`] replaces the search. The JS getter
+//!   names are preserved as convenience methods on both providers
+//!   ([`OfflineKeyProvider::fee_public_keys`],
+//!   [`AleoKeyProvider::transfer_keys`], …), with the
+//!   `transferKeys(visibility)` alias strings handled by
+//!   [`CreditsFunction::from_transfer_visibility`].
+//! - [`AleoKeyProvider::get_verifying_key`] mirrors JS `getVerifyingKey`: the
+//!   official credits verifier identifiers (e.g. `"fee_public.verifier.f72b6ff"`)
+//!   resolve to the embedded canonical verifiers; any other URI is fetched
+//!   and parsed as a verifying-key string first, then as raw key bytes,
+//!   failing with `"Invalid verifying key. Error: …"`. The identifier suffix
+//!   is the **prover** checksum prefix — the JS wasm `Metadata` builder
+//!   always reads `prover_checksum`, see
+//!   [`CreditsFunction::verifier_identifier`].
 //! - JS caches raw key bytes; the cache here holds the typed
 //!   [`ProvingKey`] / [`VerifyingKey`] pair. The
 //!   serialization is identical either way.
@@ -61,7 +73,8 @@
 //!   (`fetchCreditsKeys`) because the WASM bundle cannot embed them. The
 //!   native `snarkvm-parameters` crate embeds every credits key
 //!   (`impl_local!`), so [`AleoKeyProvider::credits_keys`] loads both halves
-//!   **offline** and never touches the network.
+//!   **offline** and never touches the network — while keeping the JS cache
+//!   read/write semantics of `fetchCreditsKeys`.
 //! - The JS SDK feeds cached keys into the prover explicitly. Native snarkVM
 //!   proves the inclusion (state-path) circuit with the protocol built-in
 //!   `TestnetV0::inclusion_proving_key()`, so there is nothing to install:
@@ -198,6 +211,32 @@ impl CreditsFunction {
             | "transferPublicToPrivate" => Ok(Self::TransferPublicToPrivate),
             _ => anyhow::bail!("Invalid visibility type"),
         }
+    }
+
+    /// The JS `CREDITS_PROGRAM_KEYS.<fn>.verifier` identifier
+    /// (`"{name}.verifier.{checksum[..7]}"`).
+    ///
+    /// The 7-character suffix is the **prover** checksum prefix, not the
+    /// verifier's — exactly how the JS wasm `Metadata` builder forms these
+    /// strings (it always reads `prover_checksum` from the shared per-function
+    /// metadata JSON). These identifiers are what
+    /// [`AleoKeyProvider::get_verifying_key`] switches on.
+    pub fn verifier_identifier(self) -> Result<String> {
+        let (prover_checksum, _) = self.expected_checksums()?;
+        Ok(format!(
+            "{}.verifier.{}",
+            self.name(),
+            &prover_checksum[..7]
+        ))
+    }
+
+    /// Reverse of [`Self::verifier_identifier`]: the function whose official
+    /// verifier identifier equals `identifier` (the JS `getVerifyingKey`
+    /// switch). `None` for anything else, including full URLs.
+    pub fn from_verifier_identifier(identifier: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(
+            |function| matches!(function.verifier_identifier(), Ok(known) if known == identifier),
+        )
     }
 
     /// The embedded `snarkvm-parameters` metadata JSON for this function,
@@ -427,6 +466,57 @@ impl OfflineKeyProvider {
     /// [`OfflineKeyProvider::cache_keys`].
     pub fn credits_keys(&self, function: CreditsFunction) -> Result<FunctionKeyPair> {
         self.function_keys(function.locator(), true)
+    }
+
+    /// JS `bondPublicKeys()`.
+    pub fn bond_public_keys(&self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::BondPublic)
+    }
+
+    /// JS `bondValidatorKeys()`.
+    pub fn bond_validator_keys(&self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::BondValidator)
+    }
+
+    /// JS `claimUnbondPublicKeys()`.
+    pub fn claim_unbond_public_keys(&self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::ClaimUnbondPublic)
+    }
+
+    /// JS `transferKeys(visibility)` — routes by the visibility alias
+    /// strings (see [`CreditsFunction::from_transfer_visibility`]).
+    pub fn transfer_keys(&self, visibility: &str) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::from_transfer_visibility(visibility)?)
+    }
+
+    /// JS `inclusionKeys()`.
+    pub fn inclusion_keys(&self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::Inclusion)
+    }
+
+    /// JS `joinKeys()`.
+    pub fn join_keys(&self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::Join)
+    }
+
+    /// JS `splitKeys()`.
+    pub fn split_keys(&self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::Split)
+    }
+
+    /// JS `feePrivateKeys()`.
+    pub fn fee_private_keys(&self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::FeePrivate)
+    }
+
+    /// JS `feePublicKeys()`.
+    pub fn fee_public_keys(&self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::FeePublic)
+    }
+
+    /// JS `unBondPublicKeys()`.
+    pub fn unbond_public_keys(&self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::UnbondPublic)
     }
 
     /// Whether the pair matches the official checksums for `locator`
@@ -680,7 +770,8 @@ impl AleoKeyProvider {
     /// Get keys according to `params` (JS `functionKeys`).
     ///
     /// Routing, in order (exactly the JS behaviour):
-    /// 1. `params.name` → [`AleoKeyProvider::credits_keys`] (embedded, offline)
+    /// 1. `params.name` → [`AleoKeyProvider::credits_keys`] (JS
+    ///    `fetchCreditsKeys`: embedded keys, with cache read/write)
     /// 2. `params.prover_uri` + `params.verifier_uri` →
     ///    [`AleoKeyProvider::fetch_remote_keys`]
     /// 3. `params.cache_key` → [`AleoKeyProvider::get_keys`]
@@ -734,7 +825,7 @@ impl AleoKeyProvider {
                 "Error: {error} fetching fee proving and verifying keys from {prover_uri} and {verifier_uri}."
             ),
         };
-        let verifying_key = match self.fetch_verifying_key(verifier_uri).await {
+        let verifying_key = match self.get_verifying_key(verifier_uri).await {
             Ok(key) => key,
             Err(error) => anyhow::bail!(
                 "Error: {error} fetching fee proving and verifying keys from {prover_uri} and {verifier_uri}."
@@ -775,7 +866,11 @@ impl AleoKeyProvider {
         }
     }
 
-    /// Download a verifying key (JS `getVerifyingKey`).
+    /// Download and parse a verifying key from raw key bytes — the byte-level
+    /// fallback inside JS `getVerifyingKey`.
+    ///
+    /// Prefer [`AleoKeyProvider::get_verifying_key`], which additionally
+    /// serves the embedded credits verifiers and the text form of a key.
     ///
     /// # Errors
     ///
@@ -790,13 +885,117 @@ impl AleoKeyProvider {
             .with_context(|| format!("Failed to parse verifying key from {verifier_uri}"))
     }
 
+    /// Resolve a verifying key from a URI (JS `getVerifyingKey`).
+    ///
+    /// Double route, exactly like the JS SDK:
+    /// 1. Official `credits.aleo` verifier identifiers (see
+    ///    [`CreditsFunction::verifier_identifier`]) return the embedded
+    ///    canonical verifying key — no download at all.
+    /// 2. Anything else is fetched from `verifier_uri` and parsed as a
+    ///    verifying-key string first ([`VerifyingKey::from_str`]), falling
+    ///    back to raw key bytes ([`VerifyingKey::from_bytes_le`]) with a
+    ///    second fetch, matching the JS retry. When both fail the error is
+    ///    `"Invalid verifying key. Error: …"`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when neither route yields a verifying key.
+    pub async fn get_verifying_key(&self, verifier_uri: &str) -> Result<VerifyingKey<TestnetV0>> {
+        if let Some(function) = CreditsFunction::from_verifier_identifier(verifier_uri) {
+            return canonical_verifying_key(function);
+        }
+        // Attempt 1: the text form (JS `VerifyingKey.fromString`).
+        if let Ok(bytes) = self.transport.fetch_bytes(verifier_uri).await
+            && let Ok(text) = String::from_utf8(bytes)
+            && let Ok(verifying_key) = VerifyingKey::from_str(&text)
+        {
+            return Ok(verifying_key);
+        }
+        // Attempt 2: raw key bytes (JS `VerifyingKey.fromBytes`).
+        self.fetch_verifying_key(verifier_uri)
+            .await
+            .map_err(|error| anyhow::anyhow!("Invalid verifying key. Error: {error}"))
+    }
+
     /// The embedded `credits.aleo` key pair (JS `fetchCreditsKeys`).
+    ///
+    /// Keeps the JS cache semantics: with caching enabled, a cached pair
+    /// under the function locator short-circuits the load, and fresh pairs
+    /// are written back to the cache. (JS downloads the proving key over
+    /// HTTP; the native parameters crate embeds it, so this never touches
+    /// the network.)
     ///
     /// # Errors
     ///
     /// Fails when the embedded key bytes cannot be loaded or parsed.
-    pub fn credits_keys(&self, function: CreditsFunction) -> Result<FunctionKeyPair> {
-        canonical_key_pair(function)
+    pub fn credits_keys(&mut self, function: CreditsFunction) -> Result<FunctionKeyPair> {
+        if self.use_cache
+            && let Some(keys) = self.cache.get(function.locator())
+        {
+            return Ok(keys.clone());
+        }
+        let keys = canonical_key_pair(function)
+            .map_err(|error| anyhow::anyhow!("Error: fetching credits.aleo keys: {error}"))?;
+        if self.use_cache {
+            self.cache.insert(function.locator().to_string(), keys.clone());
+        }
+        Ok(keys)
+    }
+
+    /// JS `bondPublicKeys()`.
+    pub fn bond_public_keys(&mut self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::BondPublic)
+    }
+
+    /// JS `bondValidatorKeys()`.
+    pub fn bond_validator_keys(&mut self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::BondValidator)
+    }
+
+    /// JS `claimUnbondPublicKeys()`.
+    pub fn claim_unbond_public_keys(&mut self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::ClaimUnbondPublic)
+    }
+
+    /// JS `transferKeys(visibility)` — routes by the visibility alias
+    /// strings (see [`CreditsFunction::from_transfer_visibility`]).
+    pub fn transfer_keys(&mut self, visibility: &str) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::from_transfer_visibility(visibility)?)
+    }
+
+    /// JS `transferPublicKeys()`.
+    pub fn transfer_public_keys(&mut self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::TransferPublic)
+    }
+
+    /// JS `inclusionKeys()`.
+    pub fn inclusion_keys(&mut self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::Inclusion)
+    }
+
+    /// JS `joinKeys()`.
+    pub fn join_keys(&mut self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::Join)
+    }
+
+    /// JS `splitKeys()`.
+    pub fn split_keys(&mut self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::Split)
+    }
+
+    /// JS `feePrivateKeys()`.
+    pub fn fee_private_keys(&mut self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::FeePrivate)
+    }
+
+    /// JS `feePublicKeys()`.
+    pub fn fee_public_keys(&mut self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::FeePublic)
+    }
+
+    /// JS `unBondPublicKeys()`.
+    pub fn unbond_public_keys(&mut self) -> Result<FunctionKeyPair> {
+        self.credits_keys(CreditsFunction::UnbondPublic)
     }
 
     /// Install every cached key into `process` — the same semantics as
@@ -1112,6 +1311,119 @@ mod tests {
         assert!(err.to_string().contains("Invalid visibility type"), "{err}");
     }
 
+    /// The JS `verifier` identifier is `"{name}.verifier.{prover_checksum[..7]}"` —
+    /// the suffix is the **prover** checksum prefix, because the wasm
+    /// `Metadata` builder always reads `prover_checksum`. The fee_public
+    /// literal pins the format; the roundtrip covers every function.
+    #[test]
+    fn test_verifier_identifier_matches_js_metadata_format() {
+        assert_eq!(
+            CreditsFunction::FeePublic.verifier_identifier().unwrap(),
+            "fee_public.verifier.f72b6ff"
+        );
+        for function in CreditsFunction::ALL {
+            let identifier = function.verifier_identifier().unwrap();
+            assert_eq!(
+                CreditsFunction::from_verifier_identifier(&identifier),
+                Some(function),
+                "{identifier}"
+            );
+        }
+        assert_eq!(
+            CreditsFunction::from_verifier_identifier("fee_public.verifier.deadbee"),
+            None
+        );
+        assert_eq!(
+            CreditsFunction::from_verifier_identifier("https://keys.example.com/hello.verifier"),
+            None
+        );
+    }
+
+    /// Every JS `*Keys()` convenience getter routes to its own cache slot:
+    /// on an empty cache the error names the exact locator.
+    #[test]
+    fn test_offline_convenience_methods_route_to_locators() {
+        type Getter = fn(&OfflineKeyProvider) -> Result<FunctionKeyPair>;
+        let provider = OfflineKeyProvider::new();
+        let cases: [(Getter, &str); 9] = [
+            (
+                OfflineKeyProvider::bond_public_keys,
+                "credits.aleo/bond_public",
+            ),
+            (
+                OfflineKeyProvider::bond_validator_keys,
+                "credits.aleo/bond_validator",
+            ),
+            (
+                OfflineKeyProvider::claim_unbond_public_keys,
+                "credits.aleo/claim_unbond_public",
+            ),
+            (
+                OfflineKeyProvider::fee_private_keys,
+                "credits.aleo/fee_private",
+            ),
+            (
+                OfflineKeyProvider::fee_public_keys,
+                "credits.aleo/fee_public",
+            ),
+            (OfflineKeyProvider::inclusion_keys, "inclusion"),
+            (OfflineKeyProvider::join_keys, "credits.aleo/join"),
+            (OfflineKeyProvider::split_keys, "credits.aleo/split"),
+            (
+                OfflineKeyProvider::unbond_public_keys,
+                "credits.aleo/unbond_public",
+            ),
+        ];
+        for (method, locator) in cases {
+            let error = method(&provider).unwrap_err().to_string();
+            assert!(
+                error.contains(&format!("Keys not found in cache for {locator}")),
+                "{locator}: {error}"
+            );
+        }
+        // transferKeys(visibility) routes by alias to the transfer slots.
+        for (visibility, locator) in [
+            ("private", "credits.aleo/transfer_private"),
+            (
+                "private_to_public",
+                "credits.aleo/transfer_private_to_public",
+            ),
+            ("public", "credits.aleo/transfer_public"),
+            ("public_as_signer", "credits.aleo/transfer_public_as_signer"),
+            (
+                "public_to_private",
+                "credits.aleo/transfer_public_to_private",
+            ),
+        ] {
+            let error = provider.transfer_keys(visibility).unwrap_err().to_string();
+            assert!(
+                error.contains(&format!("Keys not found in cache for {locator}")),
+                "{visibility}: {error}"
+            );
+        }
+        assert!(
+            provider
+                .transfer_keys("bogus")
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid visibility type")
+        );
+    }
+
+    /// A cached real pair satisfies the convenience getters end to end
+    /// (JS `feePublicKeys()` on `OfflineKeyProvider`).
+    #[test]
+    fn test_offline_convenience_positive_path() {
+        let (proving_key, _) = fee_public_pair();
+        let mut provider = OfflineKeyProvider::new();
+        provider.insert_credits_key(CreditsFunction::FeePublic, proving_key).unwrap();
+        let keys = provider.fee_public_keys().unwrap();
+        assert!(checksum_matches(
+            &CreditsFunction::FeePublic.expected_checksums().unwrap().0,
+            &keys.0
+        ));
+    }
+
     // ------------------------------------------------------------------
     // AleoKeyProvider (online provider) — all offline via MockTransport.
     // ------------------------------------------------------------------
@@ -1275,7 +1587,10 @@ mod tests {
             key_checksum(&second.0).unwrap()
         );
         assert_eq!(hit_count(&hits, PROVER_URL), 1);
-        assert_eq!(hit_count(&hits, VERIFIER_URL), 1);
+        // The verifier half goes through `get_verifying_key`, which — like
+        // the JS SDK — tries the text form first and re-fetches for the raw
+        // byte fallback: two requests on the first call, none on the second.
+        assert_eq!(hit_count(&hits, VERIFIER_URL), 2);
     }
 
     /// Without an explicit cache key the prover URL becomes the key (JS).
@@ -1348,6 +1663,186 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("Error fetching data.boom"), "{err}");
+    }
+
+    /// JS `fetchCreditsKeys` cache semantics on `credits_keys`: hits return
+    /// the cached pair, misses load the embedded pair and write back only
+    /// while caching is on.
+    #[test]
+    fn test_credits_keys_cache_semantics() {
+        let mut provider = AleoKeyProvider::with_transport(Box::new(MockTransport::new()));
+        provider.use_cache(true);
+
+        // Miss: loads the embedded pair and writes it back.
+        let keys = provider.credits_keys(CreditsFunction::FeePublic).unwrap();
+        assert!(provider.contains_keys("credits.aleo/fee_public"));
+        assert!(checksum_matches(
+            &CreditsFunction::FeePublic.expected_checksums().unwrap().0,
+            &keys.0
+        ));
+
+        // Hit: the cached pair comes back unchanged.
+        let again = provider.credits_keys(CreditsFunction::FeePublic).unwrap();
+        assert_eq!(
+            key_checksum(&keys.0).unwrap(),
+            key_checksum(&again.0).unwrap()
+        );
+        assert_eq!(
+            key_checksum(&keys.1).unwrap(),
+            key_checksum(&again.1).unwrap()
+        );
+
+        // Caching off: nothing is written back.
+        provider.use_cache(false);
+        provider.clear_cache();
+        let _ = provider.credits_keys(CreditsFunction::FeePublic).unwrap();
+        assert!(!provider.contains_keys("credits.aleo/fee_public"));
+    }
+
+    /// The 11 JS `*Keys()` convenience getters each read their own cache
+    /// slot: every locator is pre-seeded with a distinct verifying key, and
+    /// the returned one identifies which slot was read.
+    #[test]
+    fn test_aleo_convenience_methods_route_to_locators() {
+        let mut provider = AleoKeyProvider::with_transport(Box::new(MockTransport::new()));
+        provider.use_cache(true);
+        let proving_key = fee_public_pair().0;
+        for function in CreditsFunction::ALL {
+            let verifying_key = canonical_verifying_key(function).unwrap();
+            provider.cache_keys(function.locator(), (proving_key.clone(), verifying_key));
+        }
+
+        fn assert_routed(keys: Result<FunctionKeyPair>, function: CreditsFunction) {
+            let keys = keys.unwrap();
+            let expected = canonical_verifying_key(function).unwrap();
+            assert_eq!(
+                key_checksum(&keys.1).unwrap(),
+                key_checksum(&expected).unwrap(),
+                "{}",
+                function.locator()
+            );
+        }
+
+        assert_routed(provider.bond_public_keys(), CreditsFunction::BondPublic);
+        assert_routed(
+            provider.bond_validator_keys(),
+            CreditsFunction::BondValidator,
+        );
+        assert_routed(
+            provider.claim_unbond_public_keys(),
+            CreditsFunction::ClaimUnbondPublic,
+        );
+        assert_routed(
+            provider.transfer_keys("private"),
+            CreditsFunction::TransferPrivate,
+        );
+        assert_routed(
+            provider.transfer_keys("private_to_public"),
+            CreditsFunction::TransferPrivateToPublic,
+        );
+        assert_routed(
+            provider.transfer_keys("public"),
+            CreditsFunction::TransferPublic,
+        );
+        assert_routed(
+            provider.transfer_keys("public_as_signer"),
+            CreditsFunction::TransferPublicAsSigner,
+        );
+        assert_routed(
+            provider.transfer_keys("public_to_private"),
+            CreditsFunction::TransferPublicToPrivate,
+        );
+        assert_routed(
+            provider.transfer_public_keys(),
+            CreditsFunction::TransferPublic,
+        );
+        assert_routed(provider.inclusion_keys(), CreditsFunction::Inclusion);
+        assert_routed(provider.join_keys(), CreditsFunction::Join);
+        assert_routed(provider.split_keys(), CreditsFunction::Split);
+        assert_routed(provider.fee_private_keys(), CreditsFunction::FeePrivate);
+        assert_routed(provider.fee_public_keys(), CreditsFunction::FeePublic);
+        assert_routed(provider.unbond_public_keys(), CreditsFunction::UnbondPublic);
+    }
+
+    /// `get_verifying_key` serves the embedded canonical verifier for every
+    /// official credits identifier without touching the transport
+    /// (the JS `getVerifyingKey` switch).
+    #[tokio::test]
+    async fn test_get_verifying_key_routes_credits_identifiers() {
+        let transport = MockTransport::new();
+        let hits = transport.hits_handle();
+        let provider = AleoKeyProvider::with_transport(Box::new(transport));
+        for function in CreditsFunction::ALL {
+            let identifier = function.verifier_identifier().unwrap();
+            let key = provider.get_verifying_key(&identifier).await.unwrap();
+            let (_, verifier_checksum) = function.expected_checksums().unwrap();
+            assert!(checksum_matches(&verifier_checksum, &key), "{identifier}");
+        }
+        assert!(hits.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
+    }
+
+    /// Custom verifier URIs parse as a verifying-key string first, then fall
+    /// back to raw key bytes with a second fetch (JS `getVerifyingKey`); both
+    /// failing forms surface as `"Invalid verifying key. Error: …"`.
+    #[tokio::test]
+    async fn test_get_verifying_key_text_then_bytes_fallback() {
+        let (_, verifier_checksum) = CreditsFunction::FeePublic.expected_checksums().unwrap();
+        let verifying_key = fee_public_pair().1;
+        let text_url = "https://keys.example.com/hello.verifier.text";
+        let bytes_url = "https://keys.example.com/hello.verifier.bytes";
+        let bad_url = "https://keys.example.com/hello.verifier.bad";
+        let err_url = "https://keys.example.com/hello.verifier.err";
+        let raw_bytes = fee_public_verifier_bytes();
+        // Precondition: the raw bytes cannot take the text route.
+        assert!(String::from_utf8(raw_bytes.clone()).is_err());
+        let transport = MockTransport::new()
+            .serving(text_url, Ok(verifying_key.to_string().into_bytes()))
+            .serving(bytes_url, Ok(raw_bytes))
+            .serving(bad_url, Ok(vec![0xFF, 0xFF, 0xFF]))
+            .serving(err_url, Err("boom".to_string()));
+        let hits = transport.hits_handle();
+        let provider = AleoKeyProvider::with_transport(Box::new(transport));
+
+        // The bech32m text form parses on the first attempt.
+        let key = provider.get_verifying_key(text_url).await.unwrap();
+        assert!(checksum_matches(&verifier_checksum, &key));
+        assert_eq!(hit_count(&hits, text_url), 1);
+
+        // Raw bytes: the text attempt fails, the byte fallback re-fetches.
+        let key = provider.get_verifying_key(bytes_url).await.unwrap();
+        assert!(checksum_matches(&verifier_checksum, &key));
+        assert_eq!(hit_count(&hits, bytes_url), 2);
+
+        // Neither form parses.
+        let error = provider.get_verifying_key(bad_url).await.unwrap_err().to_string();
+        assert!(error.contains("Invalid verifying key. Error:"), "{error}");
+        assert_eq!(hit_count(&hits, bad_url), 2);
+
+        // The transport itself failing is wrapped the same way.
+        let error = provider.get_verifying_key(err_url).await.unwrap_err().to_string();
+        assert!(error.contains("Invalid verifying key. Error:"), "{error}");
+        assert!(error.contains("boom"), "{error}");
+    }
+
+    /// `fetch_remote_keys` resolves the verifier half through
+    /// `get_verifying_key`, so a credits verifier identifier needs no
+    /// download (JS `fetchRemoteKeys`).
+    #[tokio::test]
+    async fn test_fetch_remote_keys_verifier_half_uses_get_verifying_key() {
+        let identifier = CreditsFunction::FeePublic.verifier_identifier().unwrap();
+        let transport = MockTransport::new().serving(PROVER_URL, Ok(fee_public_prover_bytes()));
+        let hits = transport.hits_handle();
+        let mut provider = AleoKeyProvider::with_transport(Box::new(transport));
+
+        let keys = provider.fetch_remote_keys(PROVER_URL, &identifier, None).await.unwrap();
+        assert!(checksum_matches(
+            &CreditsFunction::FeePublic.expected_checksums().unwrap().1,
+            &keys.1
+        ));
+        assert_eq!(hit_count(&hits, PROVER_URL), 1);
+        // MockTransport errors on unserved URLs, so zero hits on the
+        // identifier proves the embedded route was taken.
+        assert_eq!(hit_count(&hits, &identifier), 0);
     }
 
     /// Transport failures are wrapped with the JS error shape and the URL.
