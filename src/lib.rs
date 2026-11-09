@@ -19,6 +19,7 @@
 //! | [`address`] | JS `Address` parity: plaintext form, program addresses, arbitrary-address verification |
 //! | [`authorization`] | JS `Authorization` parity: root function name, plus the semantics of the native type |
 //! | [`signature`] | JS `Signature` parity: signing and verifying Aleo *values*, plaintext form |
+//! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions |
@@ -140,6 +141,7 @@ pub mod circle;
 pub mod client;
 pub mod credits;
 pub mod delegated;
+pub mod encryption;
 pub mod execution;
 pub mod hosted;
 pub mod keys;
