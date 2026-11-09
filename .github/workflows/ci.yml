@@ -53,6 +53,9 @@ jobs:
       - name: Install taplo
         uses: taiki-e/install-action@taplo
 
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Check code format
@@ -67,8 +70,11 @@ jobs:
       - name: Lint rust sources
         run: cargo clippy --all-targets --all-features --tests --benches -- -D warnings
 
+      # The wrapper action resolved its own CLI version inside a Node action and
+      # broke this job twice. Installing the prebuilt binary above and invoking
+      # the CLI directly keeps the same gate with one less moving part.
       - name: Audit dependencies
-        uses: EmbarkStudios/cargo-deny-action@v2
+        run: cargo deny check
 
       # rustdoc resolves every intra-doc link. Without this step a doc comment
       # can reference a type that no longer exists and nothing notices — the
