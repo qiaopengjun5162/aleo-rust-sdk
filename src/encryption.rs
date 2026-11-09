@@ -195,18 +195,18 @@ pub fn decrypt_transition_with_tvk<N: Network>(
     .context("Failed to rebuild the decrypted transition")
 }
 
-/// Per-input/output view key: `hash_psd4([function_id, tvk, index])`.
+/// Per-input/output view key, keyed by a `usize` transition slot.
 ///
-/// Shared by inputs and outputs because the index space is contiguous — outputs
-/// start at `num_inputs`.
+/// Thin wrapper over [`crate::ciphertext::input_view_key`] so that the
+/// `hash_psd4([function_id, tvk, index])` formula exists **once** in the crate;
+/// this side only converts the slot to the `u16` the formula takes.
 fn input_view_key<N: Network>(
     function_id: &Field<N>,
     transition_view_key: &Field<N>,
     index: usize,
 ) -> Result<Field<N>> {
     let index = u16::try_from(index).context("Transition index exceeds u16")?;
-    N::hash_psd4(&[*function_id, *transition_view_key, Field::from_u16(index)])
-        .context("Failed to derive the transition view key for this index")
+    crate::ciphertext::input_view_key::<N>(function_id, transition_view_key, index)
 }
 
 /// Return the ciphertexts owned by `view_key` — the JS
