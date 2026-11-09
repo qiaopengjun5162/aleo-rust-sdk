@@ -20,8 +20,18 @@
 //! | `/pubkey` | GET | — | `{key_id, public_key}` |
 //! | `/register/encrypted` | POST | `{key_id, ciphertext}` | `{uuid, status?}` |
 //! | `/records/owned` | POST | `{uuid, unspent?, filter?}` | array of records |
+//! | `/records/encrypted` | POST | `RecordsFilter` | array of encrypted records |
+//! | `/records/sns` | POST | `[serial_number, …]` | `{sn: bool}` spent map |
+//! | `/records/tags` | POST | `[tag, …]` | `{tag: bool}` spent map |
 //! | `/status` | POST | `"<uuid>"` (bare JSON string) | `{synced, percentage}` |
 //! | `/revoke` | POST | `"<uuid>"` (bare JSON string) | — |
+//!
+//! The last three are read-only ledger queries that do **not** need a
+//! registered `uuid`: `/records/encrypted` scans the whole ledger for encrypted
+//! records matching a filter, while `/records/sns` and `/records/tags` are
+//! double-spend probes — they report only whether a serial number or tag has
+//! appeared in any on-chain transition input, so they leak nothing about which
+//! records are *yours*. A `true` in either map means the record has been spent.
 //!
 //! Two of those are worth flagging because the published guide disagrees:
 //! `/status` and `/revoke` take a **bare JSON string**, not `{"uuid": ...}`.
@@ -73,9 +83,10 @@
 
 use anyhow::{Context, Result, bail};
 use reqwest::header::{CONTENT_TYPE, COOKIE, SET_COOKIE};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use snarkvm::prelude::{TestnetV0, ViewKey};
 use snarkvm::utilities::ToBytes;
+use std::collections::HashMap;
 use std::fmt;
 use zeroize::Zeroizing;
 
@@ -125,6 +136,84 @@ pub fn seal_registration(
     plaintext.extend_from_slice(&start_block.to_le_bytes());
 
     crate::hosted::seal_sealed_box(recipient_public_key_b64, &plaintext)
+}
+
+// ── Encrypted-record scan filter ─────────────────────────────────────────
+
+/// Which fields `/records/encrypted` should include in each returned record.
+///
+/// Every field is opt-in: a `Some(true)` includes that column, anything else
+/// omits it. Mirrors the JS `RecordsResponseFilter`.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct RecordsResponseFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_height: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_timestamp: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commitment: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_ciphertext: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender_ciphertext: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function_name: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_index: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub program_name: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_name: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transition_id: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_index: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transition_index: Option<bool>,
+}
+
+/// Server-side filter for `/records/encrypted` (JS `RecordsFilter`).
+///
+/// Unlike [`OwnedFilter`] this is a ledger-wide scan, not a per-`uuid` query, so
+/// it carries no `uuid`. Only the set fields are sent: unset ones are omitted
+/// from the request rather than serialized as `null`, matching the JS SDK.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct EncryptedRecordsFilter {
+    /// Restrict to records whose commitment is in this list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commitments: Option<Vec<String>>,
+    /// Which columns to include in each returned record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<RecordsResponseFilter>,
+    /// Lowest block height to scan.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<u32>,
+    /// Highest block height to scan.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<u32>,
+    /// Restrict to these programs, e.g. `["credits.aleo"]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub programs: Option<Vec<String>>,
+    /// Restrict to records with these names, e.g. `["credits"]`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub records: Option<Vec<String>>,
+    /// Restrict to records produced by these functions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub functions: Option<Vec<String>>,
+    /// Page size for paginated scans.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub results_per_page: Option<u32>,
+    /// Page offset for paginated scans.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<u32>,
 }
 
 // ── Queries ──────────────────────────────────────────────────────────────
@@ -302,6 +391,64 @@ impl OwnedRecord {
     }
 }
 
+/// An encrypted record as returned by `/records/encrypted`.
+///
+/// Unlike [`OwnedRecord`] this carries the ledger ciphertext and metadata but no
+/// decryption: the caller decrypts locally (the same trust boundary as
+/// [`OwnedRecord::decrypt`]) rather than trusting a plaintext the service
+/// attached. `commitment` is the only mandatory field; the rest mirror the JS
+/// `EncryptedRecord` type.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct EncryptedRecord {
+    /// Record commitment.
+    pub commitment: String,
+    /// Checksum of the record.
+    #[serde(default)]
+    pub checksum: Option<String>,
+    /// Height of the block that created the record.
+    #[serde(default)]
+    pub block_height: Option<u32>,
+    /// Unix timestamp of that block.
+    #[serde(default)]
+    pub block_timestamp: Option<i64>,
+    /// Program that created the record, e.g. `"credits.aleo"`.
+    #[serde(default)]
+    pub program_name: Option<String>,
+    /// Function that produced the record.
+    #[serde(default)]
+    pub function_name: Option<String>,
+    /// Index of the output within that function call.
+    #[serde(default)]
+    pub output_index: Option<u32>,
+    /// Owner ciphertext.
+    #[serde(default)]
+    pub owner: Option<String>,
+    /// Record ciphertext — the field to decrypt locally.
+    #[serde(default)]
+    pub record_ciphertext: Option<String>,
+    /// Record name, e.g. `"credits"`.
+    #[serde(default)]
+    pub record_name: Option<String>,
+    /// Record nonce.
+    #[serde(default)]
+    pub record_nonce: Option<String>,
+    /// Sender ciphertext.
+    #[serde(default)]
+    pub sender_ciphertext: Option<String>,
+    /// Transaction that created the record.
+    #[serde(default)]
+    pub transaction_id: Option<String>,
+    /// Transition that created the record.
+    #[serde(default)]
+    pub transition_id: Option<String>,
+    /// Index of the transaction within its block.
+    #[serde(default)]
+    pub transaction_index: Option<u32>,
+    /// Index of the transition within its transaction.
+    #[serde(default)]
+    pub transition_index: Option<u32>,
+}
+
 /// Scan progress for a registered view key.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ScanStatus {
@@ -471,6 +618,63 @@ impl RecordScanService {
         Ok(())
     }
 
+    /// Probe whether serial numbers have been spent.
+    ///
+    /// Posts the list to `/records/sns` and returns a map of each serial number
+    /// to a `bool`. A `true` value means that serial number has appeared in an
+    /// on-chain transition input, i.e. the record has been spent. This is a
+    /// ledger-wide read that needs no registered `uuid` and leaks nothing about
+    /// which records are yours.
+    ///
+    /// # Errors
+    ///
+    /// Fails on transport error, a non-2xx status, or a response body that is
+    /// not a JSON object mapping strings to booleans.
+    pub async fn serial_numbers(&self, serial_numbers: &[String]) -> Result<HashMap<String, bool>> {
+        let headers = self.auth.headers().await?;
+        let payload = serde_json::to_value(serial_numbers)
+            .context("Failed to serialize serial number list")?;
+        let body = self.post_json("/records/sns", &headers, None, &payload, &[]).await?;
+        parse_string_bool_map(&body, "/records/sns")
+    }
+
+    /// Probe whether record tags have been spent.
+    ///
+    /// Posts the list to `/records/tags` and returns a map of each tag to a
+    /// `bool`. A `true` value means a record carrying that tag has appeared in
+    /// an on-chain transition input, i.e. has been spent. Like
+    /// [`RecordScanService::serial_numbers`] this is a public, `uuid`-free read.
+    ///
+    /// # Errors
+    ///
+    /// Fails on transport error, a non-2xx status, or a response body that is
+    /// not a JSON object mapping strings to booleans.
+    pub async fn tags(&self, tags: &[String]) -> Result<HashMap<String, bool>> {
+        let headers = self.auth.headers().await?;
+        let payload = serde_json::to_value(tags).context("Failed to serialize tag list")?;
+        let body = self.post_json("/records/tags", &headers, None, &payload, &[]).await?;
+        parse_string_bool_map(&body, "/records/tags")
+    }
+
+    /// Scan the ledger for encrypted records matching `filter`.
+    ///
+    /// Unlike [`RecordScanService::records_owned`] this is a server-side scan of
+    /// the whole ledger (no `uuid`), returning ciphertexts plus the metadata the
+    /// filter requested. Decrypt locally with a [`ViewKey`] as needed; never
+    /// trust a `record_plaintext` the service might attach.
+    ///
+    /// # Errors
+    ///
+    /// Fails on transport error, a non-2xx status, or a response body that is
+    /// neither a JSON array of records nor `{"data": [...]}`.
+    pub async fn encrypted(&self, filter: &EncryptedRecordsFilter) -> Result<Vec<EncryptedRecord>> {
+        let headers = self.auth.headers().await?;
+        let payload =
+            serde_json::to_value(filter).context("Failed to serialize encrypted records filter")?;
+        let body = self.post_json("/records/encrypted", &headers, None, &payload, &[]).await?;
+        parse_encrypted_records(&body)
+    }
+
     /// Fetch a one-time encryption key.
     ///
     /// The second return value is the `Set-Cookie` value when the scanner sent
@@ -612,6 +816,88 @@ fn json_kind(value: &serde_json::Value) -> &'static str {
     }
 }
 
+/// Accept both documented shapes for an array of records: a bare array, or
+/// `{"data": [...]}`. Shared by `/records/owned` and `/records/encrypted` so the
+/// two cannot drift apart — an object without a record array is an error, not an
+/// empty result, because a caller that sees `Ok(vec![])` concludes "nothing
+/// here", and guessing there turns an unrecognised response into a wrong answer.
+fn parse_record_array<T: serde::de::DeserializeOwned>(
+    body: &str,
+    endpoint: &str,
+) -> Result<Vec<T>> {
+    let value: serde_json::Value = serde_json::from_str(body)
+        .with_context(|| format!("Failed to parse {endpoint} response"))?;
+
+    let array = match value {
+        serde_json::Value::Array(items) => items,
+        serde_json::Value::Object(mut map) => match map.remove("data") {
+            Some(serde_json::Value::Array(items)) => items,
+            None => {
+                let mut keys: Vec<String> = map.keys().cloned().collect();
+                keys.sort();
+                bail!(
+                    "RSS {endpoint} returned an object with no `data` array (keys: [{}])",
+                    keys.join(", ")
+                )
+            }
+            Some(other) => {
+                bail!(
+                    "RSS {endpoint} returned `data` as {}, expected an array",
+                    json_kind(&other)
+                )
+            }
+        },
+        other => bail!(
+            "RSS {endpoint} returned {}, expected an array",
+            json_kind(&other)
+        ),
+    };
+
+    array
+        .into_iter()
+        .map(|item| {
+            serde_json::from_value(item)
+                .with_context(|| format!("Failed to parse a record from {endpoint}"))
+        })
+        .collect()
+}
+
+/// Parse a `{key: bool, …}` map from `/records/sns` or `/records/tags`.
+///
+/// A bare array or any non-boolean value is rejected: a map of spent flags that
+/// silently drops an entry would let a caller treat an unprobed serial number as
+/// unspent.
+fn parse_string_bool_map(body: &str, endpoint: &str) -> Result<HashMap<String, bool>> {
+    let value: serde_json::Value = serde_json::from_str(body)
+        .with_context(|| format!("Failed to parse {endpoint} response"))?;
+    let object = match &value {
+        serde_json::Value::Object(object) => object,
+        other => bail!(
+            "RSS {endpoint} returned {}, expected an object mapping keys to booleans",
+            json_kind(other)
+        ),
+    };
+
+    let mut map = HashMap::with_capacity(object.len());
+    for (key, value) in object {
+        match value {
+            serde_json::Value::Bool(flag) => {
+                map.insert(key.clone(), *flag);
+            }
+            other => bail!(
+                "RSS {endpoint} key {key} was {}, expected a boolean",
+                json_kind(other)
+            ),
+        }
+    }
+    Ok(map)
+}
+
+/// Parse a `/records/encrypted` response (bare array or `{"data": [...]}`).
+fn parse_encrypted_records(body: &str) -> Result<Vec<EncryptedRecord>> {
+    parse_record_array(body, "/records/encrypted")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -729,5 +1015,120 @@ mod tests {
         let err = anyhow::Error::new(StaleRegistration).context("RSS /records/owned returned 422");
         assert!(err.downcast_ref::<StaleRegistration>().is_some());
         assert!(err.to_string().contains("422"));
+    }
+
+    // ── /records/sns and /records/tags ──────────────────────────────────
+
+    #[test]
+    fn string_bool_map_parses_spent_flags() {
+        let map = parse_string_bool_map(r#"{"sn1":true,"sn2":false}"#, "/records/sns").unwrap();
+        assert_eq!(map.get("sn1"), Some(&true));
+        assert_eq!(map.get("sn2"), Some(&false));
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn string_bool_map_rejects_non_objects() {
+        let err = parse_string_bool_map("[]", "/records/sns").unwrap_err().to_string();
+        assert!(
+            err.contains("expected an object"),
+            "unexpected error: {err}"
+        );
+
+        // A value that is not a boolean must be rejected, not coerced.
+        let err = parse_string_bool_map(r#"{"sn1":"yes"}"#, "/records/sns")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("expected a boolean"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains("sn1"),
+            "the offending key must be named: {err}"
+        );
+    }
+
+    // ── /records/encrypted ─────────────────────────────────────────────
+
+    #[test]
+    fn encrypted_records_accepts_both_response_shapes() {
+        let item = serde_json::json!({
+            "commitment": "commitment1field",
+            "program_name": "credits.aleo",
+            "record_ciphertext": "record1...",
+        });
+
+        let bare = parse_encrypted_records(&serde_json::json!([item.clone()]).to_string()).unwrap();
+        assert_eq!(bare.len(), 1);
+        assert_eq!(bare[0].commitment, "commitment1field");
+        assert_eq!(bare[0].program_name.as_deref(), Some("credits.aleo"));
+        // Unset fields stay None, not false/0.
+        assert_eq!(bare[0].block_height, None);
+
+        let wrapped =
+            parse_encrypted_records(&serde_json::json!({ "data": [item] }).to_string()).unwrap();
+        assert_eq!(wrapped.len(), 1);
+    }
+
+    #[test]
+    fn encrypted_records_rejects_unexpected_shapes() {
+        let err = parse_encrypted_records("\"nope\"").unwrap_err().to_string();
+        assert!(err.contains("expected an array"), "unexpected error: {err}");
+
+        let err = parse_encrypted_records(r#"{"data":"nope"}"#).unwrap_err().to_string();
+        assert!(err.contains("expected an array"), "unexpected error: {err}");
+
+        // An object with no `data` array is an error, not "no records".
+        let err = parse_encrypted_records(r#"{"error":"scan failed"}"#).unwrap_err().to_string();
+        assert!(err.contains("no `data` array"), "unexpected error: {err}");
+
+        assert!(parse_encrypted_records("[]").unwrap().is_empty());
+        assert!(parse_encrypted_records(r#"{"data":[]}"#).unwrap().is_empty());
+    }
+
+    // ── EncryptedRecordsFilter serialization ───────────────────────────
+
+    #[test]
+    fn encrypted_filter_omits_unset_fields() {
+        // Only the fields that are set should reach the wire.
+        let filter = EncryptedRecordsFilter {
+            start: Some(0),
+            end: Some(100),
+            programs: Some(vec!["credits.aleo".to_string()]),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&filter).unwrap();
+        assert_eq!(json["start"], serde_json::json!(0));
+        assert_eq!(json["end"], serde_json::json!(100));
+        assert_eq!(json["programs"], serde_json::json!(["credits.aleo"]));
+        assert!(json.get("records").is_none(), "unset array must be omitted");
+        assert!(
+            json.get("response").is_none(),
+            "unset response must be omitted"
+        );
+        assert!(json.get("page").is_none(), "unset page must be omitted");
+    }
+
+    #[test]
+    fn encrypted_filter_response_subfilter_round_trips() {
+        let filter = EncryptedRecordsFilter {
+            response: Some(RecordsResponseFilter {
+                commitment: Some(true),
+                record_ciphertext: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&filter).unwrap();
+        assert_eq!(json["response"]["commitment"], serde_json::json!(true));
+        assert_eq!(
+            json["response"]["record_ciphertext"],
+            serde_json::json!(true)
+        );
+        assert!(
+            json["response"].get("owner").is_none(),
+            "unset response fields must be omitted"
+        );
     }
 }
