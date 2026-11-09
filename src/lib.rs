@@ -11,12 +11,13 @@
 //!
 //! ## Architecture
 //!
-//! The SDK is organized into thirteen modules — ten of them functional layers,
-//! three of them support:
+//! The SDK is organized into these modules:
 //!
 //! | Module | Purpose |
 //! |--------|---------|
 //! | [`account`] | Key chain, encrypted-key storage, signing, per-record view keys |
+//! | [`address`] | JS `Address` parity: plaintext form, program addresses, arbitrary-address verification |
+//! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions |
 //! | [`credits`] | credits.aleo value operations: transfers, joins, splits, staking |
@@ -25,6 +26,7 @@
 //! | [`record`] | Record discovery (local or hosted), decryption, coin selection |
 //! | [`scanner`] | Record scanning: let Provable's TEE index a view key |
 //! | [`sealance`] | Merkle exclusion proofs for compliant-stablecoin freeze lists |
+//! | [`circle`] | Circle USDCx shielded-mint hook data |
 //! | [`client`] | High-level `AleoClient` orchestrating the full lifecycle |
 //! | [`options`] | [`AleoNetworkOptions`]: one network name, every service base |
 //! | [`hosted`] | Shared plumbing for the TEE services (auth, sealed boxes) |
@@ -130,6 +132,7 @@
 //! Licensed under MIT OR Apache-2.0.
 
 pub mod account;
+pub mod address;
 pub mod circle;
 pub mod client;
 pub mod credits;
