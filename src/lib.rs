@@ -18,6 +18,7 @@
 //! | [`account`] | Key chain, encrypted-key storage, signing, per-record view keys |
 //! | [`address`] | JS `Address` parity: plaintext form, program addresses, arbitrary-address verification |
 //! | [`authorization`] | JS `Authorization` parity: root function name, plus the semantics of the native type |
+//! | [`boolean`] | JS `Boolean` parity: plaintext form, explicit-RNG sampling, encoding traps |
 //! | [`signature`] | JS `Signature` parity: signing and verifying Aleo *values*, plaintext form |
 //! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
@@ -137,6 +138,7 @@
 pub mod account;
 pub mod address;
 pub mod authorization;
+pub mod boolean;
 pub mod circle;
 pub mod client;
 pub mod credits;
