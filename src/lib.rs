@@ -130,6 +130,7 @@
 //! Licensed under MIT OR Apache-2.0.
 
 pub mod account;
+pub mod circle;
 pub mod client;
 pub mod credits;
 pub mod delegated;
@@ -146,6 +147,10 @@ pub mod version;
 
 // Re-export the main types at the crate root for convenience
 pub use account::{AleoAccount, RecordPlaintext};
+pub use circle::{
+    HOOK_DATA_COMMITMENT_LEN, HOOK_DATA_COMMITMENT_OFFSET, HOOK_DATA_LEN, HOOK_DATA_RECIPIENT,
+    HOOK_DATA_VERSION, SECRET_NONCE, generate_hook_data,
+};
 pub use client::{AleoClient, PipelineFee};
 pub use credits::{CreditsCall, TransferKind};
 pub use delegated::{ApiAuth, DelegatedProver, ProvingRequest, ProvingResponse};
