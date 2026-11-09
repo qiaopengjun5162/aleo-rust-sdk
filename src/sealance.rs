@@ -1,3 +1,35 @@
+//! Merkle exclusion proofs for Sealance-style compliant stablecoin programs.
+//!
+//! Mirrors the JS SDK's `SealanceMerkleTree`
+//! (`sdk/src/integrations/sealance/merkle-tree.ts`): convert addresses to fields,
+//! build a Poseidon4 tree, locate the two leaves bracketing a target, and format
+//! the sibling paths as a Leo program input.
+//!
+//! ## Two deliberate divergences from the JS SDK
+//!
+//! 1. **Hashing.** JS `hashTwoElements(prefix, el1, el2)` parses
+//!    `[prefix,el1,el2]` as an *array Plaintext* and hashes
+//!    `Plaintext.toFields()`. That returns the array's **4-field serialization**
+//!    (length plus packed element bits), not the three field values, so JS
+//!    hashes four fields. This crate hashes the three field values directly
+//!    with `hash_psd4`, matching an on-chain
+//!    `Poseidon4::hash([prefix, left, right])`. For `[1field,3field,4field]`
+//!    JS yields `4560646903308595113151029585344265575242682454899063992850623350939538444867field`
+//!    while this crate yields
+//!    `1462380410393973232568205568760787070125811435977424069183384975770991170746field`.
+//!    Both values are pinned by tests below, so a future edit cannot silently
+//!    switch recipes.
+//! 2. **`depth` in [`SealanceMerkleTree::get_sibling_path`].** JS pads to exactly
+//!    `depth` siblings; this crate returns `depth + 1` (the leaf plus one per
+//!    level), because the on-chain `MerkleProof.siblings` is `[field; 16u32]`.
+//!    JS's documented `depth = 16` is therefore this crate's `depth = 15` —
+//!    see CHANGELOG entry for issue #26.
+//!
+//! Everything else (address conversion, leaf sorting/padding, tree layout,
+//! leaf-index search, sibling selection, proof string formatting) is
+//! byte-for-byte compatible; `test_js_formatted_proof_vector` pins the JS test
+//! vector end to end.
+
 use snarkvm::prelude::{Address, Field, FromStr, Network, One, Result, ToField, Zero};
 
 /// Implements the SealanceMerkleTree protocol for generating Merkle exclusion proofs
@@ -6,6 +38,28 @@ use snarkvm::prelude::{Address, Field, FromStr, Network, One, Result, ToField, Z
 /// The exclusion proof proves that a given address is NOT in the freeze list,
 /// using a Merkle tree built from freeze list addresses with Poseidon4 hashing.
 pub struct SealanceMerkleTree;
+
+/// Default tree depth, matching the JS SDK's `generateLeaves` default and the
+/// on-chain `MerkleProof { siblings: [field; 16u32] }` (this crate emits
+/// `depth + 1` siblings, so 15 produces the 16 the program expects).
+///
+/// Beware the off-by-one when comparing with JS examples: their
+/// `getSiblingPath(tree, index, 16)` is this crate's `depth = 15`.
+pub const DEFAULT_TREE_DEPTH: u32 = 15;
+
+/// The JS SDK's `{ siblings, leaf_index }` proof object.
+///
+/// [`SealanceMerkleTree::get_sibling_path`] returns just the sibling vector;
+/// this pairs it with its leaf index so two paths can be handed to
+/// [`SealanceMerkleTree::format_merkle_proof_from_paths`] the same way the JS
+/// SDK passes `[proofLeft, proofRight]` to `formatMerkleProof`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SiblingPath<N: Network> {
+    /// The sibling path, leaf first (see `get_sibling_path`).
+    pub siblings: Vec<Field<N>>,
+    /// Index of the leaf this path belongs to.
+    pub leaf_index: usize,
+}
 
 impl SealanceMerkleTree {
     /// Converts an Aleo blockchain address string to a field element.
@@ -26,16 +80,34 @@ impl SealanceMerkleTree {
     /// Converts an array of decimal string representations of field elements to `Field<N>`.
     ///
     /// JS equivalent: `SealanceMerkleTree.convertTreeToBigInt()`.
-    /// The input is an array of decimal strings from the Provable API's merkle-tree endpoint.
+    ///
+    /// The Provable `merkle-tree` endpoint returns **bare decimal strings**
+    /// (`"0"`, `"3501665755..."`), while snarkVM's `Field::from_str` requires
+    /// the `field` suffix. Accept both spellings so the endpoint response can
+    /// be passed verbatim; anything else is an error rather than a skipped
+    /// element (a shorter tree would silently prove against the wrong root).
     pub fn convert_tree_to_fields<N: Network>(tree: &[String]) -> Result<Vec<Field<N>>> {
-        tree.iter().map(|element| Field::<N>::from_str(element)).collect()
+        tree.iter()
+            .map(|element| {
+                if element.ends_with("field") {
+                    Field::<N>::from_str(element)
+                } else {
+                    Field::<N>::from_str(&format!("{element}field"))
+                }
+            })
+            .collect()
     }
 
     /// Hashes two field elements using Poseidon4 with the given prefix for domain separation.
     ///
-    /// JS equivalent: `SealanceMerkleTree.hashTwoElements()`.
-    /// Prefix is "1field" for leaf-level hashing, "0field" for internal node hashing.
-    fn hash_two_elements<N: Network>(
+    /// JS equivalent: `SealanceMerkleTree.hashTwoElements()` — but see the
+    /// module docs: JS hashes the *four-field array-Plaintext serialization*,
+    /// this hashes the three field values directly. Public here so callers can
+    /// build trees with the same recipe as [`Self::build_tree`].
+    ///
+    /// `prefix` is `Field::one()` ("1field") for leaf-level hashing and
+    /// `Field::zero()` ("0field") for internal node hashing.
+    pub fn hash_two_elements<N: Network>(
         prefix: Field<N>,
         el1: Field<N>,
         el2: Field<N>,
@@ -283,6 +355,52 @@ impl SealanceMerkleTree {
         let right_path = Self::get_sibling_path::<N>(&tree, right_idx, depth)?;
 
         Ok((left_path, right_path, left_idx, right_idx))
+    }
+
+    /// [`Self::generate_leaves`] using [`DEFAULT_TREE_DEPTH`].
+    ///
+    /// # Errors
+    ///
+    /// Fails when an address is invalid or the freeze list exceeds the depth.
+    pub fn generate_leaves_default<N: Network>(addresses: &[String]) -> Result<Vec<Field<N>>> {
+        Self::generate_leaves::<N>(addresses, DEFAULT_TREE_DEPTH)
+    }
+
+    /// [`Self::generate_exclusion_proof`] using [`DEFAULT_TREE_DEPTH`].
+    ///
+    /// # Errors
+    ///
+    /// Fails when an address is invalid or the freeze list exceeds the depth.
+    #[allow(clippy::type_complexity)]
+    pub fn generate_exclusion_proof_default<N: Network>(
+        addresses: &[String],
+        target_address: &str,
+    ) -> Result<(Vec<Field<N>>, Vec<Field<N>>, usize, usize)> {
+        Self::generate_exclusion_proof::<N>(addresses, target_address, DEFAULT_TREE_DEPTH)
+    }
+
+    /// [`Self::get_sibling_path`] packaged as the JS SDK's proof object.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `leaf_index` is out of range for `tree`.
+    pub fn get_sibling_path_object<N: Network>(
+        tree: &[Field<N>],
+        leaf_index: usize,
+        depth: u32,
+    ) -> Result<SiblingPath<N>> {
+        Ok(SiblingPath {
+            siblings: Self::get_sibling_path::<N>(tree, leaf_index, depth)?,
+            leaf_index,
+        })
+    }
+
+    /// Formats JS-shaped proof objects; identical output to
+    /// [`Self::format_merkle_proof`].
+    pub fn format_merkle_proof_from_paths<N: Network>(proofs: &[SiblingPath<N>]) -> String {
+        let tuples: Vec<(Vec<Field<N>>, usize)> =
+            proofs.iter().map(|proof| (proof.siblings.clone(), proof.leaf_index)).collect();
+        Self::format_merkle_proof(&tuples)
     }
 }
 
@@ -558,5 +676,163 @@ mod tests {
             format!("{err}").contains("even number"),
             "expected an even-length error, got: {err}"
         );
+    }
+
+    // ── JS SDK vectors (sdk/tests/sealance-merkle-tree.test.ts) ─────────
+
+    /// The Provable `merkle-tree` endpoint and the JS test suite both feed
+    /// **bare decimal strings** here. `Field::from_str("0")` rejects those, so
+    /// before this was fixed the very first step of building a proof failed.
+    #[test]
+    fn test_convert_tree_to_fields_accepts_bare_decimal_strings() {
+        let input = vec![
+            "0".to_string(),
+            "3501665755452795161867664882580888971213780722176652848275908626939553697821"
+                .to_string(),
+        ];
+        let fields = SealanceMerkleTree::convert_tree_to_fields::<N>(&input).unwrap();
+        assert_eq!(fields[0], Field::<N>::zero());
+        assert_eq!(
+            fields[1].to_string(),
+            "3501665755452795161867664882580888971213780722176652848275908626939553697821field"
+        );
+
+        // The `field`-suffixed form keeps working.
+        let suffixed = vec!["1field".to_string(), "0field".to_string()];
+        assert_eq!(
+            SealanceMerkleTree::convert_tree_to_fields::<N>(&suffixed).unwrap(),
+            vec![Field::<N>::one(), Field::<N>::zero()]
+        );
+
+        // Garbage still fails loudly rather than shrinking the tree.
+        assert!(SealanceMerkleTree::convert_tree_to_fields::<N>(&["nope".to_string()]).is_err());
+    }
+
+    /// JS `should sort leaves correctly` / `should filter ZERO_ADDRESS`.
+    #[test]
+    fn test_address_and_leaf_vectors_match_js() {
+        const A: &str = "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px";
+        const B: &str = "aleo1s3ws5tra87fjycnjrwsjcrnw2qxr8jfqqdugnf0xzqqw29q9m5pqem2u4t";
+        let a = "3501665755452795161867664882580888971213780722176652848275908626939553697821field";
+        let b = "1295133970529764960316948294624974168921228814652993007266766481909235735940field";
+        assert_eq!(
+            SealanceMerkleTree::convert_address_to_field::<N>(A).unwrap().to_string(),
+            a
+        );
+        assert_eq!(
+            SealanceMerkleTree::convert_address_to_field::<N>(B).unwrap().to_string(),
+            b
+        );
+
+        let leaves =
+            SealanceMerkleTree::generate_leaves_default::<N>(&[A.to_string(), B.to_string()])
+                .unwrap();
+        assert_eq!(
+            leaves.iter().map(|f| f.to_string()).collect::<Vec<_>>(),
+            [b, a]
+        );
+    }
+
+    /// End-to-end byte-for-byte vector from JS `formatMerkleProof should format
+    /// merkle proof correctly`. The tree is supplied by the endpoint, so no
+    /// hashing is involved: indices, sibling selection and the final program
+    /// input string must all match. JS `depth = 15` yields 15 siblings; this
+    /// crate yields `depth + 1`, so `depth = 14` is the equivalent call.
+    #[test]
+    fn test_js_formatted_proof_vector() {
+        let tree_strings: Vec<String> = [
+            "0",
+            "3501665755452795161867664882580888971213780722176652848275908626939553697821",
+            "4539470720491009302557179633742244202521723448302096289013203539461297095738",
+            "7426353931016374702593127301815460123689343416970811802742952620156952318730",
+            "7052697765310872540032307615262912043079143561812812402660738198777516992718",
+            "7162588494104628985065247846816902886874444240334527780589295712502521092900",
+            "7179654795269183001911849426990084952297107287660910339902947270666145459461",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let tree = SealanceMerkleTree::convert_tree_to_fields::<N>(&tree_strings).unwrap();
+        let target = "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px";
+        let (left, right) = SealanceMerkleTree::get_leaf_indices::<N>(&tree, target).unwrap();
+        assert_eq!(
+            (left, right),
+            (0, 1),
+            "JS vector brackets the target at 0/1"
+        );
+
+        let p1 = SealanceMerkleTree::get_sibling_path_object::<N>(&tree, left, 14).unwrap();
+        let p2 = SealanceMerkleTree::get_sibling_path_object::<N>(&tree, right, 14).unwrap();
+        assert_eq!(p1.leaf_index, 0);
+        assert_eq!(p2.leaf_index, 1);
+        assert_eq!(p1.siblings.len(), 15);
+        assert_eq!(p2.siblings.len(), 15);
+
+        let formatted =
+            SealanceMerkleTree::format_merkle_proof_from_paths(&[p1.clone(), p2.clone()]);
+        assert_eq!(
+            formatted,
+            "[{siblings: [0field, 3501665755452795161867664882580888971213780722176652848275908626939553697821field, 7162588494104628985065247846816902886874444240334527780589295712502521092900field, 0field, 0field, 0field, 0field, 0field, 0field, 0field, 0field, 0field, 0field, 0field, 0field], leaf_index: 0u32}, {siblings: [3501665755452795161867664882580888971213780722176652848275908626939553697821field, 0field, 7162588494104628985065247846816902886874444240334527780589295712502521092900field, 0field, 0field, 0field, 0field, 0field, 0field, 0field, 0field, 0field, 0field, 0field, 0field], leaf_index: 1u32}]"
+        );
+        // The tuple-based entry point must produce the identical string.
+        assert_eq!(
+            formatted,
+            SealanceMerkleTree::format_merkle_proof(&[
+                (p1.siblings, p1.leaf_index),
+                (p2.siblings, p2.leaf_index)
+            ])
+        );
+    }
+
+    /// Pins **both** Poseidon recipes (see module docs). JS hashes the 4-field
+    /// array-Plaintext serialization; this crate hashes the 3 field values.
+    /// Neither value may drift, and they must stay different.
+    #[test]
+    fn test_hash_two_elements_recipes_are_both_pinned() {
+        use snarkvm::prelude::{Plaintext, ToFields};
+        let one = Field::<N>::one();
+        let three = Field::<N>::from_str("3field").unwrap();
+        let four = Field::<N>::from_str("4field").unwrap();
+
+        let ours = SealanceMerkleTree::hash_two_elements::<N>(one, three, four).unwrap();
+        assert_eq!(
+            ours.to_string(),
+            "1462380410393973232568205568760787070125811435977424069183384975770991170746field"
+        );
+
+        let fields =
+            Plaintext::<N>::from_str("[1field,3field,4field]").unwrap().to_fields().unwrap();
+        assert_eq!(
+            fields.len(),
+            4,
+            "JS hashes the array serialization, not the three field values"
+        );
+        let js = N::hash_psd4(&fields).unwrap();
+        assert_eq!(
+            js.to_string(),
+            "4560646903308595113151029585344265575242682454899063992850623350939538444867field"
+        );
+        assert_ne!(ours, js);
+    }
+
+    #[test]
+    fn test_default_depth_convenience_methods() {
+        const A: &str = "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px";
+        const B: &str = "aleo1s3ws5tra87fjycnjrwsjcrnw2qxr8jfqqdugnf0xzqqw29q9m5pqem2u4t";
+        const TARGET: &str = "aleo1kypwp5m7qtk9mwazgcpg0tq8aal23mnrvwfvug65qgcg9xvsrqgspyjm6n";
+        let addresses = vec![A.to_string(), B.to_string()];
+
+        assert_eq!(DEFAULT_TREE_DEPTH, 15);
+        assert_eq!(
+            SealanceMerkleTree::generate_leaves_default::<N>(&addresses).unwrap(),
+            SealanceMerkleTree::generate_leaves::<N>(&addresses, 15).unwrap()
+        );
+        assert_eq!(
+            SealanceMerkleTree::generate_exclusion_proof_default::<N>(&addresses, TARGET).unwrap(),
+            SealanceMerkleTree::generate_exclusion_proof::<N>(&addresses, TARGET, 15).unwrap()
+        );
+        let (left, _, _, _) =
+            SealanceMerkleTree::generate_exclusion_proof_default::<N>(&addresses, TARGET).unwrap();
+        assert_eq!(left.len(), 16, "depth 15 emits the on-chain [field; 16u32]");
     }
 }

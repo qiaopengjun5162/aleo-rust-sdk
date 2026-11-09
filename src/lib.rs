@@ -161,3 +161,4 @@ pub use scanner::{
     EncryptedRecord, EncryptedRecordsFilter, OwnedFilter, OwnedRecord, OwnedRecordsResponseFilter,
     RecordScanService, RecordsResponseFilter, Registration, compute_uuid,
 };
+pub use sealance::{DEFAULT_TREE_DEPTH, SealanceMerkleTree, SiblingPath};
