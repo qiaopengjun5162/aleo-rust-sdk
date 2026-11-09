@@ -158,6 +158,6 @@ pub use network::{AleoHttpClient, ConfirmationPoll, FixedStateRootQuery, Provabl
 pub use options::AleoNetworkOptions;
 pub use program::AleoProgram;
 pub use scanner::{
-    EncryptedRecord, EncryptedRecordsFilter, OwnedFilter, OwnedRecord, RecordScanService,
-    Registration,
+    EncryptedRecord, EncryptedRecordsFilter, OwnedFilter, OwnedRecord, OwnedRecordsResponseFilter,
+    RecordScanService, RecordsResponseFilter, Registration, compute_uuid,
 };

@@ -382,7 +382,12 @@ pub struct HostedScanner {
     start_block: u32,
     /// Applied on every query. Defaults to no filter, which is the only setting
     /// that keeps `spent` current — see [`Self::with_filter`].
-    filter: OwnedFilter,
+    ///
+    /// Boxed because `OwnedFilter` carries the (optional) response-column
+    /// filter: keeping it inline makes `HostedScanner` large enough that
+    /// [`RecordSource`] trips `clippy::large_enum_variant` against its small
+    /// `Local` variant.
+    filter: Box<OwnedFilter>,
     uuid: Option<String>,
 }
 
@@ -392,7 +397,7 @@ impl HostedScanner {
         Self {
             service,
             start_block,
-            filter: OwnedFilter::default(),
+            filter: Box::new(OwnedFilter::default()),
             uuid: None,
         }
     }
@@ -405,7 +410,7 @@ impl HostedScanner {
     /// [`OwnedFilter::unspent`] makes responses smaller but freezes cached
     /// spend status at whatever it was when the record first appeared.
     pub fn with_filter(mut self, filter: OwnedFilter) -> Self {
-        self.filter = filter;
+        self.filter = Box::new(filter);
         self
     }
 
@@ -486,7 +491,7 @@ impl HostedScanner {
         }
         let uuid = self.uuid.clone().context("registration returned no uuid")?;
 
-        match self.service.records_owned(&uuid, self.filter.clone()).await {
+        match self.service.records_owned(&uuid, (*self.filter).clone()).await {
             Ok(records) => Ok(records),
             Err(err) if err.downcast_ref::<StaleRegistration>().is_some() => {
                 // A stale uuid stays stale: exactly one re-registration, then
@@ -494,7 +499,7 @@ impl HostedScanner {
                 tracing::warn!("Scanner rejected the uuid; re-registering once");
                 self.register(view_key).await?;
                 let uuid = self.uuid.clone().context("registration returned no uuid")?;
-                self.service.records_owned(&uuid, self.filter.clone()).await
+                self.service.records_owned(&uuid, (*self.filter).clone()).await
             }
             Err(err) => Err(err),
         }

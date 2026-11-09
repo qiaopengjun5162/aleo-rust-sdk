@@ -19,7 +19,7 @@
 //! |-------|--------|------|----------|
 //! | `/pubkey` | GET | — | `{key_id, public_key}` |
 //! | `/register/encrypted` | POST | `{key_id, ciphertext}` | `{uuid, status?}` |
-//! | `/records/owned` | POST | `{uuid, unspent?, filter?}` | array of records |
+//! | `/records/owned` | POST | `{uuid, unspent?, filter?, responseFilter?}` | array of records |
 //! | `/records/encrypted` | POST | `RecordsFilter` | array of encrypted records |
 //! | `/records/sns` | POST | `[serial_number, …]` | `{sn: bool}` spent map |
 //! | `/records/tags` | POST | `[tag, …]` | `{tag: bool}` spent map |
@@ -37,6 +37,25 @@
 //! `/status` and `/revoke` take a **bare JSON string**, not `{"uuid": ...}`.
 //! The guide also omits that `/records/owned` may answer either with an array or
 //! with `{"data": [...]}`; both are accepted here.
+//!
+//! ## Parity with the JS `RecordScanner`
+//!
+//! [`compute_uuid`] reproduces the JS `computeUUID(viewKey)`: a Poseidon4 hash
+//! of the `"RecordScannerV0"` domain separator, the view key as a field, and
+//! `1field`. It is what the service returns as `uuid` on registration, so it
+//! lets a caller derive the identifier offline (e.g. to validate a stored one).
+//!
+//! The JS `findRecord` / `findCreditsRecord` / `findCreditsRecords` helpers are
+//! provided as methods on [`RecordScanService`]. Unlike the JS SDK they take
+//! the `uuid` and the [`ViewKey`] explicitly instead of storing them on the
+//! client: a view key is too sensitive to keep alive for the lifetime of an
+//! HTTP client, and local decryption ([`OwnedRecord::decrypt`]) means the
+//! service never has to return a plaintext we would then have to distrust.
+//!
+//! Note the two credits helpers filter **differently**: `find_credits_record`
+//! takes the first record with *at least* the requested amount, while
+//! `find_credits_records` keeps records whose amount *exactly equals* one of
+//! the supplied amounts. That asymmetry is in the JS SDK too.
 //!
 //! ## Registration plaintext
 //!
@@ -84,7 +103,7 @@
 use anyhow::{Context, Result, bail};
 use reqwest::header::{CONTENT_TYPE, COOKIE, SET_COOKIE};
 use serde::{Deserialize, Serialize};
-use snarkvm::prelude::{TestnetV0, ViewKey};
+use snarkvm::prelude::{Field, Network, One, TestnetV0, ToField, ViewKey};
 use snarkvm::utilities::ToBytes;
 use std::collections::HashMap;
 use std::fmt;
@@ -136,6 +155,32 @@ pub fn seal_registration(
     plaintext.extend_from_slice(&start_block.to_le_bytes());
 
     crate::hosted::seal_sealed_box(recipient_public_key_b64, &plaintext)
+}
+
+// ── UUID ─────────────────────────────────────────────────────────────────
+
+/// Domain separator the JS SDK hashes into a scanner UUID (`RECORD_DOMAIN`).
+const RECORD_SCANNER_DOMAIN: &str = "RecordScannerV0";
+
+/// Derive the record-scanner `uuid` for `view_key` (JS `computeUUID`).
+///
+/// The JS SDK computes `Poseidon4.hash([Field.newDomainSeparator(
+/// "RecordScannerV0"), viewKey.toField(), Field.one()])`. snarkVM exposes the
+/// same three primitives as [`Field::new_domain_separator`], [`ToField::to_field`]
+/// and [`Network::hash_psd4`], so this produces the same `field` literal that
+/// the service returns as `uuid` on registration — without a round trip.
+///
+/// # Errors
+///
+/// Fails if the view key cannot be represented as a field element or the hash
+/// itself fails.
+pub fn compute_uuid(view_key: &ViewKey<TestnetV0>) -> Result<Field<TestnetV0>> {
+    let domain = Field::<TestnetV0>::new_domain_separator(RECORD_SCANNER_DOMAIN);
+    let view_key_field = view_key
+        .to_field()
+        .map_err(|error| anyhow::anyhow!("Failed to convert view key to a field: {error}"))?;
+    TestnetV0::hash_psd4(&[domain, view_key_field, Field::one()])
+        .map_err(|error| anyhow::anyhow!("Failed to compute record scanner UUID: {error}"))
 }
 
 // ── Encrypted-record scan filter ─────────────────────────────────────────
@@ -218,6 +263,48 @@ pub struct EncryptedRecordsFilter {
 
 // ── Queries ──────────────────────────────────────────────────────────────
 
+/// Which fields `/records/owned` should include in each returned record.
+///
+/// Mirrors the JS `OwnedRecordsResponseFilter`: every column is opt-in, and
+/// only `Some(true)` fields are requested. The field set deliberately differs
+/// from [`RecordsResponseFilter`] — the encrypted-ledger scan exposes
+/// `checksum` / `nonce` / `sender_ciphertext` but no `tag` / `sender` / `spent`.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct OwnedRecordsResponseFilter {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commitment: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sender: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_ciphertext: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_height: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_timestamp: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_index: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_name: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function_name: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub program_name: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transition_id: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_index: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transition_index: Option<bool>,
+}
+
 /// Filter applied server-side by `/records/owned`.
 ///
 /// `unspent` is the only filter that changes *correctness* (spending a spent
@@ -233,6 +320,10 @@ pub struct OwnedFilter {
     pub program: Option<String>,
     /// Restrict to one record name, e.g. `"credits"`.
     pub record: Option<String>,
+    /// Lowest block height to scan (JS `filter.start`).
+    pub start: Option<u32>,
+    /// Which columns the response should include (JS `responseFilter`).
+    pub response_filter: Option<OwnedRecordsResponseFilter>,
 }
 
 impl OwnedFilter {
@@ -255,6 +346,19 @@ impl OwnedFilter {
         self.record = Some(record.into());
         self
     }
+
+    /// Start scanning at `start` (JS `filter.start`).
+    pub fn start(mut self, start: u32) -> Self {
+        self.start = Some(start);
+        self
+    }
+
+    /// Ask for only the columns enabled in `response_filter` (JS
+    /// `responseFilter`).
+    pub fn response_filter(mut self, response_filter: OwnedRecordsResponseFilter) -> Self {
+        self.response_filter = Some(response_filter);
+        self
+    }
 }
 
 /// The `/records/owned` request body.
@@ -271,7 +375,7 @@ fn owned_payload(uuid: &str, filter: &OwnedFilter) -> serde_json::Value {
 
     // `filter` is omitted entirely when nothing is set, rather than sent as an
     // empty object: an empty filter is not obviously a no-op to the service.
-    if filter.program.is_some() || filter.record.is_some() {
+    if filter.program.is_some() || filter.record.is_some() || filter.start.is_some() {
         let mut inner = serde_json::Map::new();
         if let Some(program) = &filter.program {
             inner.insert("program".into(), program.clone().into());
@@ -279,7 +383,18 @@ fn owned_payload(uuid: &str, filter: &OwnedFilter) -> serde_json::Value {
         if let Some(record) = &filter.record {
             inner.insert("record".into(), record.clone().into());
         }
+        if let Some(start) = filter.start {
+            inner.insert("start".into(), start.into());
+        }
         payload["filter"] = serde_json::Value::Object(inner);
+    }
+
+    // The JS SDK sends this as camelCase `responseFilter`; deriving Serialize
+    // on OwnedFilter would produce `response_filter`, so insert it explicitly.
+    // Only Option<bool> fields are involved, so serialization cannot fail.
+    if let Some(response_filter) = &filter.response_filter {
+        payload["responseFilter"] = serde_json::to_value(response_filter)
+            .expect("OwnedRecordsResponseFilter is always serializable");
     }
 
     payload
@@ -598,6 +713,96 @@ impl RecordScanService {
         parse_owned_records(&body)
     }
 
+    /// Return the first record matching `filter` (JS `findRecord`).
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`RecordScanService::records_owned`] errors, and fails with
+    /// `Record not found` when the scanner returned an empty list.
+    pub async fn find_record(&self, uuid: &str, filter: OwnedFilter) -> Result<OwnedRecord> {
+        let records = self.records_owned(uuid, filter).await?;
+        records.into_iter().next().context("Record not found")
+    }
+
+    /// Return the first `credits.aleo` record holding *at least* `microcredits`
+    /// (JS `findCreditsRecord`).
+    ///
+    /// `view_key` is used only locally: ciphertexts are decrypted in-process,
+    /// so a `record_plaintext` supplied by the service is never trusted.
+    /// Records that fail to decrypt are skipped, exactly as the JS SDK skips
+    /// records without a usable plaintext.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the `/records/owned` errors; fails when no record holds the
+    /// requested amount.
+    pub async fn find_credits_record(
+        &self,
+        uuid: &str,
+        microcredits: u64,
+        view_key: &ViewKey<TestnetV0>,
+        filter: OwnedFilter,
+    ) -> Result<OwnedRecord> {
+        let records = self.credits_records(uuid, view_key, filter).await?;
+        records
+            .into_iter()
+            .find(|(_, amount)| *amount >= microcredits)
+            .map(|(record, _)| record)
+            .with_context(|| {
+                format!("No credits.aleo record with at least {microcredits} microcredits")
+            })
+    }
+
+    /// Return records whose amount *exactly equals* one of
+    /// `microcredit_amounts` (JS `findCreditsRecords`).
+    ///
+    /// Unlike [`RecordScanService::find_credits_record`] this is an exact
+    /// membership test, and an empty result is not an error.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the `/records/owned` errors.
+    pub async fn find_credits_records(
+        &self,
+        uuid: &str,
+        microcredit_amounts: &[u64],
+        view_key: &ViewKey<TestnetV0>,
+        filter: OwnedFilter,
+    ) -> Result<Vec<OwnedRecord>> {
+        let records = self.credits_records(uuid, view_key, filter).await?;
+        Ok(records
+            .into_iter()
+            .filter(|(_, amount)| microcredit_amounts.contains(amount))
+            .map(|(record, _)| record)
+            .collect())
+    }
+
+    /// Fetch `credits.aleo` records and decrypt their amounts locally.
+    async fn credits_records(
+        &self,
+        uuid: &str,
+        view_key: &ViewKey<TestnetV0>,
+        filter: OwnedFilter,
+    ) -> Result<Vec<(OwnedRecord, u64)>> {
+        let mut filter = filter;
+        // Both JS helpers hard-code credits.aleo/credits and default `unspent`
+        // to true. Keep the caller's other fields (start, responseFilter).
+        filter.program = Some("credits.aleo".to_string());
+        filter.record = Some("credits".to_string());
+        if filter.unspent.is_none() {
+            filter.unspent = Some(true);
+        }
+
+        let records = self.records_owned(uuid, filter).await?;
+        Ok(records
+            .into_iter()
+            .filter_map(|record| {
+                let amount = record.decrypt(view_key).ok()?.microcredits;
+                Some((record, amount))
+            })
+            .collect())
+    }
+
     /// Ask how far the scan for `uuid` has progressed.
     pub async fn status(&self, uuid: &str) -> Result<ScanStatus> {
         let headers = self.auth.headers().await?;
@@ -903,7 +1108,7 @@ mod tests {
     use super::*;
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD as BASE64;
-    use snarkvm::prelude::PrivateKey;
+    use snarkvm::prelude::{PrivateKey, Zero};
     use snarkvm::utilities::rand::TestRng;
 
     fn view_key() -> ViewKey<TestnetV0> {
@@ -955,6 +1160,91 @@ mod tests {
         // No filters at all: no `unspent`, no `filter` object.
         let bare = owned_payload("uuid-1", &OwnedFilter::default());
         assert_eq!(bare, serde_json::json!({ "uuid": "uuid-1" }));
+    }
+
+    #[test]
+    fn owned_payload_sends_start_and_camel_case_response_filter() {
+        let response_filter = OwnedRecordsResponseFilter {
+            commitment: Some(true),
+            record_ciphertext: Some(true),
+            ..Default::default()
+        };
+        let payload = owned_payload(
+            "uuid-1",
+            &OwnedFilter::unspent()
+                .program("credits.aleo")
+                .record_name("credits")
+                .start(42)
+                .response_filter(response_filter),
+        );
+
+        assert_eq!(payload["uuid"], "uuid-1");
+        assert_eq!(payload["filter"]["start"], 42);
+        assert_eq!(
+            payload["responseFilter"],
+            serde_json::json!({ "commitment": true, "record_ciphertext": true }),
+            "only the set columns go on the wire, under the JS camelCase key"
+        );
+        assert!(
+            payload.get("response_filter").is_none(),
+            "the Rust field name must not leak onto the wire"
+        );
+        assert!(
+            payload["filter"].get("end").is_none(),
+            "start must not imply any other filter field"
+        );
+
+        // Unset: neither key appears at all (not even as an empty object).
+        let bare = owned_payload("uuid-1", &OwnedFilter::default());
+        assert!(bare.get("responseFilter").is_none());
+        assert!(bare.get("filter").is_none());
+    }
+
+    #[test]
+    fn compute_uuid_is_deterministic_and_view_key_specific() {
+        let vk = view_key();
+        let uuid = compute_uuid(&vk).unwrap();
+        assert_eq!(compute_uuid(&vk).unwrap(), uuid, "same key, same uuid");
+
+        // A second draw from the same deterministic RNG yields a different key.
+        let mut rng = TestRng::default();
+        let _ = PrivateKey::<TestnetV0>::new(&mut rng).unwrap();
+        let other_pk = PrivateKey::<TestnetV0>::new(&mut rng).unwrap();
+        let other_vk = ViewKey::try_from(&other_pk).unwrap();
+        assert_ne!(vk, other_vk);
+        assert_ne!(
+            compute_uuid(&other_vk).unwrap(),
+            uuid,
+            "a different view key must not collide"
+        );
+
+        // The JS recipe is hash_psd4([domain_separator, vk.to_field(), 1]).
+        // The domain is written as a literal rather than the module constant,
+        // so changing the constant alone cannot keep this test green.
+        let domain = Field::<TestnetV0>::new_domain_separator("RecordScannerV0");
+        let restated =
+            TestnetV0::hash_psd4(&[domain, vk.to_field().unwrap(), Field::one()]).unwrap();
+        assert_eq!(uuid, restated);
+        assert_ne!(
+            uuid,
+            TestnetV0::hash_psd4(&[
+                Field::<TestnetV0>::new_domain_separator("GraphKeyV0"),
+                vk.to_field().unwrap(),
+                Field::one()
+            ])
+            .unwrap(),
+            "a different domain separator must change the uuid"
+        );
+        assert_ne!(
+            uuid,
+            TestnetV0::hash_psd4(&[domain, vk.to_field().unwrap(), Field::<TestnetV0>::zero()])
+                .unwrap(),
+            "the JS recipe ends in Field::one(), not zero"
+        );
+        assert!(
+            uuid.to_string().ends_with("field"),
+            "uuid must be an Aleo field literal"
+        );
     }
 
     #[test]
