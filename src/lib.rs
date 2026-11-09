@@ -17,6 +17,7 @@
 //! |--------|---------|
 //! | [`account`] | Key chain, encrypted-key storage, signing, per-record view keys |
 //! | [`address`] | JS `Address` parity: plaintext form, program addresses, arbitrary-address verification |
+//! | [`signature`] | JS `Signature` parity: signing and verifying Aleo *values*, plaintext form |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions |
@@ -146,6 +147,7 @@ pub mod program;
 pub mod record;
 pub mod scanner;
 pub mod sealance;
+pub mod signature;
 pub mod version;
 
 // Re-export the main types at the crate root for convenience
