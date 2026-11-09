@@ -17,7 +17,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use snarkvm::prelude::{Program, ProgramID, TestnetV0};
+use snarkvm::prelude::{Address, Program, ProgramID, TestnetV0};
 use std::str::FromStr;
 
 /// A loaded Aleo program for TestnetV0.
@@ -51,6 +51,14 @@ impl AleoProgram {
         self.program.id()
     }
 
+    /// Return the program's address (`HashToGroup_psd4` of name and network).
+    ///
+    /// Equivalent to the JS `Address.fromProgramId(programId)` for this
+    /// program's ID; see [`crate::address::from_program_id`].
+    pub fn address(&self) -> Result<Address<TestnetV0>> {
+        self.program.id().to_address().context("Failed to derive the program address")
+    }
+
     /// Return a reference to the inner snarkVM `Program`.
     pub fn inner(&self) -> &Program<TestnetV0> {
         &self.program
@@ -70,6 +78,15 @@ mod tests {
     fn test_credits_program() {
         let prog = AleoProgram::credits().unwrap();
         assert!(prog.id().to_string().contains("credits.aleo"));
+    }
+
+    #[test]
+    fn test_program_address_matches_from_program_id() {
+        let prog = AleoProgram::credits().unwrap();
+        assert_eq!(
+            prog.address().unwrap(),
+            crate::address::from_program_id::<TestnetV0>("credits.aleo").unwrap()
+        );
     }
 
     #[test]
