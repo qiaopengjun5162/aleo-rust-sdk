@@ -25,6 +25,7 @@
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions; plus `Execution` object parity (proof/state-root/transitions, height-aware verification) |
+//! | [`execution_response`] | JS `ExecutionResponse` parity: the off-chain result bundle (outputs, program, keys) and its consuming key getters |
 //! | [`credits`] | credits.aleo value operations: transfers, joins, splits, staking |
 //! | [`delegated`] | Delegated proving: hand the proof to Provable's TEE prover |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
@@ -147,6 +148,7 @@ pub mod credits;
 pub mod delegated;
 pub mod encryption;
 pub mod execution;
+pub mod execution_response;
 pub mod hosted;
 pub mod keys;
 pub mod network;
@@ -168,6 +170,7 @@ pub use client::{AleoClient, PipelineFee};
 pub use credits::{CreditsCall, TransferKind};
 pub use delegated::{ApiAuth, DelegatedProver, ProvingRequest, ProvingResponse};
 pub use execution::{DeploymentKind, ExecutionEngine, consensus_version_to_varuna};
+pub use execution_response::{ExecutionKeys, ExecutionResponse};
 pub use keys::{
     AleoKeyProvider, AleoKeyProviderParams, CreditsFunction, FunctionKeyPair, KeyByteTransport,
     OfflineKeyProvider, ReqwestKeyTransport,
