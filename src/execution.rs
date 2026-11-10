@@ -19,10 +19,11 @@ use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use snarkvm::algorithms::snark::varuna::VarunaVersion;
 use snarkvm::circuit::AleoTestnetV0;
+use snarkvm::console::network::Network;
 use snarkvm::console::program::{
     Identifier, Plaintext, ProgramID, ProgramOwner, Record, RegisterType, Value, ValueType,
 };
-use snarkvm::ledger::block::{Deployment, Execution, Transaction};
+use snarkvm::ledger::block::{Deployment, Execution, Transaction, Transition};
 use snarkvm::prelude::{
     Address, Authorization, ComputeKey, ConsensusVersion, CryptoRng, Field, InclusionVersion,
     PrivateKey, Process, Program, Response, Rng, TestRng, TestnetV0,
@@ -37,6 +38,76 @@ use std::sync::Arc;
 
 /// Custom query trait for state root fetching.
 pub use snarkvm::ledger::query::QueryTrait;
+
+// ── `Execution` object parity (JS SDK `WASM → Execution` page) ─────────────
+//
+// The wasm class wraps snarkVM's `Execution` and exposes five instance
+// methods. Four are already native; only the proof/state-root/transitions
+// accessors need a thin shell because the JS binding's *string* contract
+// differs from the native *typed* one.
+//
+// | # | JS `Execution`                | Rust equivalent                                  |
+// |---|--------------------------------|-------------------------------------------------|
+// | 1 | `e.toString()`                 | `e.to_string()` (`Display`, JSON)                |
+// | 2 | `Execution.fromString(s)`      | `Execution::<N>::from_str(s)`                    |
+// | 3 | `e.globalStateRoot()` → string | `execution::global_state_root_string(&e)`         |
+// | 4 | `e.proof()` → string (or `""`) | `execution::proof_string(&e)`                     |
+// | 5 | `e.transitions()` → array      | `execution::transitions(&e)`                      |
+//
+// The page also documents three free functions that operate on an execution:
+// `verifyFunctionExecution`, `snarkVerify`, and `snarkVerifyBatch`. The first
+// is a per-program, height-aware verification — see
+// [`ExecutionEngine::verify_execution_at_height`]; the latter two are covered
+// by [`snarkvm::synthesizer::snark::VerifyingKey`] directly (the page is a
+// thin wrapper over `VerifyingKey::verify` / `verify_batch`).
+
+/// JS `Execution.globalStateRoot()` — the global state root rendered as a field
+/// literal string. Native [`Execution::global_state_root`] returns the raw
+/// `N::StateRoot` field; the JS binding renders it, so this does the same.
+pub fn global_state_root_string<N: Network>(execution: &Execution<N>) -> String {
+    execution.global_state_root().to_string()
+}
+
+/// JS `Execution.proof()` — the proof string, or **`""` when the execution has
+/// no proof** (for example before proving). Native [`Execution::proof`]
+/// returns `Option<&Proof>`; the wasm binding collapses `None` to the empty
+/// string rather than throwing, which is the trap to document: an absent proof
+/// is a value, not an error.
+pub fn proof_string<N: Network>(execution: &Execution<N>) -> String {
+    execution.proof().map(|proof| proof.to_string()).unwrap_or_default()
+}
+
+/// JS `Execution.transitions()` — every transition in execution order. Native
+/// [`Execution::transitions`] returns an iterator; the JS binding collects it
+/// into an array, so this does the same.
+pub fn transitions<N: Network>(execution: &Execution<N>) -> Vec<&Transition<N>> {
+    execution.transitions().collect()
+}
+
+/// Build the `ExecutionStack` map that [`Process::verify_execution`] requires.
+///
+/// snarkVM verifies each transition against the *stack* of the program that
+/// produced it, but the stack is looked up by program ID and reused across
+/// transitions of the same program. This walks the execution's transitions
+/// once under the process lock, cloning only `Arc<Stack>` (cheap). Shared by
+/// every verification path so the crate cannot drift between them.
+fn collect_execution_stacks(
+    process: &Process<TestnetV0>,
+    execution: &Execution<TestnetV0>,
+) -> Result<IndexMap<ProgramID<TestnetV0>, Arc<Stack<TestnetV0>>>> {
+    let mut execution_stacks: IndexMap<ProgramID<TestnetV0>, Arc<Stack<TestnetV0>>> =
+        IndexMap::new();
+    let guard = process.lock();
+    for transition in execution.transitions() {
+        let pid = *transition.program_id();
+        if !execution_stacks.contains_key(&pid) {
+            let stack = guard.get_stack(pid).context("Missing stack for verification")?;
+            execution_stacks.insert(pid, stack.clone());
+        }
+    }
+    drop(guard);
+    Ok(execution_stacks)
+}
 
 /// Fee key loader — injects proving/verifying keys for testnet fee_public.
 mod fee_keys {
@@ -983,6 +1054,45 @@ impl ExecutionEngine {
 
     // ── Verification ─────────────────────────────────────────────────────
 
+    /// Verify an **execute** transaction's proof at a specific block height.
+    ///
+    /// The program must already be registered in this engine via `add_program()`.
+    /// `block_height` selects the inclusion-proof version: heights at or past the
+    /// network's inclusion-upgrade height use `InclusionVersion::V1`, earlier
+    /// blocks use `V0`. The consensus version — and therefore the Varuna version
+    /// — is derived from `block_height` via [`TestnetV0::CONSENSUS_VERSION`].
+    ///
+    /// Returns `Ok(false)` for an invalid proof rather than `Err`, mirroring the
+    /// JS SDK's `Execution.verifyFunctionExecution` (which swallows the error and
+    /// returns a boolean). Use [`Self::verify_execution_transaction`] when you
+    /// want the error chain instead.
+    pub fn verify_execution_at_height(
+        &self,
+        execution: &snarkvm::ledger::block::Execution<TestnetV0>,
+        block_height: u32,
+    ) -> Result<bool> {
+        let consensus_version = TestnetV0::CONSENSUS_VERSION(block_height)
+            .context("Block height maps to no consensus version")?;
+        let varuna_version = consensus_version_to_varuna(consensus_version);
+        let inclusion_version = if block_height
+            >= TestnetV0::INCLUSION_UPGRADE_HEIGHT()
+                .context("Failed to read the inclusion upgrade height")?
+        {
+            InclusionVersion::V1
+        } else {
+            InclusionVersion::V0
+        };
+        let execution_stacks = collect_execution_stacks(&self.process, execution)?;
+        Ok(Process::<TestnetV0>::verify_execution(
+            consensus_version,
+            varuna_version,
+            inclusion_version,
+            execution,
+            &execution_stacks,
+        )
+        .is_ok())
+    }
+
     /// Verify an **execute** transaction's proof.
     ///
     /// The program must already be registered in this engine via `add_program()`.
@@ -992,19 +1102,7 @@ impl ExecutionEngine {
         consensus_version: ConsensusVersion,
     ) -> Result<()> {
         let varuna_version = consensus_version_to_varuna(consensus_version);
-        // Build execution stacks from the process
-        let mut execution_stacks: IndexMap<ProgramID<TestnetV0>, Arc<Stack<TestnetV0>>> =
-            IndexMap::new();
-        let guard = self.process.lock();
-        for t in execution.transitions() {
-            let pid = *t.program_id();
-            if !execution_stacks.contains_key(&pid) {
-                let stack = guard.get_stack(pid).context("Missing stack for verification")?;
-                execution_stacks.insert(pid, stack.clone());
-            }
-        }
-        drop(guard);
-
+        let execution_stacks = collect_execution_stacks(&self.process, execution)?;
         Process::<TestnetV0>::verify_execution(
             consensus_version,
             varuna_version,
@@ -1026,5 +1124,53 @@ impl ExecutionEngine {
         self.process
             .verify_deployment::<AleoTestnetV0, _>(consensus_version, deployment, rng)
             .context("Deployment proof verification FAILED")
+    }
+}
+
+#[cfg(test)]
+mod parity_tests {
+    use super::*;
+    use snarkvm::ledger::block::Execution;
+
+    // The execution object's cheap accessors mirror the wasm binding's string
+    // contract. `Execution::new()` is an unproven, empty execution, which is
+    // exactly the shape that exposes the three JS-specific traps.
+
+    #[test]
+    fn execution_proof_is_empty_before_proving() {
+        // JS `Execution.proof()` returns "" (not an error) when there is no proof.
+        let execution = Execution::<TestnetV0>::new();
+        assert_eq!(proof_string(&execution), "");
+    }
+
+    #[test]
+    fn execution_state_root_defaults_to_the_zero_state_root() {
+        // `globalStateRoot()` renders the native state root, which is its own
+        // string type (a `sr1…` id), not a bare `0field`. The default execution
+        // therefore yields the zero state root's string form.
+        let execution = Execution::<TestnetV0>::new();
+        let rendered = global_state_root_string(&execution);
+        assert!(
+            rendered.starts_with("sr1"),
+            "unexpected state root: {rendered}"
+        );
+        assert_eq!(rendered, execution.global_state_root().to_string());
+    }
+
+    #[test]
+    fn execution_has_no_transitions_when_empty() {
+        // `transitions()` collects the iterator — empty here, but the same
+        // call yields every transition in execution order for a real execution.
+        let execution = Execution::<TestnetV0>::new();
+        assert!(transitions(&execution).is_empty());
+    }
+
+    #[test]
+    fn verify_execution_at_height_rejects_an_empty_execution() {
+        // An execution with no transitions cannot verify. JS returns `false`
+        // (not an error) for an invalid proof, and so does this method.
+        let engine = ExecutionEngine::new().unwrap();
+        let execution = Execution::<TestnetV0>::new();
+        assert!(!engine.verify_execution_at_height(&execution, 0).unwrap());
     }
 }
