@@ -28,6 +28,7 @@
 //! | [`execution_response`] | JS `ExecutionResponse` parity: the off-chain result bundle (outputs, program, keys) and its consuming key getters |
 //! | [`field`] | JS `Field` parity: negate-vs-inverse trap, strict/lossy casts, integer truncation semantics |
 //! | [`group`] | JS `Group` parity: x-coordinate-driven lossy casts, strict `fromField`, the correctly-named `inverse` |
+//! | [`keypair`] | JS `KeyPair` parity: the standalone take-once key bag, with the upstream error-message bug fixed |
 //! | [`credits`] | credits.aleo value operations: transfers, joins, splits, staking |
 //! | [`delegated`] | Delegated proving: hand the proof to Provable's TEE prover |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
@@ -154,6 +155,7 @@ pub mod execution_response;
 pub mod field;
 pub mod group;
 pub mod hosted;
+pub mod keypair;
 pub mod keys;
 pub mod network;
 pub mod options;
