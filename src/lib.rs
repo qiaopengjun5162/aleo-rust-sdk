@@ -32,6 +32,7 @@
 //! | [`offline_query`] | JS `OfflineQuery` parity: offline inclusion-proof query bundle (`QueryTrait` impl) and its setter/JSON traps |
 //! | [`plaintext`] | JS `Plaintext` parity: raw-vs-variant bits, `plaintextType` trap, `toObject` JSON mapping, `toBytesRawBe` reversal |
 //! | [`private_key`] | JS `PrivateKey` parity: JS-compatible `ciphertext1…` encrypted keys (Poseidon), seed recovery, RNG injection |
+//! | [`scalar`] | JS `Scalar` parity: negation-not-inverse trap, `toField`-bridged lossy casts, strict/lossy semantics |
 //! | [`credits`] | credits.aleo value operations: transfers, joins, splits, staking |
 //! | [`delegated`] | Delegated proving: hand the proof to Provable's TEE prover |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
@@ -167,6 +168,7 @@ pub mod plaintext;
 pub mod private_key;
 pub mod program;
 pub mod record;
+pub mod scalar;
 pub mod scanner;
 pub mod sealance;
 pub mod signature;
