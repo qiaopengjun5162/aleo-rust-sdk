@@ -30,6 +30,7 @@
 //! | [`group`] | JS `Group` parity: x-coordinate-driven lossy casts, strict `fromField`, the correctly-named `inverse` |
 //! | [`keypair`] | JS `KeyPair` parity: the standalone take-once key bag, with the upstream error-message bug fixed |
 //! | [`offline_query`] | JS `OfflineQuery` parity: offline inclusion-proof query bundle (`QueryTrait` impl) and its setter/JSON traps |
+//! | [`plaintext`] | JS `Plaintext` parity: raw-vs-variant bits, `plaintextType` trap, `toObject` JSON mapping, `toBytesRawBe` reversal |
 //! | [`credits`] | credits.aleo value operations: transfers, joins, splits, staking |
 //! | [`delegated`] | Delegated proving: hand the proof to Provable's TEE prover |
 //! | [`network`] | HTTP client for Aleo v2 JSON-RPC and REST endpoints |
@@ -161,6 +162,7 @@ pub mod keys;
 pub mod network;
 pub mod offline_query;
 pub mod options;
+pub mod plaintext;
 pub mod program;
 pub mod record;
 pub mod scanner;
