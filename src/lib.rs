@@ -39,6 +39,7 @@
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions; plus `Execution` object parity (proof/state-root/transitions, height-aware verification) |
 //! | [`execution_response`] | JS `ExecutionResponse` parity: the off-chain result bundle (outputs, program, keys) and its consuming key getters |
+//! | [`execution_request`] | JS `ExecutionRequest` parity: signed requests, the missing `is_dynamic` argument, and why `verify` re-derives every input |
 //! | [`field`] | JS `Field` parity: negate-vs-inverse trap, strict/lossy casts, integer truncation semantics |
 //! | [`group`] | JS `Group` parity: x-coordinate-driven lossy casts, strict `fromField`, the correctly-named `inverse` |
 //! | [`keypair`] | JS `KeyPair` parity: the standalone take-once key bag, with the upstream error-message bug fixed |
@@ -169,6 +170,7 @@ pub mod credits;
 pub mod delegated;
 pub mod encryption;
 pub mod execution;
+pub mod execution_request;
 pub mod execution_response;
 pub mod field;
 pub mod graph_key;
