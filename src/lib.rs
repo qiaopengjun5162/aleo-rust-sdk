@@ -33,7 +33,8 @@
 //! | [`proving_key`] | JS `ProvingKey` parity: checksum, copy, and string/byte serialization over the native key |
 //! | [`verifying_key`] | JS `VerifyingKey` parity: checksum, constraint count, and single/batch proof verification |
 //! | [`integer_types`] | JS `Integer Types` parity: the ten native integers, checked-halts semantics, lossy cross-casts |
-//! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
+//! | [`hash_functions`] | JS `Hash Functions` parity: the nine BHP/Pedersen/Poseidon defaults, the `toGroup` naming bridge, input-width traps |
+//! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key, plus the batch owned-record pass |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
 //! | [`execution`] | Authorize, execute, prove, and package transactions; plus `Execution` object parity (proof/state-root/transitions, height-aware verification) |
@@ -172,6 +173,7 @@ pub mod execution_response;
 pub mod field;
 pub mod graph_key;
 pub mod group;
+pub mod hash_functions;
 pub mod hosted;
 pub mod integer_types;
 pub mod keypair;
