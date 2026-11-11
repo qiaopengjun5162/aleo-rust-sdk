@@ -31,6 +31,7 @@
 //! | [`record_ciphertext`] | JS `RecordCiphertext` parity: view-key and record-view-key decryption, ownership, tag, encodings |
 //! | [`record_plaintext`] | JS `RecordPlaintext` parity: members, JSON view, commitments, serial numbers, sender recovery |
 //! | [`proving_key`] | JS `ProvingKey` parity: checksum, copy, and string/byte serialization over the native key |
+//! | [`verifying_key`] | JS `VerifyingKey` parity: checksum, constraint count, and single/batch proof verification |
 //! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
@@ -191,6 +192,7 @@ pub mod sealance;
 pub mod signature;
 pub mod transaction;
 pub mod transition;
+pub mod verifying_key;
 pub mod version;
 pub mod view_key;
 
