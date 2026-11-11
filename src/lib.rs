@@ -29,6 +29,7 @@
 //! | [`transition`] | JS `Transition` parity: native `Transition<N>` introspection, records, `tvk`, and `decryptTransition` |
 //! | [`program_parity`] | JS `Program` parity: introspection of functions, mappings, records, structs, imports |
 //! | [`record_ciphertext`] | JS `RecordCiphertext` parity: view-key and record-view-key decryption, ownership, tag, encodings |
+//! | [`record_plaintext`] | JS `RecordPlaintext` parity: members, JSON view, commitments, serial numbers, sender recovery |
 //! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
@@ -181,6 +182,7 @@ pub mod program;
 pub mod program_parity;
 pub mod record;
 pub mod record_ciphertext;
+pub mod record_plaintext;
 pub mod scalar;
 pub mod scanner;
 pub mod sealance;
