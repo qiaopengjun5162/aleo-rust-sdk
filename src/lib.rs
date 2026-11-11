@@ -22,6 +22,7 @@
 //! | [`ciphertext`] | JS `Ciphertext` parity: the three decryption keys and the `(program, function, index)` derivation |
 //! | [`signature`] | JS `Signature` parity: signing and verifying Aleo *values*, plaintext form |
 //! | [`transaction`] | JS `Transaction` parity: deploy/execute/fee wrapper — string/bytes, type checks, fee folding, record lookup, structured `summary` |
+//! | [`view_key`] | JS `ViewKey` parity: native type covers the page; `decrypt`, `toScalar`/`toField` casts, byte (de)serialization wrapped |
 //! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
@@ -175,6 +176,7 @@ pub mod sealance;
 pub mod signature;
 pub mod transaction;
 pub mod version;
+pub mod view_key;
 
 // Re-export the main types at the crate root for convenience
 pub use account::{AleoAccount, RecordPlaintext};
