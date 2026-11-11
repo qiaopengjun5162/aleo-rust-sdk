@@ -279,7 +279,10 @@ impl CreditsFunction {
 
 /// SHA-256 of a key's canonical bytes, hex-encoded — the same `checksum()`
 /// the JS SDK computes on `ProvingKey` / `VerifyingKey`.
-fn key_checksum(key: &impl ToBytes) -> Result<String> {
+///
+/// Shared with the `proving_key` / `verifying_key` parity pages so there is
+/// exactly one implementation of the upstream checksum formula.
+pub(crate) fn key_checksum(key: &impl ToBytes) -> Result<String> {
     Ok(hex::encode(Sha256::digest(key.to_bytes_le()?)))
 }
 
