@@ -8,7 +8,7 @@
 //! |------------------------|-----------------|--------|
 //! | `generateTvk(viewKey, tpk)` | `AleoAccount::generate_transition_view_key(tpk)` | existing |
 //! | `generateRecordViewKey(viewKey, ct)` | `AleoAccount::generate_record_view_key(ct)` | existing |
-//! | `decryptOwnedRecords(viewKey, cts)` | `AleoAccount::decrypt_records(cts)` | existing, **fail-fast** |
+//! | `decryptOwnedRecords(viewKey, cts)` | [`decrypt_owned_records`] | **added** |
 //! | `decryptRecordWithRVk(rvk, ct)` | [`decrypt_record_with_rvk`] | **added** |
 //! | `decryptTransitionWithVk(t, tvk)` | [`decrypt_transition_with_tvk`] | **added** |
 //! | `checkOwnedRecords(viewKey, cts)` | [`owned_records`] | **added** |
@@ -39,13 +39,13 @@
 //!   and record outputs carry ciphertexts, not field-level ciphertexts, so they
 //!   are left alone (the JS binding behaves identically).
 //!
-//! # Difference from `decryptOwnedRecords`
+//! # Difference from `AleoAccount::decrypt_records`
 //!
-//! JS decrypts every record in parallel and silently drops the ones that fail,
-//! so its output length can be shorter than its input. [`AleoAccount::decrypt_records`]
-//! is fail-fast by design. To reproduce the JS behaviour exactly, filter first
-//! with [`owned_records`] and then decrypt each survivor, or call
-//! [`decrypt_record_with_rvk`] per item and discard the errors.
+//! JS decrypts every record and silently drops the ones that fail, so its output
+//! length can be shorter than its input. [`AleoAccount::decrypt_records`] is
+//! fail-fast by design. [`decrypt_owned_records`] reproduces the JS contract
+//! (drop the failures, keep the order); reach for the fail-fast variant when a
+//! foreign ciphertext in the list means the caller made a mistake.
 //!
 //! [`AleoAccount::decrypt_records`]: crate::account::AleoAccount::decrypt_records
 //! [`Record::decrypt_symmetric_unchecked`]: snarkvm::prelude::Record::decrypt_symmetric_unchecked
@@ -223,6 +223,36 @@ where
     N: Network + 'a,
 {
     records.into_iter().filter(|record| record.is_owner(view_key)).collect()
+}
+
+/// Decrypt every ciphertext `view_key` owns, dropping the ones it does not —
+/// the JS `decryptOwnedRecords(viewKey, records)`.
+///
+/// This is the batch counterpart of [`owned_records`] plus
+/// [`decrypt_record_with_rvk`], with the JS failure policy: a ciphertext that
+/// does not decrypt **disappears** from the output rather than aborting the
+/// call, so the result can be shorter than the input and the survivors keep
+/// their relative order.
+///
+/// Ownership is checked here — unlike [`decrypt_record_with_rvk`] — because
+/// [`Record::decrypt`] verifies the owner before decrypting. A record whose
+/// data entries are corrupt, but whose owner decrypts, also disappears: the JS
+/// binding catches every failure the same way.
+///
+/// The JS docs describe this as running in parallel. snarkVM's decryption is
+/// CPU-bound and synchronous per record, so this walks the list in order; what
+/// is reproduced is the observable contract (drop failures, keep order), not
+/// the scheduling.
+///
+/// [`Record::decrypt`]: snarkvm::prelude::Record::decrypt
+pub fn decrypt_owned_records<'a, N>(
+    view_key: &ViewKey<N>,
+    records: impl IntoIterator<Item = &'a Record<N, Ciphertext<N>>>,
+) -> Vec<Record<N, Plaintext<N>>>
+where
+    N: Network + 'a,
+{
+    records.into_iter().filter_map(|record| record.decrypt(view_key).ok()).collect()
 }
 
 #[cfg(test)]
@@ -469,5 +499,27 @@ mod tests {
         let owned = owned_records(&ours, &all);
         assert_eq!(owned.len(), 1);
         assert_eq!(owned[0], &mine);
+    }
+
+    /// The JS contract: foreign ciphertexts disappear, survivors keep their
+    /// order, and the call does not fail.
+    #[test]
+    fn decrypt_owned_records_drops_foreign_ciphertexts() {
+        let mut rng = TestRng::default();
+        let ours = ViewKey::try_from(&PrivateKey::new(&mut rng).unwrap()).unwrap();
+        let theirs = ViewKey::try_from(&PrivateKey::new(&mut rng).unwrap()).unwrap();
+
+        let (our_record, our_randomizer) =
+            record_owned_by(Address::<N>::try_from(&ours).unwrap(), &mut rng);
+        let (our_ciphertext, _) = our_record.encrypt_symmetric(our_randomizer).unwrap();
+
+        let (their_record, their_randomizer) =
+            record_owned_by(Address::<N>::try_from(&theirs).unwrap(), &mut rng);
+        let (their_ciphertext, _) = their_record.encrypt_symmetric(their_randomizer).unwrap();
+
+        // Foreign first, ours second: order must survive the drop.
+        let all = vec![their_ciphertext, our_ciphertext];
+        let decrypted = decrypt_owned_records(&ours, &all);
+        assert_eq!(decrypted, vec![our_record]);
     }
 }
