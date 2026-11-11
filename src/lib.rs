@@ -32,6 +32,7 @@
 //! | [`record_plaintext`] | JS `RecordPlaintext` parity: members, JSON view, commitments, serial numbers, sender recovery |
 //! | [`proving_key`] | JS `ProvingKey` parity: checksum, copy, and string/byte serialization over the native key |
 //! | [`verifying_key`] | JS `VerifyingKey` parity: checksum, constraint count, and single/batch proof verification |
+//! | [`integer_types`] | JS `Integer Types` parity: the ten native integers, checked-halts semantics, lossy cross-casts |
 //! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
@@ -172,6 +173,7 @@ pub mod field;
 pub mod graph_key;
 pub mod group;
 pub mod hosted;
+pub mod integer_types;
 pub mod keypair;
 pub mod keys;
 pub mod network;
