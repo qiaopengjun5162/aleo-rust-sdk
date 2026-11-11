@@ -23,6 +23,7 @@
 //! | [`signature`] | JS `Signature` parity: signing and verifying Aleo *values*, plaintext form |
 //! | [`transaction`] | JS `Transaction` parity: deploy/execute/fee wrapper — string/bytes, type checks, fee folding, record lookup, structured `summary` |
 //! | [`view_key`] | JS `ViewKey` parity: native type covers the page; `decrypt`, `toScalar`/`toField` casts, byte (de)serialization wrapped |
+//! | [`compute_key`] | JS `ComputeKey` parity: native type covers the page (`fromPrivateKey`, `toAddress`, `skPrf`/`pkSig`/`prSig` components) |
 //! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
@@ -153,6 +154,7 @@ pub mod boolean;
 pub mod ciphertext;
 pub mod circle;
 pub mod client;
+pub mod compute_key;
 pub mod credits;
 pub mod delegated;
 pub mod encryption;
