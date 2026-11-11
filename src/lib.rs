@@ -28,6 +28,7 @@
 //! | [`private_key_ciphertext`] | JS `PrivateKeyCiphertext` parity: `ciphertext1…` container delegating to the JS-compatible encrypted-key scheme |
 //! | [`transition`] | JS `Transition` parity: native `Transition<N>` introspection, records, `tvk`, and `decryptTransition` |
 //! | [`program_parity`] | JS `Program` parity: introspection of functions, mappings, records, structs, imports |
+//! | [`record_ciphertext`] | JS `RecordCiphertext` parity: view-key and record-view-key decryption, ownership, tag, encodings |
 //! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
@@ -179,6 +180,7 @@ pub mod private_key_ciphertext;
 pub mod program;
 pub mod program_parity;
 pub mod record;
+pub mod record_ciphertext;
 pub mod scalar;
 pub mod scanner;
 pub mod sealance;
