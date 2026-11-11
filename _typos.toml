@@ -14,6 +14,8 @@ extend-ignore-re = [
     "TestnetV3",
     "Beacon",
     "BeaconPrivateKey",
+    # Upstream JS SDK method-name typos we reference verbatim in parity docs.
+    "constains",
 ]
 
 [default.extend-words]

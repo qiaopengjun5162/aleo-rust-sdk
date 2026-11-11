@@ -21,6 +21,7 @@
 //! | [`boolean`] | JS `Boolean` parity: plaintext form, explicit-RNG sampling, encoding traps |
 //! | [`ciphertext`] | JS `Ciphertext` parity: the three decryption keys and the `(program, function, index)` derivation |
 //! | [`signature`] | JS `Signature` parity: signing and verifying Aleo *values*, plaintext form |
+//! | [`transaction`] | JS `Transaction` parity: deploy/execute/fee wrapper — string/bytes, type checks, fee folding, record lookup, structured `summary` |
 //! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
@@ -172,6 +173,7 @@ pub mod scalar;
 pub mod scanner;
 pub mod sealance;
 pub mod signature;
+pub mod transaction;
 pub mod version;
 
 // Re-export the main types at the crate root for convenience
