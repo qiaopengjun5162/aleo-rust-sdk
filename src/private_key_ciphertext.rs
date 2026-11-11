@@ -24,7 +24,7 @@
 //!
 //! The JS SDK's `ciphertext1…` bech32m form (Poseidon `hash_psd2` blinding +
 //! `encrypt_symmetric`) is **not** the format of
-//! [`crate::account::AleoAccount::to_ciphertext`] (`aleo-enc-v1:` AES-GCM).
+//! [`crate::account::AleoAccount::encrypt_private_key`] (`aleo-enc-v1:` AES-GCM).
 //! This module implements the upstream scheme via [`crate::private_key`], so
 //! Rust and JS ciphertexts interoperate. See that module's docs for the
 //! derivation (`hash_psd2([domain, nonce, secret]) * seed`).
@@ -119,7 +119,9 @@ impl<N: Network> PrivateKeyCiphertext<N> {
         rng: &mut R,
     ) -> Result<Self> {
         Ok(Self(crate::private_key::encrypt_private_key(
-            private_key, secret, rng,
+            private_key,
+            secret,
+            rng,
         )?))
     }
 
@@ -153,14 +155,20 @@ mod tests {
     #[test]
     fn decrypts_upstream_js_ciphertext_literal() {
         // Proves interop with the JS SDK, not just a local round-trip.
-        assert_eq!(ct().decrypt_to_private_key("mypassword").unwrap().to_string(), PRIVATE_KEY);
+        assert_eq!(
+            ct().decrypt_to_private_key("mypassword").unwrap().to_string(),
+            PRIVATE_KEY
+        );
         assert!(ct().decrypt_to_private_key("badpassword").is_err());
     }
 
     #[test]
     fn string_round_trip_is_canonical() {
         assert_eq!(ct().to_string(), CIPHERTEXT);
-        assert_eq!(PrivateKeyCiphertext::<N>::from_string(&ct().to_string()).unwrap(), ct());
+        assert_eq!(
+            PrivateKeyCiphertext::<N>::from_string(&ct().to_string()).unwrap(),
+            ct()
+        );
     }
 
     #[test]
@@ -185,7 +193,10 @@ mod tests {
         let a = PrivateKeyCiphertext::encrypt_with_rng(&pk, "secret", rng).unwrap();
         let b = PrivateKeyCiphertext::encrypt_with_rng(&pk, "secret", rng).unwrap();
         assert_ne!(a, b);
-        assert_eq!(a.decrypt_to_private_key("secret").unwrap(), b.decrypt_to_private_key("secret").unwrap());
+        assert_eq!(
+            a.decrypt_to_private_key("secret").unwrap(),
+            b.decrypt_to_private_key("secret").unwrap()
+        );
     }
 
     #[test]

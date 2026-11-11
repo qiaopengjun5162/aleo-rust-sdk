@@ -400,7 +400,7 @@ fn fee_json<N: Network>(fee: &Fee<N>) -> JsonValue {
 /// `value` is the (string/number) representation of the plaintext/ciphertext,
 /// records carry a `tag` instead of a `value`, and the dynamic variants expose
 /// their `dynamic_id`.
-fn request_to_json<N: Network>(request: &Input<N>) -> JsonValue {
+pub(crate) fn request_to_json<N: Network>(request: &Input<N>) -> JsonValue {
     match request {
         Input::Constant(id, plaintext) => serde_json::json!({
             "type": "constant",
@@ -447,7 +447,7 @@ fn request_to_json<N: Network>(request: &Input<N>) -> JsonValue {
 /// Serialize a transition output (`Output`) into the `summary` shape.
 ///
 /// Mirrors the upstream `output_to_js_value` with `convertToJs = true`.
-fn response_to_json<N: Network>(response: &Output<N>) -> JsonValue {
+pub(crate) fn response_to_json<N: Network>(response: &Output<N>) -> JsonValue {
     match response {
         Output::Constant(id, plaintext) => serde_json::json!({
             "type": "constant",

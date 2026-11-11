@@ -25,6 +25,9 @@
 //! | [`view_key`] | JS `ViewKey` parity: native type covers the page; `decrypt`, `toScalar`/`toField` casts, byte (de)serialization wrapped |
 //! | [`graph_key`] | JS `GraphKey` parity: native type covers the page; `sk_tag` derivation from a view key, string round-trip wrapped |
 //! | [`compute_key`] | JS `ComputeKey` parity: native type covers the page (`fromPrivateKey`, `toAddress`, `skPrf`/`pkSig`/`prSig` components) |
+//! | [`private_key_ciphertext`] | JS `PrivateKeyCiphertext` parity: `ciphertext1…` container delegating to the JS-compatible encrypted-key scheme |
+//! | [`transition`] | JS `Transition` parity: native `Transition<N>` introspection, records, `tvk`, and `decryptTransition` |
+//! | [`program_parity`] | JS `Program` parity: introspection of functions, mappings, records, structs, imports |
 //! | [`encryption`] | JS `EncryptionToolkit` parity: record/sender/transition decryption without the view key |
 //! | [`keys`] | Key providers: embedded credits keys, offline store, remote downloads |
 //! | [`program`] | Load, parse, and inspect Aleo programs |
@@ -172,13 +175,16 @@ pub mod offline_query;
 pub mod options;
 pub mod plaintext;
 pub mod private_key;
+pub mod private_key_ciphertext;
 pub mod program;
+pub mod program_parity;
 pub mod record;
 pub mod scalar;
 pub mod scanner;
 pub mod sealance;
 pub mod signature;
 pub mod transaction;
+pub mod transition;
 pub mod version;
 pub mod view_key;
 
