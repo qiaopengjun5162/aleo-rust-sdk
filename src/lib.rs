@@ -40,6 +40,7 @@
 //! | [`execution`] | Authorize, execute, prove, and package transactions; plus `Execution` object parity (proof/state-root/transitions, height-aware verification) |
 //! | [`execution_response`] | JS `ExecutionResponse` parity: the off-chain result bundle (outputs, program, keys) and its consuming key getters |
 //! | [`execution_request`] | JS `ExecutionRequest` parity: signed requests, the missing `is_dynamic` argument, and why `verify` re-derives every input |
+//! | [`proving_request`] | JS `ProvingRequest` parity: the two-variant proving bundle, variant-by-field-shape JSON, and the tagless byte layout |
 //! | [`field`] | JS `Field` parity: negate-vs-inverse trap, strict/lossy casts, integer truncation semantics |
 //! | [`group`] | JS `Group` parity: x-coordinate-driven lossy casts, strict `fromField`, the correctly-named `inverse` |
 //! | [`keypair`] | JS `KeyPair` parity: the standalone take-once key bag, with the upstream error-message bug fixed |
@@ -189,6 +190,7 @@ pub mod private_key_ciphertext;
 pub mod program;
 pub mod program_parity;
 pub mod proving_key;
+pub mod proving_request;
 pub mod record;
 pub mod record_ciphertext;
 pub mod record_plaintext;

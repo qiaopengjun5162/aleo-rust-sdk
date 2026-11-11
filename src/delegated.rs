@@ -91,9 +91,16 @@ use crate::options::PROVABLE_PROVER_BASE;
 /// A proving request in the `Authorization` variant.
 ///
 /// The `Request` variant (a signed `Request` that the prover authorizes
-/// server-side) is deliberately not modelled: it only supports
+/// server-side) is deliberately not modelled here: it only supports
 /// single-public-request executions, and this SDK's [`authorize`] path always
-/// produces a full `Authorization`.
+/// produces a full `Authorization`. It *is* modelled by
+/// [`crate::proving_request::ProvingRequest`], the network-generic type that
+/// matches the JS `ProvingRequest` class and also covers the `/prove/request`
+/// route; the two write identical bytes for this variant.
+///
+/// What this type adds over that one is the transport contract: it is pinned to
+/// `TestnetV0` and hands back a [`Zeroizing`] buffer, because the bytes are the
+/// plaintext inside the sealed box and must not linger in freed memory.
 ///
 /// [`authorize`]: crate::ExecutionEngine::authorize_and_execute
 #[derive(Clone)]
