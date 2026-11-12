@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.11.1](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.11.0...aleo-rust-sdk-v0.11.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **network:** align confirmation and block/state-root reads with the live v2 API ([#80](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/80)) ([7c03824](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/7c038242be00663e78e5ced9f8c213368d98450e))
+
 ## [0.11.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.10.0...aleo-rust-sdk-v0.11.0) (2026-11-12)
 
 
