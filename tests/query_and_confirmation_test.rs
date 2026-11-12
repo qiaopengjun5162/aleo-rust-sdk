@@ -7,6 +7,13 @@
 //!    transaction is on chain. Its timeout path was `#[ignore]`d (150 s), so it
 //!    never ran in CI, and its "confirmed" test was a substring search.
 //!
+//! Both of those were fixed, and then the confirmation *endpoint* turned out to
+//! be wrong too: it polled `/transaction/{id}` for a `block_hash` field that the
+//! live v2 API does not return, so every real transaction timed out while the
+//! mocks stayed green. The cases below are written against the contract of
+//! `/transaction/confirmed/{id}` — 200 + a `status` string once mined, 404
+//! while pending.
+//!
 //! Everything here is offline: mock servers for HTTP, unreachable loopback
 //! ports for the failure paths that need a real transport.
 
@@ -141,21 +148,20 @@ async fn fixed_query_refuses_paths_async_and_names_the_alternative() {
 
 // ── wait_for_confirmation: what counts as "on chain" ──────────────────
 
-/// Mount a `transaction/*` mock that always answers `body`.
-async fn mount_tx(server: &MockServer, status: u16, body: &str) {
+/// Mount a `/transaction/confirmed/{id}` mock that always answers `body`.
+async fn mount_confirmed(server: &MockServer, status: u16, body: &str) {
     Mock::given(method("GET"))
-        .and(path_regex(r"/transaction/.+"))
+        .and(path_regex(r"/transaction/confirmed/.+"))
         .respond_with(ResponseTemplate::new(status).set_body_string(body))
         .mount(server)
         .await;
 }
 
 #[tokio::test]
-async fn null_block_hash_is_not_confirmation() {
-    // The old substring check (`body.contains("\"block_hash\"")`) matched this
-    // body and reported success for a transaction that is still in the mempool.
+async fn pending_transaction_is_not_confirmation() {
+    // 404 is the normal "still in the mempool" answer from this route.
     let server = MockServer::start().await;
-    mount_tx(&server, 200, r#"{"type":"execute","block_hash":null}"#).await;
+    mount_confirmed(&server, 404, r#"{"message":"transaction not found"}"#).await;
     let c = AleoHttpClient::new_with_rpc(&server.uri(), &server.uri()).unwrap();
 
     let err = c.wait_for_confirmation_with("tx1", fast_poll(2)).await.unwrap_err();
@@ -163,9 +169,12 @@ async fn null_block_hash_is_not_confirmation() {
 }
 
 #[tokio::test]
-async fn empty_block_hash_is_not_confirmation() {
+async fn accepted_without_a_status_is_not_confirmation() {
+    // A 200 alone is not enough: a proxy error page must not be read as a mined
+    // transaction, and reporting success is the one failure that cannot be
+    // recovered from by waiting.
     let server = MockServer::start().await;
-    mount_tx(&server, 200, r#"{"type":"execute","block_hash":""}"#).await;
+    mount_confirmed(&server, 200, r#"{"type":"execute","id":"tx1"}"#).await;
     let c = AleoHttpClient::new_with_rpc(&server.uri(), &server.uri()).unwrap();
 
     let err = c.wait_for_confirmation_with("tx1", fast_poll(2)).await.unwrap_err();
@@ -173,10 +182,9 @@ async fn empty_block_hash_is_not_confirmation() {
 }
 
 #[tokio::test]
-async fn mentioning_block_hash_in_non_json_is_not_confirmation() {
-    // A proxy error page quoting the field name used to count as mined.
+async fn null_status_is_not_confirmation() {
     let server = MockServer::start().await;
-    mount_tx(&server, 200, "gateway note: \"block_hash\" unavailable").await;
+    mount_confirmed(&server, 200, r#"{"status":null}"#).await;
     let c = AleoHttpClient::new_with_rpc(&server.uri(), &server.uri()).unwrap();
 
     let err = c.wait_for_confirmation_with("tx1", fast_poll(2)).await.unwrap_err();
@@ -184,31 +192,53 @@ async fn mentioning_block_hash_in_non_json_is_not_confirmation() {
 }
 
 #[tokio::test]
-async fn non_string_block_hash_is_not_confirmation() {
+async fn non_json_200_is_not_confirmation() {
     let server = MockServer::start().await;
-    mount_tx(&server, 200, r#"{"block_hash":123}"#).await;
+    mount_confirmed(&server, 200, "gateway note: transaction confirmed").await;
     let c = AleoHttpClient::new_with_rpc(&server.uri(), &server.uri()).unwrap();
 
-    let err = c.wait_for_confirmation_with("tx1", fast_poll(1)).await.unwrap_err();
+    let err = c.wait_for_confirmation_with("tx1", fast_poll(2)).await.unwrap_err();
     assert!(err.to_string().contains("Timed out"), "{err}");
 }
 
 #[tokio::test]
-async fn string_block_hash_is_confirmation() {
+async fn accepted_status_is_confirmation() {
+    // The live wrapper is `status/type/index/transaction/finalize`.
     let server = MockServer::start().await;
-    mount_tx(&server, 200, r#"{"type":"execute","block_hash":"ab1abc"}"#).await;
+    mount_confirmed(
+        &server,
+        200,
+        r#"{"status":"accepted","type":"execute","index":0,"transaction":{},"finalize":[]}"#,
+    )
+    .await;
     let c = AleoHttpClient::new_with_rpc(&server.uri(), &server.uri()).unwrap();
 
     c.wait_for_confirmation_with("tx1", fast_poll(3))
         .await
-        .expect("a populated block_hash means mined");
+        .expect("an accepted transaction is on chain");
+}
+
+#[tokio::test]
+async fn rejected_status_is_an_error_not_a_success() {
+    // On chain, but the transfer did not happen. Reporting Ok here would send
+    // the caller on to spend records that were never created.
+    let server = MockServer::start().await;
+    mount_confirmed(&server, 200, r#"{"status":"rejected","type":"execute"}"#).await;
+    let c = AleoHttpClient::new_with_rpc(&server.uri(), &server.uri()).unwrap();
+
+    let err = c.wait_for_confirmation_with("tx1", fast_poll(3)).await.unwrap_err().to_string();
+    assert!(err.contains("rejected"), "{err}");
+    assert!(
+        !err.contains("Timed out"),
+        "should fail fast, not poll: {err}"
+    );
 }
 
 #[tokio::test]
 async fn one_attempt_means_one_request_and_no_trailing_sleep() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path_regex(r"/transaction/.+"))
+        .and(path_regex(r"/transaction/confirmed/.+"))
         .respond_with(ResponseTemplate::new(404))
         .expect(1)
         .mount(&server)
@@ -228,7 +258,7 @@ async fn first_check_happens_before_any_sleep() {
     // transaction still blocked for 5 s. The interval must separate attempts, not
     // precede them.
     let server = MockServer::start().await;
-    mount_tx(&server, 200, r#"{"block_hash":"ab1abc"}"#).await;
+    mount_confirmed(&server, 200, r#"{"status":"accepted"}"#).await;
     let c = AleoHttpClient::new_with_rpc(&server.uri(), &server.uri()).unwrap();
 
     let poll = ConfirmationPoll {
@@ -247,7 +277,7 @@ async fn first_check_happens_before_any_sleep() {
 #[tokio::test]
 async fn timeout_error_names_the_transaction() {
     let server = MockServer::start().await;
-    mount_tx(&server, 200, "{}").await;
+    mount_confirmed(&server, 200, "{}").await;
     let c = AleoHttpClient::new_with_rpc(&server.uri(), &server.uri()).unwrap();
 
     let err = c

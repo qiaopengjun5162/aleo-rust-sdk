@@ -33,21 +33,21 @@ async fn test_fixed_state_root_query_async_methods() {
     assert!(async_paths.is_empty());
 }
 
-/// Cover wait_for_confirmation success path: V2 API returns txn with block_hash
+/// Cover wait_for_confirmation success path: the confirmed route answers with a
+/// status wrapper once the transaction is in a block.
 #[tokio::test]
 async fn test_wait_for_confirmation_success() {
     let mock_server = MockServer::start().await;
     let base_url = mock_server.uri();
 
-    // V2 API returns JSON with block_hash when confirmed
     Mock::given(method("GET"))
-        .and(path_regex(r"/transaction/.+"))
+        .and(path_regex(r"/transaction/confirmed/.+"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "status": "accepted",
             "type": "execute",
-            "id": "at1mock",
-            "execution": {},
-            "fee": {},
-            "block_hash": "ab1blockhash"
+            "index": 0,
+            "transaction": {},
+            "finalize": []
         })))
         .mount(&mock_server)
         .await;
@@ -76,20 +76,20 @@ async fn test_wait_for_confirmation_retry() {
     let call_count = Arc::new(AtomicU32::new(0));
     let count = call_count.clone();
 
-    // Closure responder: first call 404, subsequent calls 200 with block_hash
+    // Closure responder: first call 404 (still pending), later calls 200 (mined)
     Mock::given(method("GET"))
-        .and(path_regex(r"/transaction/.+"))
+        .and(path_regex(r"/transaction/confirmed/.+"))
         .respond_with(move |_: &Request| {
             let c = count.fetch_add(1, Ordering::SeqCst);
             if c == 0 {
                 ResponseTemplate::new(404)
             } else {
                 ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "status": "accepted",
                     "type": "execute",
-                    "id": "at1retry",
-                    "execution": {},
-                    "fee": {},
-                    "block_hash": "ab1retryhash"
+                    "index": 0,
+                    "transaction": {},
+                    "finalize": []
                 }))
             }
         })

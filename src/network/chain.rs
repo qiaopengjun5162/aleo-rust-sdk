@@ -20,9 +20,12 @@ use super::AleoHttpClient;
 
 /// How many blocks one `/blocks` call may cover.
 ///
-/// The Cloud API rejects a range wider than this with a 400 ("Range must be 50
-/// blocks or less"); [`AleoHttpClient::fetch_block_range`] chunks to stay under
-/// it rather than surfacing the limit to callers.
+/// The Cloud API rejects `end - start > 50` with a 400 ("end must be at least
+/// start and at most 50 blocks after it"). Note the off-by-one in the published
+/// reference, which says "max 50 blocks": `end - start == 50` is accepted and
+/// returns **51** blocks. [`AleoHttpClient::fetch_block_range`] chunks to this
+/// size and sends `end - 1`, so it stays one block under the real limit and
+/// never depends on which reading is right.
 pub const MAX_BLOCKS_PER_REQUEST: u32 = 50;
 
 impl AleoHttpClient {
@@ -62,10 +65,64 @@ impl AleoHttpClient {
             .with_context(|| format!("height for {block_hash} is not a u32: {text}"))
     }
 
-    /// Fetch the transactions of one block, by height or hash.
-    pub async fn fetch_block_transactions(&self, height_or_hash: &str) -> Result<Value> {
-        let url = format!("{}/block/{height_or_hash}/transactions", self.base_url);
+    /// Height of the block whose state root is `state_root`.
+    ///
+    /// The inverse of [`AleoHttpClient::fetch_state_root_at`]. Unlike
+    /// `/find/blockHash`, this route answers for **every** height back to
+    /// genesis (`0`, `1`, `100_000`, `5_000_000`, `20_000_000` all round-trip
+    /// exactly), which makes it a valid way to learn the height a root belongs
+    /// to when only the root is at hand.
+    ///
+    /// The body is a **bare JSON integer**, like `/block/height/latest` and
+    /// unlike `/stateRoot/{height}`'s quoted string. A root that is well-formed
+    /// but unknown, a root with a bad checksum, and a missing parameter are all
+    /// answered with 502 — there is no 404 to distinguish them, so any non-2xx
+    /// is reported as a plain error.
+    pub async fn fetch_block_height_of_state_root(&self, state_root: &str) -> Result<u32> {
+        let url = format!("{}/find/blockHeight/{state_root}", self.base_url);
+        let text = self.get_text_checked(&url).await?;
+        text.trim()
+            .parse()
+            .with_context(|| format!("height for state root {state_root} is not a u32: {text}"))
+    }
+
+    /// Fetch the transactions of the block at `height`.
+    ///
+    /// ## Height only, unlike [`Self::fetch_block`]
+    ///
+    /// `/block/{height_or_hash}` accepts either form, but
+    /// `/block/{height}/transactions` does **not**: a block hash there is a 400
+    /// (`height must be an integer number`), and the upstream reference
+    /// documents the path parameter as `height` alone. The two routes look
+    /// alike and are not, which is exactly why this one takes a `u32` instead
+    /// of a string that could smuggle a hash through.
+    ///
+    /// ## The array is unordered
+    ///
+    /// The elements carry an `index` field and the live API does **not** return
+    /// them in index order (a four-transaction block came back as `2,3,1,0`),
+    /// while the same block's embedded `transactions` array is ascending. Sort
+    /// by `index` before pairing the result with anything positional; this
+    /// method returns the node's order unchanged.
+    pub async fn fetch_block_transactions(&self, height: u32) -> Result<Value> {
+        let url = format!("{}/block/{height}/transactions", self.base_url);
         self.get_json(&url).await
+    }
+
+    /// Hash of the block that contains `tx_id`.
+    ///
+    /// `/find/blockHash/{tx_id}` is the direct answer to "is this transaction
+    /// mined, and where?" — a quoted JSON string (`"ab1…"`) that matches the
+    /// containing block's `block_hash` byte for byte.
+    ///
+    /// It is a **gateway** extension, not a snarkOS node route, and its error
+    /// semantics differ by cause: a well-formed id the chain does not know is a
+    /// 404 with a structured JSON body, while a malformed id is a 502 with a
+    /// 16-byte `text/plain` body. Both surface as errors here, which is the only
+    /// distinction a caller can act on.
+    pub async fn fetch_block_hash_of_transaction(&self, tx_id: &str) -> Result<String> {
+        let url = format!("{}/find/blockHash/{tx_id}", self.base_url);
+        self.get_json_string(&url).await
     }
 
     /// Fetch a range of blocks, half-open (`start..end`).
@@ -90,7 +147,7 @@ impl AleoHttpClient {
     /// short is an error: a node that is behind would otherwise turn "give me
     /// 500 blocks" into a silently truncated answer.
     ///
-    /// `start == end` is an empty range and performs no request.
+    /// `end <= start` is an empty range and performs no request.
     pub async fn fetch_block_range(&self, start: u32, end: u32) -> Result<Vec<Value>> {
         if end <= start {
             return Ok(Vec::new());

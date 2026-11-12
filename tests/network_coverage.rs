@@ -88,21 +88,135 @@ async fn test_fetch_state_root() {
     let client = mock_client(&mock_server.uri());
 
     let root = "sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s";
-    Mock::given(method("GET"))
-        .and(path("/stateRoot/latest"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(format!("\"{root}\"")))
-        .mount(&mock_server)
-        .await;
-
+    // Height is read first, then the root committed *at* that height. Both
+    // `latest` endpoints are kept deliberately broken: pairing them is the bug
+    // this shape exists to prevent, so a regression fails here instead of
+    // silently returning a mismatched pair.
     Mock::given(method("GET"))
         .and(path("/block/height/latest"))
         .respond_with(ResponseTemplate::new(200).set_body_string("9876"))
         .mount(&mock_server)
         .await;
 
+    Mock::given(method("GET"))
+        .and(path("/stateRoot/9876"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(format!("\"{root}\"")))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/stateRoot/latest"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("not a state root"))
+        .mount(&mock_server)
+        .await;
+
     let (sr, height) = client.fetch_state_root().await.unwrap();
     assert_eq!(sr.to_string(), root);
     assert_eq!(height, 9876);
+}
+
+// ── The four "scalar GET" methods report the HTTP status ──────────────
+//
+// These used to read the body without looking at the status code, so a 404 or
+// a 5xx surfaced as `ParseIntError` / "not a state root" and pointed at the
+// parser instead of the transport. The assertions below pin the status code
+// into the message.
+
+#[tokio::test]
+async fn fetch_block_height_reports_the_http_status() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path("/block/height/latest"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("upstream exploded"))
+        .mount(&mock_server)
+        .await;
+
+    let err = client.fetch_block_height().await.unwrap_err().to_string();
+    assert!(err.contains("500"), "status missing from error: {err}");
+}
+
+#[tokio::test]
+async fn fetch_state_root_only_reports_the_http_status() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path("/stateRoot/latest"))
+        .respond_with(ResponseTemplate::new(503).set_body_string("service unavailable"))
+        .mount(&mock_server)
+        .await;
+
+    let err = client.fetch_state_root_only().await.unwrap_err().to_string();
+    assert!(err.contains("503"), "status missing from error: {err}");
+}
+
+#[tokio::test]
+async fn fetch_stablecoin_merkle_tree_reports_the_http_status() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path("/stablecoin/usdcx/merkle-tree"))
+        .respond_with(ResponseTemplate::new(403).set_body_string("forbidden"))
+        .mount(&mock_server)
+        .await;
+
+    let err = client.fetch_stablecoin_merkle_tree("usdcx").await.unwrap_err().to_string();
+    assert!(err.contains("403"), "status missing from error: {err}");
+}
+
+#[tokio::test]
+async fn fetch_transaction_reports_the_http_status() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path("/transaction/at1unknown"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("transaction not found"))
+        .mount(&mock_server)
+        .await;
+
+    let err = client.fetch_transaction("at1unknown").await.unwrap_err().to_string();
+    assert!(err.contains("404"), "status missing from error: {err}");
+}
+
+// ── fetch_state_root_at ──────────────────────────────────────────────
+
+#[tokio::test]
+async fn fetch_state_root_at_reads_the_root_for_that_height() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    let root = "sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s";
+    Mock::given(method("GET"))
+        .and(path("/stateRoot/4242"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(format!("\"{root}\"")))
+        .mount(&mock_server)
+        .await;
+
+    assert_eq!(
+        client.fetch_state_root_at(4242).await.unwrap().to_string(),
+        root
+    );
+}
+
+#[tokio::test]
+async fn fetch_state_root_at_propagates_a_missing_height() {
+    // Past the tip the API answers 404; the caller must see the status, not a
+    // parse failure on the error page's body.
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path("/stateRoot/999999999"))
+        .respond_with(ResponseTemplate::new(404).set_body_string(r#"{"message":"not found"}"#))
+        .mount(&mock_server)
+        .await;
+
+    let err = client.fetch_state_root_at(999_999_999).await.unwrap_err().to_string();
+    assert!(err.contains("404"), "status missing from error: {err}");
 }
 
 // ── fetch_program ─────────────────────────────────────────────────────
@@ -1595,8 +1709,11 @@ mod chain_reads {
         );
     }
 
+    /// A block hash on this route is a 400 in production
+    /// (`height must be an integer number`), which is why the parameter is a
+    /// `u32` and not the `height_or_hash` string its sibling `/block/{x}` uses.
     #[tokio::test]
-    async fn block_transactions_accept_a_height_or_a_hash() {
+    async fn block_transactions_take_a_height() {
         let server = MockServer::start().await;
         let client = mock_client(&server.uri());
 
@@ -1604,27 +1721,90 @@ mod chain_reads {
             .and(path("/block/1234/transactions"))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!([{ "id": "at1byheight" }])),
-            )
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/block/ab1hash/transactions"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!([{ "id": "at1byhash" }])),
+                    .set_body_json(serde_json::json!([{ "id": "at1byheight", "index": 0 }])),
             )
             .mount(&server)
             .await;
 
         assert_eq!(
-            client.fetch_block_transactions("1234").await.unwrap()[0]["id"],
+            client.fetch_block_transactions(1234).await.unwrap()[0]["id"],
             "at1byheight"
         );
+    }
+
+    /// `/find/blockHash/{tx_id}` answers with a quoted JSON string, exactly like
+    /// `/block/hash/latest` — not with `{ "hash": … }`, which is what the
+    /// rendered reference suggests.
+    #[tokio::test]
+    async fn block_hash_of_transaction_is_a_quoted_string() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/find/blockHash/at1mined"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("\"ab1containing\""))
+            .mount(&server)
+            .await;
+
         assert_eq!(
-            client.fetch_block_transactions("ab1hash").await.unwrap()[0]["id"],
-            "at1byhash"
+            client.fetch_block_hash_of_transaction("at1mined").await.unwrap(),
+            "ab1containing"
         );
+    }
+
+    /// An unknown transaction id is a 404 with a JSON body; a malformed one is a
+    /// 502 with `text/plain`. Both are errors, and an id that was never resolved
+    /// must not look like one that was.
+    #[tokio::test]
+    async fn block_hash_of_unknown_transaction_is_an_error() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/find/blockHash/at1unknown"))
+            .respond_with(ResponseTemplate::new(404).set_body_string(r#"{"message":"not found"}"#))
+            .mount(&server)
+            .await;
+
+        let err = client.fetch_block_hash_of_transaction("at1unknown").await.unwrap_err();
+        assert!(err.to_string().contains("404"), "{err}");
+    }
+
+    /// The inverse of `fetch_state_root_at`: a **bare integer**, unlike the
+    /// quoted string the state-root routes answer with.
+    #[tokio::test]
+    async fn block_height_of_state_root_is_a_bare_integer() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        let root = "sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s";
+        Mock::given(method("GET"))
+            .and(path(format!("/find/blockHeight/{root}")))
+            .respond_with(ResponseTemplate::new(200).set_body_string("23689862"))
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            client.fetch_block_height_of_state_root(root).await.unwrap(),
+            23689862
+        );
+    }
+
+    /// A bad or unknown root is a 502 with a 16-byte plain-text body — there is
+    /// no 404 to distinguish "unknown" from "malformed".
+    #[tokio::test]
+    async fn block_height_of_bad_state_root_is_an_error() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/find/blockHeight/notaroot"))
+            .respond_with(ResponseTemplate::new(502).set_body_string("error code: 502"))
+            .mount(&server)
+            .await;
+
+        let err = client.fetch_block_height_of_state_root("notaroot").await.unwrap_err();
+        assert!(err.to_string().contains("502"), "{err}");
     }
 
     /// The JS `ProgramManager.checkFee`: a fee within the public balance
