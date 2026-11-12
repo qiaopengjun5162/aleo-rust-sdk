@@ -30,19 +30,31 @@ impl Default for ConfirmationPoll {
     }
 }
 
-/// Whether a `transaction/{id}` response reports the transaction as mined.
+/// The `status` of a `/transaction/confirmed/{id}` body, if it has the shape
+/// this SDK expects.
 ///
-/// Requires `block_hash` to be a present, non-empty string. An earlier version
-/// searched the body for the substring `"block_hash"`, which also matches
-/// `"block_hash": null` and any error text mentioning the field — i.e. it could
-/// report an unmined transaction as confirmed, which is precisely the false
-/// positive this check exists to prevent. Waiting longer is the safe failure;
-/// claiming success is not.
-fn transaction_is_confirmed(body: &str) -> bool {
+/// The endpoint only answers for transactions that are already in a block, so a
+/// 2xx is the signal; requiring a non-empty `status` string on top of it is a
+/// shape check, so that a proxy's 200 error page cannot be mistaken for a mined
+/// transaction. A false positive here cannot be undone by waiting, a false
+/// negative can.
+///
+/// # Why not `block_hash`
+///
+/// Until 0.11.x this looked for a top-level `block_hash` on `/transaction/{id}`.
+/// Provable's v2 API answers that route with a bare transaction
+/// (`type`/`id`/`execution`/`fee`) and never includes `block_hash` — verified
+/// against both `mainnet` and `testnet`, on both `api.provable.com` and
+/// `api.explorer.provable.com`, for mined transactions. The mock tests had
+/// invented the field, so the check passed in CI and timed out against the real
+/// network every single time.
+fn confirmation_status(body: &str) -> Option<String> {
     serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|v| v.get("block_hash")?.as_str().map(str::to_owned))
-        .is_some_and(|hash| !hash.is_empty())
+        .ok()?
+        .get("status")?
+        .as_str()
+        .filter(|status| !status.is_empty())
+        .map(str::to_owned)
 }
 
 /// HTTP client with browser-like headers for Aleo network interaction.
@@ -232,15 +244,25 @@ impl AleoHttpClient {
         Program::<TestnetV0>::from_str(&clean).context("Failed to parse program")
     }
 
-    /// Fetch latest state root + block height (REST GET).
+    /// Fetch the latest block height together with the state root committed at
+    /// that height (REST GET).
+    ///
+    /// ## Why the height is read first
+    ///
+    /// `/stateRoot/latest` and `/block/height/latest` are backed by caches that
+    /// are **not** synchronised: sampling the live API showed the root lagging
+    /// or leading the height by one block, in both directions. Reading both
+    /// "latest" values and pairing them therefore produced a `(root, height)`
+    /// pair that never existed on chain — and the pair is what
+    /// [`AleoClient`](crate::AleoClient) uses to pick a consensus version and to
+    /// seed [`ProvableQuery`](crate::ProvableQuery).
+    ///
+    /// Reading `H` first and then `root@H` instead gives a pair that is always
+    /// internally consistent; a block mined in between only makes it one block
+    /// stale, which is what a "latest" query means anyway.
     pub async fn fetch_state_root(&self) -> Result<(<TestnetV0 as Network>::StateRoot, u32)> {
-        let root_url = format!("{}/stateRoot/latest", self.base_url);
-        let text = self.inner.get(&root_url).headers(Self::headers()).send().await?.text().await?;
-        let root_str = text.trim_matches('"');
-        let state_root = <TestnetV0 as Network>::StateRoot::from_str(root_str)
-            .context("Failed to parse state root")?;
-
         let height = self.fetch_block_height().await?;
+        let state_root = self.fetch_state_root_at(height).await?;
         Ok((state_root, height))
     }
 
@@ -277,13 +299,15 @@ impl AleoHttpClient {
         Ok(body)
     }
 
-    /// Fetch a transaction by its ID from the explorer API.
-    /// Returns the raw JSON response as a String.
+    /// Fetch a transaction by its ID and return the raw body.
+    ///
+    /// A non-2xx answer is an error: `/transaction/{id}` 404s for an id the node
+    /// does not know, and handing that error body back as if it were a
+    /// transaction only moves the failure into the deserializer, where it reads
+    /// as "malformed transaction" instead of "unknown transaction".
     pub async fn fetch_transaction(&self, tx_id: &str) -> Result<String> {
         let url = format!("{}/transaction/{tx_id}", self.base_url);
-        let res = self.inner.get(&url).headers(Self::headers()).send().await?;
-        let body = res.text().await?;
-        Ok(body)
+        self.get_text_checked(&url).await
     }
 
     /// Poll for confirmation with the production schedule (30 attempts, 5s apart).
@@ -295,11 +319,16 @@ impl AleoHttpClient {
 
     /// Poll for confirmation using an explicit schedule.
     ///
-    /// A transaction is confirmed only when the response carries a non-empty
-    /// string `block_hash`. That field is the sole reliable indicator of
-    /// inclusion in a block on Provable's testnet V2 API — a plain HTTP 200
-    /// only means the API accepted the transaction and it may still be sitting
-    /// in the mempool.
+    /// Confirmation is read from `/transaction/confirmed/{id}`: that route
+    /// answers 200 only once the transaction is in a block, and 404 while it is
+    /// still in the mempool. A 200 additionally has to carry a `status` string,
+    /// which rules out a proxy error page being mistaken for a mined
+    /// transaction. See `confirmation_status` for why the previous
+    /// `block_hash` check could never succeed against the live API.
+    ///
+    /// A transaction that is on chain but `rejected` by its finalize block is an
+    /// error, not a success: the transfer did not happen, and reporting
+    /// otherwise would send the caller on to spend records that no longer exist.
     ///
     /// The first check happens immediately; the interval only separates
     /// attempts. [`ConfirmationPoll`] is a parameter rather than a constant
@@ -311,7 +340,7 @@ impl AleoHttpClient {
         tx_id: &str,
         poll: ConfirmationPoll,
     ) -> Result<()> {
-        let check_url = format!("{}/transaction/{tx_id}", self.base_url);
+        let check_url = format!("{}/transaction/confirmed/{tx_id}", self.base_url);
         tracing::info!(
             "Waiting for confirmation... ({} attempts, {:?} apart)",
             poll.attempts,
@@ -322,18 +351,28 @@ impl AleoHttpClient {
             match self.inner.get(&check_url).headers(Self::headers()).send().await {
                 Ok(res) if res.status().is_success() => {
                     let body = res.text().await.unwrap_or_default();
-                    if transaction_is_confirmed(&body) {
-                        tracing::info!("Confirmed on chain!");
+                    if let Some(status) = confirmation_status(&body) {
+                        if status == "rejected" {
+                            anyhow::bail!(
+                                "Transaction {tx_id} is on chain but was rejected (status: rejected)"
+                            );
+                        }
+                        tracing::info!("Confirmed on chain (status: {status})!");
                         tracing::info!(
                             "🔗 https://testnet.explorer.provable.com/transaction/{tx_id}"
                         );
                         return Ok(());
                     }
-                    // Transaction accepted by API but not yet in a block
-                    tracing::debug!("not yet confirmed (attempt {attempt})");
+                    // A 200 whose body is not a confirmed-transaction wrapper:
+                    // keep polling rather than trusting the status code alone.
+                    tracing::debug!("200 without a status field (attempt {attempt})");
                 }
-                _ => {
-                    tracing::debug!("confirmation poll failed (attempt {attempt})");
+                Ok(res) => {
+                    // 404 is the normal "not mined yet" answer.
+                    tracing::debug!("not yet confirmed ({}) on attempt {attempt}", res.status());
+                }
+                Err(error) => {
+                    tracing::debug!("confirmation poll failed (attempt {attempt}): {error}");
                 }
             }
             if attempt < poll.attempts {
@@ -407,18 +446,44 @@ impl AleoHttpClient {
     }
 
     /// Fetch the current block height (REST GET).
+    ///
+    /// The body is a bare JSON integer (`23688766`), not a quoted string and not
+    /// an object — see [`Self::fetch_state_root_only`] for the neighbouring
+    /// endpoint that answers in a different shape.
     pub async fn fetch_block_height(&self) -> Result<u32> {
         let url = format!("{}/block/height/latest", self.base_url);
-        let text = self.inner.get(&url).headers(Self::headers()).send().await?.text().await?;
-        Ok(text.trim().parse()?)
+        let text = self.get_text_checked(&url).await?;
+        text.trim()
+            .parse()
+            .with_context(|| format!("GET {url}: block height is not a u32: {text}"))
     }
 
-    /// Fetch latest state root only (REST GET).
+    /// Fetch the latest state root only (REST GET).
+    ///
+    /// Answers with a quoted JSON string (`"sr1…"`), so the quotes are stripped
+    /// before parsing. Use [`Self::fetch_state_root_at`] when the root has to
+    /// pair with a specific height.
     pub async fn fetch_state_root_only(&self) -> Result<<TestnetV0 as Network>::StateRoot> {
         let url = format!("{}/stateRoot/latest", self.base_url);
-        let text = self.inner.get(&url).headers(Self::headers()).send().await?.text().await?;
-        <TestnetV0 as Network>::StateRoot::from_str(text.trim_matches('"'))
+        let text = self.get_text_checked(&url).await?;
+        <TestnetV0 as Network>::StateRoot::from_str(text.trim().trim_matches('"'))
             .context("Failed to parse state root")
+    }
+
+    /// Fetch the state root committed at `height` (REST GET).
+    ///
+    /// `/stateRoot/{height}` is the counterweight to the two desynchronised
+    /// `latest` caches: it is indexed by height, so a height read from
+    /// [`Self::fetch_block_height`] yields a pair that really existed. Heights
+    /// past the node's tip answer 404; a non-numeric height answers 400.
+    pub async fn fetch_state_root_at(
+        &self,
+        height: u32,
+    ) -> Result<<TestnetV0 as Network>::StateRoot> {
+        let url = format!("{}/stateRoot/{height}", self.base_url);
+        let text = self.get_text_checked(&url).await?;
+        <TestnetV0 as Network>::StateRoot::from_str(text.trim().trim_matches('"'))
+            .with_context(|| format!("GET {url}: not a state root: {text}"))
     }
 
     /// Fetch unspent records by view key via JSON-RPC.
@@ -491,7 +556,7 @@ impl AleoHttpClient {
     pub async fn fetch_stablecoin_merkle_tree(&self, stablecoin: &str) -> Result<Vec<String>> {
         let url = format!("{}/stablecoin/{}/merkle-tree", self.base_url, stablecoin);
         tracing::info!("GET {url}");
-        let text = self.inner.get(&url).headers(Self::headers()).send().await?.text().await?;
+        let text = self.get_text_checked(&url).await?;
 
         let tree: Vec<String> = serde_json::from_str(&text)
             .context("Failed to parse stablecoin Merkle tree response")?;
