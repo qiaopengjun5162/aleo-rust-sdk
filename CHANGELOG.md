@@ -3,6 +3,61 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.11.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.10.0...aleo-rust-sdk-v0.11.0) (2026-11-12)
+
+
+### Features
+
+* **address:** JS SDK Address parity — toPlaintext, fromProgramId, verify ([#51](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/51)) ([10563a6](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/10563a67d5d034b12ea012d6c3470003a3fc5d9c))
+* **authorization:** JS SDK Authorization parity — root function name ([#53](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/53)) ([8bf57bc](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/8bf57bc1255763f2ecb2e557f0865f3d3751edf2))
+* **batch:** JS PrivateKeyCiphertext / Transition / Program / RecordCiphertext parity (4 pages) ([#70](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/70)) ([83b0115](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/83b0115d7e3b6b534a66bc1fefd51096cd300294))
+* **boolean:** JS SDK Boolean parity — plaintext, RNG sampling, encoding traps ([#55](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/55)) ([de71de6](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/de71de6e4a7f9368dd7c72343f33abfcc8f97b64))
+* **ciphertext:** JS SDK Ciphertext parity — the three decryption keys ([#56](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/56)) ([50040c2](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/50040c2de06189f84b483b3a049443e2fabbd99d))
+* **circle:** add Circle USDCx hook-data encoding ([#50](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/50)) ([70ce2df](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/70ce2df9d7e3813b70193e0b1ac9cc030390cbb6))
+* **compute_key:** JS SDK ComputeKey parity — native type covers the page ([#68](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/68)) ([b8ff6de](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/b8ff6de74b288a8dee1efda9c4f70a1420951b67))
+* **credits:** plan and run credits.aleo staking operations ([#36](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/36)) ([722dd17](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/722dd17d1f41d018f137028a3746e51c522db17b))
+* **credits:** plan and run credits.aleo transfers, joins, and splits ([#34](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/34)) ([0c3d743](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/0c3d743495d467486ab3fa797cfe06309370356a))
+* **encryption:** JS SDK EncryptionToolkit parity ([#54](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/54)) ([1e04a2f](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/1e04a2fc244c0d1729c5f1fca7a6269f5e3586a5))
+* **execution_request:** JS SDK ExecutionRequest parity — and three things verify does not check ([#76](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/76)) ([5d36ba8](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/5d36ba8200e1ec903e6ed6d44a2a86b269e1be1b))
+* **execution_response:** JS SDK ExecutionResponse parity — off-chain result bundle and consuming key getters ([#58](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/58)) ([3b633e1](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/3b633e15b2b134331b0e51895a647e8322f7804d))
+* **execution:** build a transaction from a saved authorization ([#39](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/39)) ([936797f](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/936797f0a37c1d81ab5f088a0649c8751934bfc1))
+* **execution:** estimate execution and finalize fees offline ([#37](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/37)) ([2bd59af](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/2bd59af0a099a1e3dcc3b9ead6309e49eb90b880))
+* **execution:** JS SDK Execution object parity — accessors and height-aware verify ([#57](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/57)) ([8d0b147](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/8d0b147e305b80d4635dc38413eb58caf8c586d2))
+* **execution:** pre-synthesize function proving keys ([#41](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/41)) ([69bc25e](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/69bc25e9a00799d1b83df59eaa45ad0be64549ad))
+* **execution:** program upgrade transactions (JS buildUpgradeTransaction) ([#42](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/42)) ([eecd93e](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/eecd93e45fe7d5661bc672867a992bdc90e99b6f))
+* **fee:** pay transaction fees from a private record ([#38](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/38)) ([0e94567](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/0e9456782965f7f75c44e3bf3390afce17f4518e))
+* **field:** JS SDK Field parity — negate-vs-inverse trap, strict/lossy casts, integer truncation semantics ([#59](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/59)) ([5acbbc1](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/5acbbc1534dc13e134c5f97054a2f60511130158))
+* **graph_key:** JS SDK GraphKey parity — native type covers the page ([#69](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/69)) ([810b64f](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/810b64fac178b76a48dbecaf361270e65c38bc59))
+* **group:** JS SDK Group parity — x-coordinate-driven lossy casts, Edwards negation flips x ([#60](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/60)) ([9e2e56d](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/9e2e56d851a550caa15d8e9cad68fcc2b2830fa8))
+* **hash_functions:** JS SDK Hash Functions parity — nine default-domain constructors ([#75](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/75)) ([dbdf9eb](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/dbdf9eb83a6af79ee5f3226fbd4b9895d111dd02))
+* **integer_types:** JS SDK Integer Types parity — mapping table plus three native helpers ([#74](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/74)) ([7175023](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/7175023b420e9c9160e2f4a8fe42e8f559ed371f))
+* **keypair:** JS SDK KeyPair parity — take-once key bag with the upstream error-message bug fixed ([#61](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/61)) ([4487074](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/4487074c18839ec9b2b735f85f773bb678c58122))
+* **keys:** JS FunctionKeyProvider convenience getters and getVerifyingKey ([#45](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/45)) ([872e127](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/872e127f6adb719d62ecbea5b9cf380cb645f266))
+* **keys:** offline key provider (JS OfflineKeyProvider) ([#43](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/43)) ([c0ae5bb](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/c0ae5bb7fa38d6ac15317505bb545d79b23ab36b))
+* **keys:** online function key provider (JS AleoKeyProvider) ([#44](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/44)) ([e2b924d](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/e2b924d947ca805f398c67b7a6d4e7dd3cfe38ad))
+* **metadata:** JS SDK Metadata parity — the static parameter-URL catalogue ([#78](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/78)) ([67d9e9d](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/67d9e9d564533a0433db1a159c9f2d223c1f4e27))
+* **offline_query:** JS SDK OfflineQuery parity — QueryTrait bundle with setter/JSON traps ([#62](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/62)) ([f58a83f](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/f58a83fcbefc95398ceb598e358424cefc3a6b4c))
+* **plaintext:** JS SDK Plaintext parity — raw-vs-variant bits, toObject mapping, byte-order traps ([#63](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/63)) ([8459673](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/8459673f31f64485d2713d7aeb3776a9da84b624))
+* **private_key:** JS SDK PrivateKey parity — JS-compatible ciphertext1 encrypted keys, upstream vector interop ([#64](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/64)) ([0e95fd8](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/0e95fd89098a256486cc4defb73f8b38ffd449ce))
+* **proving_key:** JS SDK ProvingKey parity — 6 methods with upstream checksum literal ([#72](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/72)) ([91cd6b6](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/91cd6b6bef4d5bd8b93ba73287f036ae2f12b180))
+* **proving_request:** JS SDK ProvingRequest parity — the first page that needs a new type ([#77](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/77)) ([260ed4e](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/260ed4e175aa887f827062f99771b88ce819d644))
+* **record_plaintext:** JS SDK RecordPlaintext parity — 18 methods with upstream vectors ([#71](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/71)) ([af5eaaa](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/af5eaaafb70902cb605a2ba3d44490627c5bf3a4))
+* **record:** add a RecordProvider-style cached search API ([#40](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/40)) ([8c2ede0](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/8c2ede04a45bacdfbbe0e9d23d133ef487275572))
+* **scalar:** JS SDK Scalar parity — negation-not-inverse trap, toField-bridged lossy casts ([#65](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/65)) ([3c047ed](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/3c047edbddfcb31f312b2cb9bb8f32b92d92a6dd))
+* **scanner:** add /records/sns, /records/tags, /records/encrypted ([#46](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/46)) ([d367d2f](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/d367d2f74c6ecc7b6e0b494975fefcb9b47b5f78))
+* **scanner:** RecordScanner parity — computeUUID, findCredits*, OwnedFilter fields ([#47](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/47)) ([279171b](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/279171b05b39bb5ee8d3bcebebc7dcd7a62c6c7d))
+* **sealance:** JS SDK parity — decimal tree strings, proof objects, default depth ([#49](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/49)) ([1f6edfa](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/1f6edfae03a69c06ab8c06730a48c9ca3e4959e1))
+* **signature:** JS SDK Signature parity — value signing, verifyValue, plaintext ([#52](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/52)) ([197a3b6](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/197a3b669ea97074ac801d0dbf8beb1c57d56edd))
+* **transaction:** add JS Transaction parity module ([#66](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/66)) ([#66](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/66)) ([baa7026](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/baa7026d38c55c5aa0be647ac76e17d73b253c67))
+* **utility_functions:** JS SDK Utility Functions parity ([#79](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/79)) ([#79](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/79)) ([a793458](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/a793458852ddf44f52dfe6ae817fdd1109138131))
+* **verifying_key:** JS SDK VerifyingKey parity — 9 methods with upstream vectors ([#73](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/73)) ([1f88c8d](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/1f88c8ddea9821b27169bbb271bce95047eb22c6))
+* **view_key:** JS SDK ViewKey parity — native type covers the page; decrypt + scalar/field casts wrapped ([#67](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/67)) ([fb185d4](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/fb185d4012100f1b872131cce827df8f1e7a43ee))
+
+
+### Bug Fixes
+
+* **ci:** install cargo-deny as a prebuilt binary instead of the wrapper action ([#48](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/48)) ([4c637ef](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/4c637ef1f5c4551d139109b830050ae960dd022b))
+
 ## [0.10.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.9.0...aleo-rust-sdk-v0.10.0) (2026-11-07)
 
 
