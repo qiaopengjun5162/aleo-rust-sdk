@@ -17,10 +17,12 @@
 ## 目录
 
 - [程序包](#程序包)
+- [模块地图](#模块地图)
 - [功能特性](#功能特性)
 - [架构](#架构)
 - [安装](#安装)
 - [快速开始](#快速开始)
+- [从 `@provablehq/sdk` 迁移](#从-provablehqsdk-迁移)
 - [示例](#示例)
 - [路线图](#路线图)
 - [CLI 工具](#cli-工具)
@@ -46,6 +48,20 @@
 
 CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个独立的 crate，构建在本 SDK 之上。
 
+## 模块地图
+
+| 分组 | 模块 | 覆盖内容 |
+|------|------|----------|
+| **密钥与账户** | `account`、`address`、`private_key`、`view_key`、`compute_key`、`graph_key`、`signature`、`keypair`、`ciphertext`、`private_key_ciphertext` | 密钥链、与 JS 兼容的 `ciphertext1…` 加密私钥、值签名、按记录的 view key |
+| **记录** | `record`、`record_plaintext`、`record_ciphertext`、`encryption` | 发现、解密、归属判定、承诺与序列号、币选择 |
+| **程序** | `program`、`program_parity`、`metadata` | 加载与解析、JS `Program` 自省、静态参数 URL 目录 |
+| **交易** | `transaction`、`transition`、`authorization`、`execution`、`execution_request`、`execution_response`、`proving_key`、`verifying_key`、`proving_request`、`offline_query`、`credits` | 授权 → 执行 → 证明 → 打包、fee 折算、按高度验证、`credits.aleo` 值操作 |
+| **密码学原语** | `field`、`group`、`scalar`、`boolean`、`plaintext`、`integer_types`、`hash_functions` | 算术类型的 JS 对拍、九个默认哈希域、checked-halt 与有损转换 |
+| **网络** | `network`、`options`、`client`、`hosted`、`delegated`、`scanner` | REST + JSON-RPC 传输、实时 Merkle 路径、一个网络名派生全部服务、TEE 证明/扫描 |
+| **领域扩展** | `circle`、`sealance`、`utility_functions` | USDCx hook data、冻结名单排除证明、三个模块级函数 |
+
+47 个模块的逐条说明见 rustdoc 首页。
+
 ## 功能特性
 
 | 类别 | 功能 |
@@ -56,10 +72,10 @@ CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个�
 | **🔐 证明生成** | 为本地执行生成零知识证明（Varuna V2）。测试网 fee 证明支持 V0 fee 密钥。 |
 | **🛡️ 委托证明** (v0.10.0+) | 把证明交给 Provable 的 TEE 证明服务（DPS）。授权用 libsodium sealed box 加密传输，返回可直接广播的交易——15–60 秒本地 CPU 换成一次网络往返。 |
 | **🔍 记录扫描** (v0.10.0+) | 把 view key 加密注册给 Provable 的记录扫描服务（RSS），由 TEE 一次性索引，之后按 `uuid` 查询，不必再翻 `records/all`。返回的密文仍在本地解密，伪造响应造不出可花的记录。 |
-| **🌐 网络查询** | 通过 REST + JSON-RPC 查询区块高度、状态根、程序源码、映射值。 |
+| **🌐 网络查询** | 区块高度、最新区块、按高度**或**哈希取块、区块区间、单块交易列表、交易查询、委员会与内存池、程序源码与映射值、状态根（最新**与**按高度）、以及从状态根反查所属高度。 |
 | **🔗 实时状态路径** (v0.5.0+) | `ProvableQuery` 从 `api.provable.com/v2/testnet/statePath/{commitment}` 实时获取 Merkle 路径——不再有哑查询或 502 错误。 |
 | **📋 记录管理** | 按 Owner 取出、解密、过滤私密 `credits.aleo` 记录。跨区块范围扫描记录密文。 |
-| **🚀 交易广播** | 提交序列化交易到网络并轮询确认。 |
+| **🚀 交易广播** | 提交序列化交易并等待上链。确认走 `/transaction/confirmed/{id}`：未上链 404，已上链 200 + `status` 字段——节点只是收进内存池，绝不会被当成最终确认。 |
 | **🏗️ 高层客户端** | `AleoClient` 一站式编排完整生命周期：账户 → 程序 → 执行 → 证明 → 广播。 |
 
 ## 架构
@@ -93,7 +109,7 @@ CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个�
 
 ```toml
 [dependencies]
-aleo-rust-sdk = "0.8.1"
+aleo-rust-sdk = "0.11"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -233,6 +249,44 @@ async fn main() -> anyhow::Result<()> {
 
 CLI 工具会自动处理这个流程——参见下面 `aleo-cli transfer --mode private` 命令。
 
+## 从 `@provablehq/sdk` 迁移
+
+本 crate 逐页对拍了 **`@provablehq/sdk` WASM API Reference 的 32 个页面**（#51–#79）。完整对照（每一类、每个入口、六个坑、已知边界）见 [`docs/js-rust-guide.md`](docs/js-rust-guide.md)（英文）。要点：
+
+### 先别找同名函数
+
+对拍时先问的是「**snarkVM 原生有没有这个类型**」，而不是「这个方法在 Rust 里叫什么」。
+
+| 上游 wasm 形态 | Rust 侧做法 |
+|---|---|
+| 原生类型的薄包装（大多数页面） | 薄壳转发给 snarkVM（`Address`、`ViewKey`、`Field`、`Signature` 等） |
+| wasm **自己打包**的 bundle / 无 tag 枚举 | 新建泛型容器，因为 snarkVM 没有对应物（`ExecutionResponse`、`KeyPair`、`OfflineQuery`、`ProvingRequest`） |
+| 给原生类型加的便利方法 | 直接复用原生类型，不造平行类（`U8..I128`、九个哈希域） |
+
+`get*` 开头**不代表只读**：`KeyPair` 第一次取就把钥匙交出去，语义等同 `Option::take()`。
+
+### 类别对照
+
+| JS 能力 | Rust 入口 |
+|---|---|
+| `new Account()`、导入导出 | `AleoAccount::{new_random, from_private_key_str, from_seed}` |
+| `RecordPlaintext` 成员、承诺 | `RecordPlaintext::{owner, get_member, microcredits, commitment, serial_number_string, to_fields, …}` |
+| `Program.getFunctions` / `getMappings` / `getImports` | `program_parity::{get_functions, get_function_inputs, get_mappings, get_struct_members, get_imports, …}` |
+| `Transaction` 解析、fee 折算 | `Transaction::{from_string, id, transaction_type, fee_amount, owned_records, summary, …}` |
+| `hashBHP256` / `hashPedersen64` / `hashPoseidon2` 等 | `hash_functions::{bhp256, bhp512, bhp768, bhp1024, pedersen64, pedersen128, poseidon2, poseidon4, poseidon8}` |
+| `getOrInitConsensusVersionTestHeights`、`verifyFunctionExecution` | `utility_functions::{consensus_version_test_heights, verify_function_execution}` |
+
+### 第一次编译前值得知道的六个坑
+
+| # | 现象 | 做法 |
+|---|---|---|
+| 1 | 加密函数签名对不上 | snarkVM 4.12 用 **rand 0.10**；把 RNG 注入进去，别用 `rand = 0.8` 项目的 `OsRng` |
+| 2 | `Field::inverse()` 结果不对 | 它是**加法逆**；只有 `Group` 有真正的群逆，且 `Group::scalar_multiply` 不存在，写 `group * scalar` |
+| 3 | `i128` / `u128` 的 JSON 变了 | 序列化成**字符串** |
+| 4 | 找不到 BHP `hashToGroup` | BHP 不实现 `HashToGroup`，用 `HashUncompressed::hash_uncompressed` |
+| 5 | 跨宽度转换结果怪 | 「checked」类操作是 `E::halt`（panic）；加宽**不做符号扩展**（`-1i8` → `255i32`） |
+| 6 | `Program::from_str` 解析失败 | `import` 必须写在 program 声明之前；字面量要带显式后缀 |
+
 ## 示例
 
 | 示例 | 源码 | 说明 |
@@ -331,8 +385,14 @@ just test             # cargo nextest run --all-features
 
 # 代码检查
 just check            # cargo check --all-features
-just clippy           # cargo clippy -- -D warnings
+just clippy           # cargo clippy --all-targets -- -D warnings
 just format           # cargo fmt --all -- --check
+
+# 覆盖率（CI 门禁：行覆盖 87%）
+just coverage         # cargo llvm-cov --lcov --output-path lcov.info
+
+# 依赖与许可证审计
+just audit            # cargo deny check
 
 # 生成文档
 just docs             # cargo doc --no-deps --open
@@ -340,6 +400,9 @@ just docs             # cargo doc --no-deps --open
 # 完整检查
 just all              # format + check + clippy + test
 ```
+
+> 🔴 `cargo check`、不带 `--tests` 的 `cargo clippy`、`cargo doc` **都不编译
+> `#[cfg(test)]` 模块**——改完测试代码务必单独跑 `cargo test`。
 
 ## Pre-commit 质量门禁
 

@@ -17,10 +17,12 @@ A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — 
 ## Table of Contents
 
 - [Packages](#packages)
+- [Module Map](#module-map)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Coming from `@provablehq/sdk`](#coming-from-provablehqsdk)
 - [Examples](#examples)
 - [Roadmap](#roadmap)
 - [CLI Tools](#cli-tools)
@@ -46,6 +48,20 @@ A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — 
 
 The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a separate crate that consumes this SDK.
 
+## Module Map
+
+| Group | Modules | What it covers |
+|-------|---------|----------------|
+| **Keys & accounts** | `account`, `address`, `private_key`, `view_key`, `compute_key`, `graph_key`, `signature`, `keypair`, `ciphertext`, `private_key_ciphertext` | The key chain, JS-compatible `ciphertext1…` encrypted keys, value signing, per-record view keys |
+| **Records** | `record`, `record_plaintext`, `record_ciphertext`, `encryption` | Discovery, decryption, ownership, commitments and serial numbers, coin selection |
+| **Programs** | `program`, `program_parity`, `metadata` | Loading and parsing, JS `Program` introspection, the static parameter-URL catalogue |
+| **Transactions** | `transaction`, `transition`, `authorization`, `execution`, `execution_request`, `execution_response`, `proving_key`, `verifying_key`, `proving_request`, `offline_query`, `credits` | Authorize → execute → prove → package, fee folding, height-aware verification, `credits.aleo` value ops |
+| **Crypto primitives** | `field`, `group`, `scalar`, `boolean`, `plaintext`, `integer_types`, `hash_functions` | JS parity for the arithmetic types, the nine default hash domains, checked-halt vs lossy casts |
+| **Network** | `network`, `options`, `client`, `hosted`, `delegated`, `scanner` | REST + JSON-RPC transport, live Merkle paths, one-name network options, TEE proving/scanning |
+| **Domain extras** | `circle`, `sealance`, `utility_functions` | USDCx hook data, freeze-list exclusion proofs, the three module-level helpers |
+
+The rustdoc front page has the full one-line description of all 47 modules.
+
 ## Features
 
 | Category | Feature |
@@ -56,10 +72,10 @@ The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a sepa
 | **🔐 Proof Generation** | Generate zero-knowledge proofs (Varuna V2) for local execution. Fee proving with V0 fee keys for testnet. |
 | **🛡️ Delegated Proving** (v0.10.0+) | Hand proving to Provable's TEE prover (DPS). The authorization travels in a libsodium sealed box and comes back as a broadcast-ready transaction — 15–60s of local CPU becomes one network round-trip. |
 | **🔍 Record Scanning** (v0.10.0+) | Register a view key with Provable's record scanner (RSS) so the TEE indexes it once, then query owned records by `uuid` instead of walking `records/all`. Returned ciphertexts are still decrypted locally, so a forged response cannot invent a spendable record. |
-| **🌐 Network Queries** | Query block height, state root, program source, and mapping values via REST + JSON-RPC. |
+| **🌐 Network Queries** | Block height, latest block, block by height **or** hash, block ranges, per-block transactions, transaction lookup, committee and mempool, program source and mapping values, state root (latest **and** by height), and the reverse lookup from a state root back to its height. |
 | **🔗 Live State Paths** (v0.5.0+) | `ProvableQuery` fetches real Merkle paths from Provable API v2 (`api.provable.com/v2/testnet/statePath/{commitment}`) — no dummy queries, no 502 errors. |
 | **📋 Record Management** | Fetch, decrypt, and filter private `credits.aleo` records by owner. Scan record ciphertexts across block ranges. |
-| **🚀 Transaction Broadcasting** | Submit serialized transactions to the network and poll for confirmation. |
+| **🚀 Transaction Broadcasting** | Submit serialized transactions and wait for inclusion. Confirmation is polled on `/transaction/confirmed/{id}` — 404 while pending, 200 + `status` once mined — so a broadcast that the node accepted into its mempool is never reported as final. |
 | **🏗️ High-level Client** | `AleoClient` orchestrates the full lifecycle: account → program → execute → prove → broadcast. |
 
 ## Architecture
@@ -94,7 +110,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aleo-rust-sdk = "0.8.1"
+aleo-rust-sdk = "0.11"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -234,6 +250,49 @@ async fn main() -> anyhow::Result<()> {
 
 The CLI tool handles this automatically — see the `aleo-cli transfer --mode private` command below.
 
+## Coming from `@provablehq/sdk`
+
+This crate ports the **32 pages of the `@provablehq/sdk` WASM API Reference**
+(#51–#79). The full mapping — every category, every entry point, the six traps
+and the known gaps — is in [`docs/js-rust-guide.md`](docs/js-rust-guide.md).
+The short version:
+
+### Don't look for the same function name
+
+The first question during the port was always *"does snarkVM already have this
+type?"*, not *"what is this method called in Rust?"*.
+
+| Upstream wasm shape | Rust approach |
+|---|---|
+| Thin wrapper over a native type (most pages) | Thin shell forwarding to snarkVM (`Address`, `ViewKey`, `Field`, `Signature`, …) |
+| Bundle or untagged enum **owned by wasm** | A new generic container, because snarkVM has no equivalent (`ExecutionResponse`, `KeyPair`, `OfflineQuery`, `ProvingRequest`) |
+| Convenience methods bolted onto a native type | Reuse the native type; do not build a parallel class (`U8..I128`, the nine hash domains) |
+
+A `get*` name does **not** mean read-only: `KeyPair` gives the key up on first
+read, exactly as `Option::take()` implies.
+
+### Category map
+
+| JS capability | Rust entry point |
+|---|---|
+| `new Account()`, import/export | `AleoAccount::{new_random, from_private_key_str, from_seed}` |
+| `RecordPlaintext` members, commitments | `RecordPlaintext::{owner, get_member, microcredits, commitment, serial_number_string, to_fields, …}` |
+| `Program.getFunctions` / `getMappings` / `getImports` | `program_parity::{get_functions, get_function_inputs, get_mappings, get_struct_members, get_imports, …}` |
+| `Transaction` parsing, fee folding | `Transaction::{from_string, id, transaction_type, fee_amount, owned_records, summary, …}` |
+| `hashBHP256` / `hashPedersen64` / `hashPoseidon2` … | `hash_functions::{bhp256, bhp512, bhp768, bhp1024, pedersen64, pedersen128, poseidon2, poseidon4, poseidon8}` |
+| `getOrInitConsensusVersionTestHeights`, `verifyFunctionExecution` | `utility_functions::{consensus_version_test_heights, verify_function_execution}` |
+
+### Six traps worth knowing before the first compile
+
+| # | Symptom | Fix |
+|---|---|---|
+| 1 | Encryption helper signatures don't line up | snarkVM 4.12 uses **rand 0.10**; inject the RNG instead of using an `OsRng` from a `rand = 0.8` project |
+| 2 | `Field::inverse()` "wrong" | It is the **additive** inverse; only `Group` has a multiplicative one, and `Group::scalar_multiply` doesn't exist — write `group * scalar` |
+| 3 | `i128` / `u128` JSON changed | They serialize as **strings** |
+| 4 | BHP `hashToGroup` missing | BHP has no `HashToGroup`; use `HashUncompressed::hash_uncompressed` |
+| 5 | Cross-width casts look wrong | "checked" ops `E::halt` (panic); widening does **not** sign-extend (`-1i8` → `255i32`) |
+| 6 | `Program::from_str` fails | `import` lines must precede the program declaration; keep explicit literal suffixes |
+
 ## Examples
 
 | Example | Source | Description |
@@ -332,8 +391,14 @@ just test             # cargo nextest run --all-features
 
 # Lint
 just check            # cargo check --all-features
-just clippy           # cargo clippy -- -D warnings
+just clippy           # cargo clippy --all-targets -- -D warnings
 just format           # cargo fmt --all -- --check
+
+# Coverage (CI gate: 87% lines)
+just coverage         # cargo llvm-cov --lcov --output-path lcov.info
+
+# Dependency and licence audit
+just audit            # cargo deny check
 
 # Generate docs
 just docs             # cargo doc --no-deps --open
@@ -341,6 +406,10 @@ just docs             # cargo doc --no-deps --open
 # Full check suite
 just all              # format + check + clippy + test
 ```
+
+> 🔴 `cargo check`, `cargo clippy` without `--tests`, and `cargo doc` do **not**
+> compile `#[cfg(test)]` modules — run `cargo test` separately after editing
+> tests.
 
 ## Pre-commit Quality Gates
 

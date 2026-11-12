@@ -34,8 +34,10 @@ check:
     cargo check --all-features
 
 # Lint with Clippy
+# `--all-targets` matters: without it the `#[cfg(test)]` modules are not
+# compiled and a broken test is only discovered by `just test`.
 clippy:
-    cargo clippy --all-features -- -D warnings
+    cargo clippy --all-targets --all-features -- -D warnings
 
 # Format code check (CI)
 format:
