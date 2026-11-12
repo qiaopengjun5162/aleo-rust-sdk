@@ -60,6 +60,7 @@
 //! | [`options`] | [`AleoNetworkOptions`]: one network name, every service base |
 //! | [`hosted`] | Shared plumbing for the TEE services (auth, sealed boxes) |
 //! | [`version`] | Crate version constant |
+//! | [`utility_functions`] | JS `Utility Functions` parity: the three module-level free functions — `verifyFunctionExecution` (self-contained verifier over `ExecutionEngine`), `getOrInitConsensusVersionTestHeights` (wraps snarkVM's consensus-version height schedule), and `initThreadPool` (wasm-rayon only; a documented no-op on native) |
 //!
 //! ## Endpoints
 //!
@@ -202,6 +203,7 @@ pub mod sealance;
 pub mod signature;
 pub mod transaction;
 pub mod transition;
+pub mod utility_functions;
 pub mod verifying_key;
 pub mod version;
 pub mod view_key;
