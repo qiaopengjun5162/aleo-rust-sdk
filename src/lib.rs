@@ -40,6 +40,7 @@
 //! | [`execution`] | Authorize, execute, prove, and package transactions; plus `Execution` object parity (proof/state-root/transitions, height-aware verification) |
 //! | [`execution_response`] | JS `ExecutionResponse` parity: the off-chain result bundle (outputs, program, keys) and its consuming key getters |
 //! | [`execution_request`] | JS `ExecutionRequest` parity: signed requests, the missing `is_dynamic` argument, and why `verify` re-derives every input |
+//! | [`metadata`] | JS `Metadata` parity: the static per-function parameter-URL catalogue, the `verifier` URL that is missing its base, and the `prover_checksum`-only prefix |
 //! | [`proving_request`] | JS `ProvingRequest` parity: the two-variant proving bundle, variant-by-field-shape JSON, and the tagless byte layout |
 //! | [`field`] | JS `Field` parity: negate-vs-inverse trap, strict/lossy casts, integer truncation semantics |
 //! | [`group`] | JS `Group` parity: x-coordinate-driven lossy casts, strict `fromField`, the correctly-named `inverse` |
@@ -181,6 +182,7 @@ pub mod hosted;
 pub mod integer_types;
 pub mod keypair;
 pub mod keys;
+pub mod metadata;
 pub mod network;
 pub mod offline_query;
 pub mod options;
