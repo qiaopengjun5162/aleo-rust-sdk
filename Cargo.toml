@@ -51,6 +51,11 @@ snarkvm = { version = "4.12.0", default-features = true, features = [
 # bumping it here would compile a second copy for no benefit.
 crypto_box = { version = "0.9", features = ["seal"] }
 base64 = "0.22"
+# Metadata page (JS `Metadata` parity) needs the per-function prover/verifier
+# checksums that back the parameter download URLs. These come from the same
+# crate the JS SDK's wasm build pulls them from, so the URLs stay byte-identical
+# to upstream across snarkVM 4.12.0.
+snarkvm-parameters = "4.12.0"
 
 [dev-dependencies]
 wiremock = "0.6"
