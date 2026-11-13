@@ -55,7 +55,7 @@ jobs:
     steps:
       # On a tag push / workflow_call the input is empty and `github.ref` is the
       # tag; on a branch dispatch it is the tag the operator passed.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
           ref: ${{ inputs.tag || github.ref }}
