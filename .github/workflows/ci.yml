@@ -28,7 +28,7 @@ jobs:
     # letting a hung step burn the 6 h default.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # No submodules, and nothing here needs git history any more
           # (changelog generation moved to release-please). A shallow clone
@@ -159,7 +159,7 @@ jobs:
       # together with the runner.
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lcov-report
           path: lcov.info
@@ -170,7 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         run: rustup toolchain install stable
@@ -191,7 +191,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Read the number from the manifest rather than hardcoding it here. A
       # hardcoded job keeps happily testing the old version after the promise

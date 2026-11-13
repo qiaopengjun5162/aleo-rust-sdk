@@ -35,7 +35,7 @@ jobs:
     # 5 ignored tests at up to ~60 s each, plus a cold snarkVM build.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
