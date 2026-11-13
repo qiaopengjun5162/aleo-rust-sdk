@@ -101,6 +101,18 @@ async fn test_execute_and_broadcast_real_prove() {
         .respond_with(ResponseTemplate::new(200).set_body_string("42"))
         .mount(&mock_server)
         .await;
+    // fetch_state_root() pairs H with root@H (PR #80): after reading H=42 above
+    // it requests /stateRoot/42, not /stateRoot/latest. An unmatched wiremock
+    // path answers 404, which makes execute_and_broadcast().unwrap() panic.
+    Mock::given(method("GET"))
+        .and(path("/stateRoot/42"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(
+                "\"sr1lkr8fzg8mk69qrtycxjvtrg8rvh77puaq7fm56cjkh04xhprdqzq3a355s\"",
+            ),
+        )
+        .mount(&mock_server)
+        .await;
 
     // Mock broadcast endpoint: returns a tx ID
     Mock::given(method("POST"))
