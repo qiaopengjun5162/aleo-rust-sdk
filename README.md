@@ -52,15 +52,15 @@ The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a sepa
 
 | Group | Modules | What it covers |
 |-------|---------|----------------|
-| **Keys & accounts** | `account`, `address`, `private_key`, `view_key`, `compute_key`, `graph_key`, `signature`, `keypair`, `ciphertext`, `private_key_ciphertext` | The key chain, JS-compatible `ciphertext1…` encrypted keys, value signing, per-record view keys |
+| **Keys & accounts** | `account`, `address`, `private_key`, `view_key`, `compute_key`, `graph_key`, `signature`, `keypair`, `ciphertext`, `private_key_ciphertext`, `keys` | The key chain, JS-compatible `ciphertext1…` encrypted keys, value signing, per-record view keys |
 | **Records** | `record`, `record_plaintext`, `record_ciphertext`, `encryption` | Discovery, decryption, ownership, commitments and serial numbers, coin selection |
 | **Programs** | `program`, `program_parity`, `metadata` | Loading and parsing, JS `Program` introspection, the static parameter-URL catalogue |
 | **Transactions** | `transaction`, `transition`, `authorization`, `execution`, `execution_request`, `execution_response`, `proving_key`, `verifying_key`, `proving_request`, `offline_query`, `credits` | Authorize → execute → prove → package, fee folding, height-aware verification, `credits.aleo` value ops |
 | **Crypto primitives** | `field`, `group`, `scalar`, `boolean`, `plaintext`, `integer_types`, `hash_functions` | JS parity for the arithmetic types, the nine default hash domains, checked-halt vs lossy casts |
 | **Network** | `network`, `options`, `client`, `hosted`, `delegated`, `scanner` | REST + JSON-RPC transport, live Merkle paths, one-name network options, TEE proving/scanning |
-| **Domain extras** | `circle`, `sealance`, `utility_functions` | USDCx hook data, freeze-list exclusion proofs, the three module-level helpers |
+| **Domain extras** | `circle`, `sealance`, `utility_functions`, `version` | USDCx hook data, freeze-list exclusion proofs, the three module-level helpers, crate version constant |
 
-The rustdoc front page has the full one-line description of all 47 modules.
+The rustdoc front page has the full one-line description of all 46 modules.
 
 ## Features
 
@@ -128,7 +128,7 @@ use aleo_rust_sdk::AleoClient;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
 
     let height = client.get_block_height().await?;
     let root = client.get_state_root().await?;
@@ -148,7 +148,7 @@ use snarkvm::prelude::TestRng;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut rng = TestRng::default();
-    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
 
     // Create a random account
     let account = AleoAccount::new_random(&mut rng)?;
@@ -181,7 +181,7 @@ use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
     client.set_account_from_private_key_str("APrivateKey1...")?;
 
     let tx_id = client.execute_and_broadcast(
@@ -217,7 +217,7 @@ use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
     client.set_account_from_private_key_str("APrivateKey1...")?;
 
     // Load records (from file, scan, or cached)
@@ -327,9 +327,9 @@ Planned features (in order of priority):
 
 - [ ] **WASM support** — compile SDK for browser/Node.js via `wasm-pack`
 - [ ] **Transaction history** — fetch and decode historical transactions
-- [ ] **Program deployment helper** — streamline program ID and edition handling
+- [x] **Program deployment helper** — streamline program ID and edition handling
 - [ ] **Mainnet support** — add mainnet configuration alongside testnet
-- [ ] **Record merging** — join multiple small records into a single larger record
+- [x] **Record merging** — join multiple small records into a single larger record
 - [ ] **Batch transfers** — send multiple transfers in one transaction
 - [ ] **Type-safe program bindings** — generate Rust structs from Aleo program mappings
 

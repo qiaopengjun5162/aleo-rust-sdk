@@ -92,7 +92,7 @@ use aleo_rust_sdk::AleoClient;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
     println!("height: {}", client.get_block_height().await?);
     println!("state root: {}", client.get_state_root().await?);
     Ok(())
@@ -109,7 +109,7 @@ use snarkvm::prelude::TestRng;
 async fn main() -> anyhow::Result<()> {
     let mut rng = TestRng::default();
     let account = AleoAccount::new_random(&mut rng)?;
-    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
     client.set_account_from_private_key_str(&account.private_key_str())?;
     println!("address: {}", account.address_str());
     println!("balance: {:?}", client.get_balance().await?);
@@ -126,7 +126,7 @@ use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
     client.set_account_from_private_key_str("APrivateKey1...")?;
     let tx_id = client.execute_and_broadcast(
         &client.require_account()?.private_key,
@@ -146,7 +146,7 @@ A broadcast that returns HTTP 200 is **not** on chain — it means the node
 accepted the transaction into its mempool.
 
 ```rust
-client.wait_for_confirmation(&tx_id).await?;
+client.network.wait_for_confirmation(&tx_id).await?;
 ```
 
 `wait_for_confirmation` polls `/transaction/confirmed/{id}`: that route answers
@@ -154,11 +154,12 @@ client.wait_for_confirmation(&tx_id).await?;
 transaction, finalize}` wrapper once it is in a block. A `rejected` status is an
 error, because the transaction is on chain but its finalize block refused it.
 
-> **0.11.0 known issue.** The published 0.11.0 polled `/transaction/{id}` and
-> required a top-level `block_hash`, which the v2 API never returns for that
-> route, so every real transaction timed out after 30 attempts. If you are on
-> 0.11.0, use `fetch_confirmed_transaction(&tx_id)` instead (200 once mined, 404
-> while pending) or upgrade to the next patch release.
+> **Historical note (0.11.0).** The published 0.11.0 polled `/transaction/{id}`
+> and required a top-level `block_hash`, which the v2 API never returns for that
+> route, so every real transaction timed out after 30 attempts. **0.11.1 fixed
+> this** by polling `/transaction/confirmed/{id}` and using the `status` field
+> (a `rejected` status is surfaced as an error). Upgrade to `0.11.1` or later;
+> the old `fetch_confirmed_transaction(&tx_id)` workaround is no longer needed.
 
 ---
 
