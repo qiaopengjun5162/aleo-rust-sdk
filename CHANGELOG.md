@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.12.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.11.1...aleo-rust-sdk-v0.12.0) (2026-11-14)
+
+
+### Features
+
+* **examples:** add generate_account demo (offline key lifecycle) ([#86](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/86)) ([6b6337b](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/6b6337b4c8ed4e61e35731c2ddfa9e3e2c9011d4))
+
 ## [0.11.1](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.11.0...aleo-rust-sdk-v0.11.1) (2026-11-12)
 
 
