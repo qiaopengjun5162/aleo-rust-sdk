@@ -127,7 +127,7 @@ use aleo_rust_sdk::AleoClient;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
 
     let height = client.get_block_height().await?;
     let root = client.get_state_root().await?;
@@ -147,7 +147,7 @@ use snarkvm::prelude::TestRng;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut rng = TestRng::default();
-    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
 
     // 创建随机账户
     let account = AleoAccount::new_random(&mut rng)?;
@@ -180,7 +180,7 @@ use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
     client.set_account_from_private_key_str("APrivateKey1...")?;
 
     let tx_id = client.execute_and_broadcast(
@@ -216,7 +216,7 @@ use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut client = AleoClient::new("https://api.provable.com/v2/testnet")?;
+    let mut client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
     client.set_account_from_private_key_str("APrivateKey1...")?;
 
     // 加载记录（从文件、扫描或缓存）
@@ -321,9 +321,9 @@ cargo run --example sdk_v2_broadcast_test
 
 - [ ] **WASM 支持** — 通过 `wasm-pack` 编译 SDK 以支持浏览器/Node.js
 - [ ] **交易历史** — 获取并解码历史交易
-- [ ] **程序部署辅助** — 简化 program ID 和 edition 处理
+- [x] **程序部署辅助** — 简化 program ID 和 edition 处理
 - [ ] **主网支持** — 在测试网之外添加主网配置
-- [ ] **记录合并** — 将多个小额记录合并为一个大记录
+- [x] **记录合并** — 将多个小额记录合并为一个大记录
 - [ ] **批量转账** — 单笔交易发送多次转账
 - [ ] **类型安全程序绑定** — 从 Aleo 程序映射生成 Rust 结构体
 

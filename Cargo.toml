@@ -83,3 +83,7 @@ path = "examples/simple_execute.rs"
 [[example]]
 name = "sdk_v2_broadcast_test"
 path = "examples/sdk_v2_broadcast_test.rs"
+
+[[example]]
+name = "doc_examples"
+path = "examples/doc_examples.rs"
