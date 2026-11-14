@@ -294,7 +294,7 @@ CLI 工具会自动处理这个流程——参见下面 `aleo-cli transfer --mod
 | `testnet_query` | [examples/testnet_query.rs](examples/testnet_query.rs) | 查询测试网：区块高度、状态根、程序信息（无需密钥） |
 | `testnet_transfer` | [examples/testnet_transfer.rs](examples/testnet_transfer.rs) | 完整流水线：授权 → 执行 → 证明 → 广播 credits 转账 |
 | `simple_execute` | [examples/simple_execute.rs](examples/simple_execute.rs) | 最小工作流：加载程序、本地执行（脱机模拟） |
-| `sdk_v2_broadcast_test` | [examples/sdk_v2_broadcast_test.rs](examples/sdk_v2_broadcast_test.rs) | 对测试网走一遍 v2 REST 接口与广播路径 |
+| `sdk_v2_broadcast_test` | [examples/sdk_v2_broadcast_test.rs](examples/sdk_v2_broadcast_test.rs) | 对测试网走一遍 v2 REST 接口与广播路径（需要 `PRIVATE_KEY`，会真实广播一笔 1 microcredit 自转） |
 
 运行示例：
 
@@ -308,6 +308,11 @@ cargo run --example testnet_transfer
 
 # 本地脱机执行
 cargo run --example simple_execute
+
+# 测试网真实广播 —— 需要 PRIVATE_KEY 且账户有测试网余额。
+# 会真实发送一笔 1 microcredit 自转交易并消耗测试网手续费。
+export PRIVATE_KEY="APrivateKey1..."
+cargo run --example sdk_v2_broadcast_test
 ```
 
 ## 路线图

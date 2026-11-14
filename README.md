@@ -300,7 +300,7 @@ read, exactly as `Option::take()` implies.
 | `testnet_query` | [examples/testnet_query.rs](examples/testnet_query.rs) | Query testnet: block height, state root, program info (no key needed) |
 | `testnet_transfer` | [examples/testnet_transfer.rs](examples/testnet_transfer.rs) | Full pipeline: authorize → execute → prove → broadcast credits transfer |
 | `simple_execute` | [examples/simple_execute.rs](examples/simple_execute.rs) | Minimal workflow: load program, execute locally (dry-run) |
-| `sdk_v2_broadcast_test` | [examples/sdk_v2_broadcast_test.rs](examples/sdk_v2_broadcast_test.rs) | Exercise the v2 REST surface and broadcast path against testnet |
+| `sdk_v2_broadcast_test` | [examples/sdk_v2_broadcast_test.rs](examples/sdk_v2_broadcast_test.rs) | Exercise the v2 REST surface and broadcast path against testnet (requires `PRIVATE_KEY`; broadcasts a real 1-microcredit self-transfer) |
 
 Run an example:
 
@@ -314,6 +314,11 @@ cargo run --example testnet_transfer
 
 # Local dry-run execution
 cargo run --example simple_execute
+
+# Real broadcast on testnet — requires PRIVATE_KEY and a funded account.
+# This sends an actual 1-microcredit self-transfer and spends testnet fees.
+export PRIVATE_KEY="APrivateKey1..."
+cargo run --example sdk_v2_broadcast_test
 ```
 
 ## Roadmap
