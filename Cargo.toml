@@ -87,3 +87,7 @@ path = "examples/sdk_v2_broadcast_test.rs"
 [[example]]
 name = "doc_examples"
 path = "examples/doc_examples.rs"
+
+[[example]]
+name = "generate_account"
+path = "examples/generate_account.rs"
