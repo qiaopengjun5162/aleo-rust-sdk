@@ -136,6 +136,12 @@ impl AleoAccount {
     }
 
     /// Create an account from a private key string (bech32).
+    ///
+    /// # Errors
+    ///
+    /// Fails when `key_str` is not a valid bech32 private key. snarkVM's own
+    /// reason is kept in the message (`Invalid private key: …`) because it is
+    /// the only thing that distinguishes a bad checksum from a bad prefix.
     pub fn from_private_key_str(key_str: &str) -> Result<Self> {
         let private_key = PrivateKey::from_str(key_str)
             .map_err(|e| anyhow::anyhow!("Invalid private key: {e}"))?;
@@ -143,6 +149,10 @@ impl AleoAccount {
     }
 
     /// Generate a new random account.
+    ///
+    /// # Errors
+    ///
+    /// Fails if snarkVM's key generation rejects the RNG output.
     pub fn new_random(rng: &mut TestRng) -> Result<Self> {
         let private_key = PrivateKey::new(rng)?;
         Self::from_private_key(private_key)
@@ -183,6 +193,11 @@ impl AleoAccount {
     /// that can be stored and later recovered with [`AleoAccount::from_ciphertext`].
     ///
     /// Equivalent to JS SDK `PrivateKey.newEncrypted(password)`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if key generation or encryption fails; see [`Self::new_random`] and
+    /// [`Self::encrypt_private_key`].
     pub fn new_encrypted(password: &str, rng: &mut TestRng) -> Result<(Self, String)> {
         let account = Self::new_random(rng)?;
         let ciphertext = encrypt_private_key_str(&account.private_key_str(), password)?;
@@ -194,6 +209,11 @@ impl AleoAccount {
     /// Returns a portable ciphertext string.
     ///
     /// Equivalent to JS SDK `privateKey.toCiphertext(password)`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the key material cannot be encrypted (the PBKDF2 or AES-GCM step
+    /// returned an error).
     pub fn encrypt_private_key(&self, password: &str) -> Result<String> {
         encrypt_private_key_str(&self.private_key_str(), password)
     }
@@ -201,6 +221,13 @@ impl AleoAccount {
     /// Decrypt a ciphertext and recover the full account.
     ///
     /// Equivalent to JS SDK `Account.fromCiphertext(ciphertext, password)`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the ciphertext cannot be decrypted with `password`, or when the
+    /// recovered plaintext is not a valid private key. A wrong password and a
+    /// corrupted ciphertext are deliberately not distinguished: both mean "this
+    /// is not the password for this blob".
     pub fn from_ciphertext(ciphertext: &str, password: &str) -> Result<Self> {
         let pk_str = decrypt_private_key_str(ciphertext, password)?;
         Self::from_private_key_str(&pk_str)
@@ -240,6 +267,11 @@ impl AleoAccount {
     /// The error does not distinguish "not yours" from "malformed", because
     /// snarkVM's failure modes are not distinguishable here and both mean "not
     /// a record you can spend".
+    ///
+    /// # Errors
+    ///
+    /// Fails when `ciphertext` is not a parsable record, or when it does not
+    /// decrypt under this account's view key.
     pub fn decrypt_record(&self, ciphertext: &str) -> Result<RecordPlaintext> {
         let record = parse_record_ciphertext(ciphertext)?;
         record.decrypt(&self.view_key).map_err(|e| {
@@ -260,6 +292,12 @@ impl AleoAccount {
     /// follows the implementation, since that is the behaviour callers actually
     /// observe. To *filter* a mixed list, use [`Self::owns_record_ciphertext`]
     /// first, or call [`Self::decrypt_record`] per item and drop the errors.
+    ///
+    /// # Errors
+    ///
+    /// Fails on the **first** ciphertext this account cannot decrypt; foreign
+    /// records are not skipped. Filter with [`Self::owns_record_ciphertext`] first
+    /// if the list is mixed.
     pub fn decrypt_records<'a>(
         &self,
         ciphertexts: impl IntoIterator<Item = &'a str>,
@@ -327,6 +365,11 @@ impl AleoAccount {
     /// here: a transition public key carries no owner field, and the JS binding
     /// does not check either. A wrong `tpk` simply yields a key that decrypts to
     /// garbage.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `tpk` is not a valid group element. A well-formed but unrelated
+    /// key is **not** an error here — it yields a key that decrypts to garbage.
     pub fn generate_transition_view_key(&self, tpk: &str) -> Result<Field<TestnetV0>> {
         let tpk = Group::<TestnetV0>::from_str(tpk)
             .map_err(|e| anyhow::anyhow!("Invalid transition public key: {e}"))?;
@@ -344,6 +387,10 @@ impl AleoAccount {
     /// The bound is snarkVM's own (`rand 0.10`, re-exported through
     /// `snarkvm::prelude`), so callers must pass an RNG from that same `rand`
     /// version; `TestRng` works in tests.
+    ///
+    /// # Errors
+    ///
+    /// Fails if snarkVM rejects the message or the RNG.
     pub fn sign<R: Rng + CryptoRng>(
         &self,
         message: &[u8],

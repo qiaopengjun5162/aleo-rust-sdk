@@ -166,6 +166,11 @@ pub struct CreditsCall {
 /// for decrypted records is applied here to a caller-supplied plaintext.
 /// A record without a parseable `microcredits` entry cannot be checked against
 /// an amount, so this is an error rather than a silent zero.
+///
+/// # Errors
+///
+/// Fails when the record has no `microcredits` entry, or when that entry
+/// does not parse as a plain `u64`.
 pub fn record_microcredits(record: &RecordPlaintext) -> Result<u64> {
     for (id, entry) in record.data().iter() {
         if id.to_string() == "microcredits" {
@@ -189,6 +194,13 @@ pub fn record_microcredits(record: &RecordPlaintext) -> Result<u64> {
 /// is an error, and a record smaller than the amount is an error. Whether the
 /// *fee* is affordable is not this function's business — see
 /// [`AleoHttpClient::check_fee`](crate::network::AleoHttpClient::check_fee).
+///
+/// # Errors
+///
+/// Fails when a private-input kind is given no `amount_record`, when the
+/// record is not a parsable plaintext record, or when it holds fewer
+/// microcredits than `amount_microcredits`. Public kinds ignore
+/// `amount_record` and cannot fail.
 pub fn plan_transfer(
     kind: TransferKind,
     amount_microcredits: u64,
@@ -225,6 +237,12 @@ pub fn plan_transfer(
 /// The two records must be plaintext records (see the module notes). The
 /// joined record carries their summed `microcredits`; snarkVM enforces that
 /// both inputs are `credits.aleo` records of the same shape.
+///
+/// # Errors
+///
+/// Fails when either argument does not parse as a plaintext record. Argument
+/// parsing is the only local check; the shape match is enforced by the
+/// program.
 pub fn plan_join(record_one: &str, record_two: &str) -> Result<CreditsCall> {
     let first = parse_record(record_one, "record_one")?;
     let second = parse_record(record_two, "record_two")?;
@@ -242,6 +260,11 @@ pub fn plan_join(record_one: &str, record_two: &str) -> Result<CreditsCall> {
 ///
 /// `credits.aleo/split` needs **no fee**; run the plan through
 /// [`AleoClient::split`](crate::AleoClient::split), which packages without one.
+///
+/// # Errors
+///
+/// Fails when `amount_record` does not parse, or when it holds fewer
+/// microcredits than `split_amount_microcredits`.
 pub fn plan_split(split_amount_microcredits: u64, amount_record: &str) -> Result<CreditsCall> {
     let record = parse_record(amount_record, "amount_record")?;
     if split_amount_microcredits > record_microcredits(&record)? {
@@ -262,6 +285,14 @@ pub fn plan_split(split_amount_microcredits: u64, amount_record: &str) -> Result
 /// `withdrawal_address` receives the credits when they are later unbonded.
 /// The function asserts the amount is at least 1 credit; committee-level
 /// minimums are finalize-time chain rules (see the module notes).
+///
+/// # Errors
+///
+/// Never returns `Err`. This builder only formats inputs; every check it could
+/// make (address validity, amount rules, caller constraints) is left to the
+/// `credits.aleo` program, which asserts them on chain. The `Result` is kept for
+/// signature uniformity with the builders that *can* fail, so a call site can
+/// swap one for another without touching its `?`.
 pub fn plan_bond_public(
     validator_address: &str,
     withdrawal_address: &str,
@@ -289,6 +320,14 @@ pub fn plan_bond_public(
 /// notes. `withdrawal_address` must differ from the signer (the program
 /// asserts it). `commission` is the validator's take in percent; the program
 /// asserts it is at most 100.
+///
+/// # Errors
+///
+/// Never returns `Err`. This builder only formats inputs; every check it could
+/// make (address validity, amount rules, caller constraints) is left to the
+/// `credits.aleo` program, which asserts them on chain. The `Result` is kept for
+/// signature uniformity with the builders that *can* fail, so a call site can
+/// swap one for another without touching its `?`.
 pub fn plan_bond_validator(
     withdrawal_address: &str,
     amount_microcredits: u64,
@@ -309,6 +348,14 @@ pub fn plan_bond_validator(
 ///
 /// `staker_address` is the address whose stake shrinks; `amount_microcredits`
 /// unbonds part of the stake (the chain enforces what may remain).
+///
+/// # Errors
+///
+/// Never returns `Err`. This builder only formats inputs; every check it could
+/// make (address validity, amount rules, caller constraints) is left to the
+/// `credits.aleo` program, which asserts them on chain. The `Result` is kept for
+/// signature uniformity with the builders that *can* fail, so a call site can
+/// swap one for another without touching its `?`.
 pub fn plan_unbond_public(staker_address: &str, amount_microcredits: u64) -> Result<CreditsCall> {
     Ok(CreditsCall {
         function: "unbond_public",
@@ -321,6 +368,14 @@ pub fn plan_unbond_public(staker_address: &str, amount_microcredits: u64) -> Res
 ///
 /// After [`plan_unbond_public`], the credits wait out the unbonding period and
 /// are then claimed to `staker_address`'s public balance.
+///
+/// # Errors
+///
+/// Never returns `Err`. This builder only formats inputs; every check it could
+/// make (address validity, amount rules, caller constraints) is left to the
+/// `credits.aleo` program, which asserts them on chain. The `Result` is kept for
+/// signature uniformity with the builders that *can* fail, so a call site can
+/// swap one for another without touching its `?`.
 pub fn plan_claim_unbond_public(staker_address: &str) -> Result<CreditsCall> {
     Ok(CreditsCall {
         function: "claim_unbond_public",
@@ -334,6 +389,14 @@ pub fn plan_claim_unbond_public(staker_address: &str) -> Result<CreditsCall> {
 /// `validator_state: true` opens the validator to new bonds, `false` closes it
 /// (existing stakers can still bond and unbond). Formatted as the boolean
 /// literal `true`/`false`, exactly the input the wasm layer builds.
+///
+/// # Errors
+///
+/// Never returns `Err`. This builder only formats inputs; every check it could
+/// make (address validity, amount rules, caller constraints) is left to the
+/// `credits.aleo` program, which asserts them on chain. The `Result` is kept for
+/// signature uniformity with the builders that *can* fail, so a call site can
+/// swap one for another without touching its `?`.
 pub fn plan_set_validator_state(validator_state: bool) -> Result<CreditsCall> {
     Ok(CreditsCall {
         function: "set_validator_state",

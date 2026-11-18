@@ -37,6 +37,7 @@
 //! point at `<func>.metadata`), the two URLs of a function share the same 7-char
 //! checksum prefix; only the `prover` / `verifier` label differs.
 
+use anyhow::Context;
 use serde_json::Value;
 use snarkvm_parameters::testnet::{
     BondPublicProver, BondPublicVerifier, BondValidatorProver, BondValidatorVerifier,
@@ -83,34 +84,50 @@ impl Metadata {
     /// exactly as the JS `Metadata::new` does. Only the `prover_checksum` field
     /// is ever read, for both URLs.
     ///
-    /// # Panics
+    /// This is the single implementation of "how a checksum prefix is formed".
+    /// [`Metadata`]-building expects the result because the input is a constant
+    /// compiled into the dependency; `keys::CreditsFunction::verifier_identifier`
+    /// propagates it as an error because it is a public entry point. Both must
+    /// agree, so neither gets its own copy of the slicing.
     ///
-    /// Panics if the compiled-in `METADATA` constant is not valid JSON, or if its
-    /// `prover_checksum` field is missing / not a string / shorter than 7 chars.
-    /// Both only happen when an snarkVM upgrade changes the metadata format — the
-    /// input is a `&'static str` baked into the dependency, never user data — and
-    /// the `#[cfg(test)]` test `metadata_constants_are_all_well_formed` turns such
-    /// an upgrade into a CI failure instead of a runtime surprise.
-    fn checksum_prefix(metadata: &'static str) -> String {
-        // Two checks instead of three: the string comparison below is what
-        // catches a short checksum, so the intermediate `as_str().expect()`
-        // collapses into the same error path as `get(0..7)`.
-        let parsed: Value = serde_json::from_str(metadata).expect(
+    /// # Errors
+    ///
+    /// Fails when the compiled-in `METADATA` constant is not valid JSON, or when
+    /// its `prover_checksum` field is missing, is not a string, or is shorter
+    /// than 7 characters. All four only happen when an snarkVM upgrade changes
+    /// the metadata format — the input is a `&'static str` baked into the
+    /// dependency, never user data.
+    ///
+    /// [`metadata_constants_are_all_well_formed`] is the tripwire that turns
+    /// such an upgrade into a CI failure instead of a runtime surprise, and it
+    /// names the offending function — which the error text here cannot, because
+    /// it only ever sees the metadata string.
+    pub(crate) fn checksum_prefix(metadata: &'static str) -> anyhow::Result<String> {
+        let parsed: Value = serde_json::from_str(metadata).context(
             "compiled-in parameter METADATA is not valid JSON — did a snarkVM upgrade change the format?",
-        );
+        )?;
+        // `get(0..7)` returns `None` both for a short string and for a byte
+        // index that is not a UTF-8 boundary, so one check covers both.
         parsed["prover_checksum"]
             .as_str()
             .and_then(|checksum| checksum.get(0..7))
-            .expect(
+            .map(str::to_string)
+            .context(
                 "compiled-in parameter METADATA has no `prover_checksum` of at least 7 chars — \
                  did a snarkVM upgrade change the format?",
             )
-            .to_string()
     }
 
     /// Build one catalogue entry. This is the Rust twin of the wasm
     /// `Metadata::new`; the `verifier` argument is intentionally *not* prefixed
     /// with [`BASE_URL`], reproducing the upstream asymmetry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a compiled-in `METADATA` constant is malformed. The input is a
+    /// `&'static str` from `snarkvm-parameters`, so this only fires when an
+    /// snarkVM upgrade changes the format — and
+    /// `metadata_constants_are_all_well_formed` catches that in CI first.
     fn new(
         name: &str,
         verifying_key: &str,
@@ -119,7 +136,8 @@ impl Metadata {
         verifier_metadata: &'static str,
     ) -> Self {
         fn url(function_name: &str, kind: &str, metadata: &'static str) -> String {
-            let prefix = Metadata::checksum_prefix(metadata);
+            let prefix = Metadata::checksum_prefix(metadata)
+                .expect("compiled-in parameter METADATA is malformed; see `checksum_prefix`");
             format!("{function_name}.{kind}.{prefix}")
         }
         Self {

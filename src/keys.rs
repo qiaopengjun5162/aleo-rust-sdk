@@ -224,6 +224,12 @@ impl CreditsFunction {
     ///
     /// Accepts exactly the alias sets the JS SDK accepts, e.g. `"private"`,
     /// `"transferPrivate"`, `"public_as_signer"`, `"publicToPrivate"`.
+    ///
+    /// # Errors
+    ///
+    /// Fails with `"Invalid visibility type"` for anything outside those sets.
+    /// The message is the JS SDK's, so a caller porting an error string across
+    /// keeps matching.
     pub fn from_transfer_visibility(visibility: &str) -> Result<Self> {
         match visibility {
             "private" | "transfer_private" | "transferPrivate" => Ok(Self::TransferPrivate),
@@ -251,13 +257,21 @@ impl CreditsFunction {
     /// strings (it always reads `prover_checksum` from the shared per-function
     /// metadata JSON). These identifiers are what
     /// [`AleoKeyProvider::get_verifying_key`] switches on.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the compiled-in metadata for this function is malformed — the
+    /// same condition `Metadata::new` asserts on, reported as an error here
+    /// because this is a public entry point. Only an snarkVM upgrade that changes
+    /// the metadata format can trigger it.
+    ///
+    /// This used to slice `&prover_checksum[..7]` directly, which panicked on a
+    /// short or non-UTF-8-boundary checksum. The slice now goes through the one
+    /// shared `checksum_prefix` implementation, which returns `None` rather than
+    /// indexing out of range.
     pub fn verifier_identifier(self) -> Result<String> {
-        let (prover_checksum, _) = self.expected_checksums()?;
-        Ok(format!(
-            "{}.verifier.{}",
-            self.name(),
-            &prover_checksum[..7]
-        ))
+        let prefix = crate::metadata::Metadata::checksum_prefix(self.metadata())?;
+        Ok(format!("{}.verifier.{prefix}", self.name()))
     }
 
     /// Reverse of [`Self::verifier_identifier`]: the function whose official
@@ -502,52 +516,125 @@ impl OfflineKeyProvider {
     }
 
     /// JS `bondPublicKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`OfflineKeyProvider::credits_keys`]: the pair must be cached
+    /// first via [`OfflineKeyProvider::insert_credits_key`] or
+    /// [`OfflineKeyProvider::cache_keys`], and it must still match the official
+    /// checksum.
     pub fn bond_public_keys(&self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::BondPublic)
     }
 
     /// JS `bondValidatorKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`OfflineKeyProvider::credits_keys`]: the pair must be cached
+    /// first via [`OfflineKeyProvider::insert_credits_key`] or
+    /// [`OfflineKeyProvider::cache_keys`], and it must still match the official
+    /// checksum.
     pub fn bond_validator_keys(&self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::BondValidator)
     }
 
     /// JS `claimUnbondPublicKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`OfflineKeyProvider::credits_keys`]: the pair must be cached
+    /// first via [`OfflineKeyProvider::insert_credits_key`] or
+    /// [`OfflineKeyProvider::cache_keys`], and it must still match the official
+    /// checksum.
     pub fn claim_unbond_public_keys(&self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::ClaimUnbondPublic)
     }
 
     /// JS `transferKeys(visibility)` — routes by the visibility alias
     /// strings (see [`CreditsFunction::from_transfer_visibility`]).
+    ///
+    /// # Errors
+    ///
+    /// Same as [`OfflineKeyProvider::credits_keys`]: the pair must be cached
+    /// first via [`OfflineKeyProvider::insert_credits_key`] or
+    /// [`OfflineKeyProvider::cache_keys`], and it must still match the official
+    /// checksum.
+    ///
+    /// An unknown `visibility` string is rejected by
+    /// [`CreditsFunction::from_transfer_visibility`].
     pub fn transfer_keys(&self, visibility: &str) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::from_transfer_visibility(visibility)?)
     }
 
     /// JS `inclusionKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`OfflineKeyProvider::credits_keys`]: the pair must be cached
+    /// first via [`OfflineKeyProvider::insert_credits_key`] or
+    /// [`OfflineKeyProvider::cache_keys`], and it must still match the official
+    /// checksum.
     pub fn inclusion_keys(&self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::Inclusion)
     }
 
     /// JS `joinKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`OfflineKeyProvider::credits_keys`]: the pair must be cached
+    /// first via [`OfflineKeyProvider::insert_credits_key`] or
+    /// [`OfflineKeyProvider::cache_keys`], and it must still match the official
+    /// checksum.
     pub fn join_keys(&self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::Join)
     }
 
     /// JS `splitKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`OfflineKeyProvider::credits_keys`]: the pair must be cached
+    /// first via [`OfflineKeyProvider::insert_credits_key`] or
+    /// [`OfflineKeyProvider::cache_keys`], and it must still match the official
+    /// checksum.
     pub fn split_keys(&self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::Split)
     }
 
     /// JS `feePrivateKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`OfflineKeyProvider::credits_keys`]: the pair must be cached
+    /// first via [`OfflineKeyProvider::insert_credits_key`] or
+    /// [`OfflineKeyProvider::cache_keys`], and it must still match the official
+    /// checksum.
     pub fn fee_private_keys(&self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::FeePrivate)
     }
 
     /// JS `feePublicKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`OfflineKeyProvider::credits_keys`]: the pair must be cached
+    /// first via [`OfflineKeyProvider::insert_credits_key`] or
+    /// [`OfflineKeyProvider::cache_keys`], and it must still match the official
+    /// checksum.
     pub fn fee_public_keys(&self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::FeePublic)
     }
 
     /// JS `unBondPublicKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`OfflineKeyProvider::credits_keys`]: the pair must be cached
+    /// first via [`OfflineKeyProvider::insert_credits_key`] or
+    /// [`OfflineKeyProvider::cache_keys`], and it must still match the official
+    /// checksum.
     pub fn unbond_public_keys(&self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::UnbondPublic)
     }
@@ -976,57 +1063,126 @@ impl AleoKeyProvider {
     }
 
     /// JS `bondPublicKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
     pub fn bond_public_keys(&mut self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::BondPublic)
     }
 
     /// JS `bondValidatorKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
     pub fn bond_validator_keys(&mut self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::BondValidator)
     }
 
     /// JS `claimUnbondPublicKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
     pub fn claim_unbond_public_keys(&mut self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::ClaimUnbondPublic)
     }
 
     /// JS `transferKeys(visibility)` — routes by the visibility alias
     /// strings (see [`CreditsFunction::from_transfer_visibility`]).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
+    ///
+    /// An unknown `visibility` string is rejected by
+    /// [`CreditsFunction::from_transfer_visibility`].
     pub fn transfer_keys(&mut self, visibility: &str) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::from_transfer_visibility(visibility)?)
     }
 
     /// JS `transferPublicKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
     pub fn transfer_public_keys(&mut self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::TransferPublic)
     }
 
     /// JS `inclusionKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
     pub fn inclusion_keys(&mut self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::Inclusion)
     }
 
     /// JS `joinKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
     pub fn join_keys(&mut self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::Join)
     }
 
     /// JS `splitKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
     pub fn split_keys(&mut self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::Split)
     }
 
     /// JS `feePrivateKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
     pub fn fee_private_keys(&mut self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::FeePrivate)
     }
 
     /// JS `feePublicKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
     pub fn fee_public_keys(&mut self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::FeePublic)
     }
 
     /// JS `unBondPublicKeys()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the embedded `credits.aleo` keys cannot be loaded or parsed.
+    /// Unlike [`OfflineKeyProvider::credits_keys`] a cache miss is not an error
+    /// here, it is filled from the parameters compiled into snarkVM.
     pub fn unbond_public_keys(&mut self) -> Result<FunctionKeyPair> {
         self.credits_keys(CreditsFunction::UnbondPublic)
     }
