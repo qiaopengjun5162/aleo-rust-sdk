@@ -1,8 +1,21 @@
 //! # Aleo Rust SDK
 //!
-//! A comprehensive **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain.
-//! Provides tools for account management, program loading, local zero-knowledge execution,
-//! proof generation, network querying, and transaction broadcasting.
+//! **The Rust SDK for [Aleo](https://aleo.org)** — accounts, private transfers,
+//! and zero-knowledge proofs, with no Node.js in the loop.
+//!
+//! ```no_run
+//! use aleo_rust_sdk::AleoClient;
+//!
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     let client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
+//!     println!("block height = {}", client.get_block_height().await?);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! That is the whole entry fee: one URL, one call. Everything below is what
+//! that URL unlocks — the rest of this page is a map, not a prerequisite.
 //!
 //! Built on top of [snarkVM 4.12.0](https://crates.io/crates/snarkvm) for
 //! zero-knowledge proving, [reqwest](https://crates.io/crates/reqwest) for async
@@ -126,7 +139,7 @@
 //!
 //! ```no_run
 //! use aleo_rust_sdk::{AleoClient, AleoAccount};
-//! use snarkvm::prelude::TestRng;
+//! use aleo_rust_sdk::snarkvm::prelude::TestRng;
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
@@ -247,3 +260,18 @@ pub use scanner::{
     RecordScanService, RecordsResponseFilter, Registration, compute_uuid,
 };
 pub use sealance::{DEFAULT_TREE_DEPTH, SealanceMerkleTree, SiblingPath};
+
+/// The exact snarkVM this crate was built against.
+///
+/// The public API speaks in snarkVM types — `snarkvm::prelude::Value`,
+/// `ProgramID`, `TestnetV0`, `ViewKey` — so callers need those types in scope
+/// too. Adding `snarkvm` to your own `Cargo.toml` works only while both
+/// declarations resolve to one crate; an `aleo-rust-sdk` built against `4.12.0`
+/// next to a stray `snarkvm 4.13` gives you two incompatible `Value` types and
+/// a compile error that names neither version. Import from here instead:
+///
+/// ```
+/// use aleo_rust_sdk::snarkvm::prelude::TestnetV0;
+/// let _ = core::marker::PhantomData::<TestnetV0>;
+/// ```
+pub use snarkvm;

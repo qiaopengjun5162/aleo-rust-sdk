@@ -8,7 +8,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — account management, program loading, local execution with zero-knowledge proof generation, network querying, transaction broadcasting, and **live Merkle path fetching** for private transfers (via Provable API v2).
+**The Rust SDK for [Aleo](https://aleo.org)** — accounts, private transfers, and zero-knowledge proofs, with no Node.js in the loop.
 
 > **Why this SDK?** The official [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) has been **archived** and is no longer maintained. This SDK provides an up-to-date implementation using snarkVM 4.12.0 and the current Aleo testnet endpoints.
 
@@ -16,12 +16,12 @@ A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — 
 
 ## Table of Contents
 
-- [Packages](#packages)
+- [One crate](#one-crate)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
 - [Module Map](#module-map)
 - [Features](#features)
 - [Architecture](#architecture)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
 - [Coming from `@provablehq/sdk`](#coming-from-provablehqsdk)
 - [Examples](#examples)
 - [Roadmap](#roadmap)
@@ -32,77 +32,12 @@ A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — 
 - [Contributing](#contributing)
 - [License](#license)
 
-## Packages
+## One crate
 
-| Package | crates.io | docs.rs | Description |
-|---------|-----------|---------|-------------|
-| aleo-rust-sdk | [crates.io](https://crates.io/crates/aleo-rust-sdk) | [docs.rs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/) | Single crate — every module below lives in it |
-| aleo-rust-sdk (account) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/account/index.html) | Key chain: `PrivateKey → ViewKey → ComputeKey → Address` |
-| aleo-rust-sdk (program) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/program/index.html) | Program loading, parsing, inspection |
-| aleo-rust-sdk (execution) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/execution/index.html) | Authorize, execute, prove, package transactions |
-| aleo-rust-sdk (network) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/network/index.html) | v2 JSON-RPC + REST HTTP client + **ProvableQuery** (live state path) |
-| aleo-rust-sdk (record) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/record/index.html) | Record discovery, decryption, and coin selection |
-| aleo-rust-sdk (delegated) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/delegated/index.html) | Delegated proving via Provable's TEE (DPS) |
-| aleo-rust-sdk (scanner) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/scanner/index.html) | Record scanning via Provable's TEE (RSS) |
-| aleo-rust-sdk (client) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/client/index.html) | High-level `AleoClient` orchestrator |
-
-The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a separate crate that consumes this SDK.
-
-## Module Map
-
-| Group | Modules | What it covers |
-|-------|---------|----------------|
-| **Keys & accounts** | `account`, `address`, `private_key`, `view_key`, `compute_key`, `graph_key`, `signature`, `keypair`, `ciphertext`, `private_key_ciphertext`, `keys` | The key chain, JS-compatible `ciphertext1…` encrypted keys, value signing, per-record view keys |
-| **Records** | `record`, `record_plaintext`, `record_ciphertext`, `encryption` | Discovery, decryption, ownership, commitments and serial numbers, coin selection |
-| **Programs** | `program`, `program_parity`, `metadata` | Loading and parsing, JS `Program` introspection, the static parameter-URL catalogue |
-| **Transactions** | `transaction`, `transition`, `authorization`, `execution`, `execution_request`, `execution_response`, `proving_key`, `verifying_key`, `proving_request`, `offline_query`, `credits` | Authorize → execute → prove → package, fee folding, height-aware verification, `credits.aleo` value ops |
-| **Crypto primitives** | `field`, `group`, `scalar`, `boolean`, `plaintext`, `integer_types`, `hash_functions` | JS parity for the arithmetic types, the nine default hash domains, checked-halt vs lossy casts |
-| **Network** | `network`, `options`, `client`, `hosted`, `delegated`, `scanner` | REST + JSON-RPC transport, live Merkle paths, one-name network options, TEE proving/scanning |
-| **Domain extras** | `circle`, `sealance`, `utility_functions`, `version` | USDCx hook data, freeze-list exclusion proofs, the three module-level helpers, crate version constant |
-
-The rustdoc front page has the full one-line description of all 46 modules.
-
-## Features
-
-| Category | Feature |
-|----------|---------|
-| **🔑 Account Management** | Generate, import, and derive Aleo accounts (PrivateKey, ViewKey, ComputeKey, Address). Full key derivation chain. |
-| **📦 Program Loading** | Fetch programs from the network via REST API, parse `.aleo` source files, inspect function/mapping definitions. |
-| **⚡ Local Execution** | Authorize and execute Aleo program transitions locally **without broadcasting** — ideal for dry-runs and testing. |
-| **🔐 Proof Generation** | Generate zero-knowledge proofs (Varuna V2) for local execution. Fee proving with V0 fee keys for testnet. |
-| **🛡️ Delegated Proving** (v0.10.0+) | Hand proving to Provable's TEE prover (DPS). The authorization travels in a libsodium sealed box and comes back as a broadcast-ready transaction — 15–60s of local CPU becomes one network round-trip. |
-| **🔍 Record Scanning** (v0.10.0+) | Register a view key with Provable's record scanner (RSS) so the TEE indexes it once, then query owned records by `uuid` instead of walking `records/all`. Returned ciphertexts are still decrypted locally, so a forged response cannot invent a spendable record. |
-| **🌐 Network Queries** | Block height, latest block, block by height **or** hash, block ranges, per-block transactions, transaction lookup, committee and mempool, program source and mapping values, state root (latest **and** by height), and the reverse lookup from a state root back to its height. |
-| **🔗 Live State Paths** (v0.5.0+) | `ProvableQuery` fetches real Merkle paths from Provable API v2 (`api.provable.com/v2/testnet/statePath/{commitment}`) — no dummy queries, no 502 errors. |
-| **📋 Record Management** | Fetch, decrypt, and filter private `credits.aleo` records by owner. Scan record ciphertexts across block ranges. |
-| **🚀 Transaction Broadcasting** | Submit serialized transactions and wait for inclusion. Confirmation is polled on `/transaction/confirmed/{id}` — 404 while pending, 200 + `status` once mined — so a broadcast that the node accepted into its mempool is never reported as final. |
-| **🏗️ High-level Client** | `AleoClient` orchestrates the full lifecycle: account → program → execute → prove → broadcast. |
-
-## Architecture
-
-```text
-┌─────────────────────────────────────────────────────┐
-│                    AleoClient                        │
-│   (high-level orchestrator — account, program,       │
-│    execute, prove, broadcast in one place)           │
-├──────────┬──────────┬──────────┬──────────────────────┤
-│  account │  program │ execution│      network         │
-│  │        │         │          │                     │
-│  │        │         │          │  AleoHttpClient      │
-│ PK → VK  │ parse    │ auth     │  ├─ REST (v2)       │
-│ CK → ADDR│ inspect  │ execute  │  ├─ JSON-RPC        │
-│  │        │ from_net │ prove    │  ├─ ProvableQuery   │
-│  ▼        │  ▼       │  ▼      │       ▼            │
-├──────────┴──────────┴──────────┴──────────────────────┤
-│  record                                                │
-│  AleoRecord · RecordScanner · RecordManager · CoinSel  │
-├────────────────────────────────────────────────────────┤
-│              snarkVM 4.12.0 (Process<TestnetV0>)       │
-│          reqwest (async HTTP) — tokio runtime         │
-└──────────────────────────────────────────────────────┘
-```
-
-**v0.5.0+ new:** `ProvableQuery` (in the network layer) replaces the dummy `FixedStateRootQuery`. It fetches live Merkle state paths from `api.provable.com/v2/testnet/statePath/{commitment}` using `ureq` (sync HTTP), caches the `global_state_root()` from the response, and returns it in `current_state_root()` — ensuring the state root used for verification matches the root the Merkle path was built against.
+Everything on this page ships as **one crate, `aleo-rust-sdk`**: no companion
+crate to add, nothing to enable, no Node.js sidecar to run. The command-line
+tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a separate
+crate that consumes this one.
 
 ## Installation
 
@@ -113,6 +48,14 @@ Add to your `Cargo.toml`:
 aleo-rust-sdk = "0.11"
 tokio = { version = "1", features = ["full"] }
 ```
+
+That is the whole dependency list. The snippets below also use snarkVM types
+(`Value`, `ProgramID`, `TestnetV0`, `ViewKey`) — import them through
+`aleo_rust_sdk::snarkvm`, **not** through a second `snarkvm` entry of your own.
+The crate re-exports the exact snarkVM it was built against, so there is only
+one copy in the build and the types always match; a hand-added `snarkvm` at a
+different version gives you two incompatible `Value` types and an error message
+naming neither.
 
 **Requirements:**
 - Rust **1.96+** (snarkVM 4.12.0 requires it)
@@ -142,8 +85,8 @@ async fn main() -> anyhow::Result<()> {
 ### Generate an account and fetch balance
 
 ```rust
+use aleo_rust_sdk::snarkvm::prelude::TestRng;
 use aleo_rust_sdk::{AleoClient, AleoAccount};
-use snarkvm::prelude::TestRng;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -176,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
 
 ```rust
 use aleo_rust_sdk::AleoClient;
-use snarkvm::{prelude::TestRng, console::program::ProgramID};
+use aleo_rust_sdk::snarkvm::console::program::ProgramID;
 use std::str::FromStr;
 
 #[tokio::main]
@@ -204,16 +147,11 @@ For private transfers, you must provide **decrypted record values** rather than 
 
 ```rust
 use aleo_rust_sdk::AleoClient;
-use snarkvm::{
-    prelude::{TestRng, Network, FromBytes},
-    console::{
-        program::{Value, Record, Ciphertext, Literal, Plaintext, Identifier},
-        account::ViewKey,
-        network::TestnetV0,
-    },
-    utilities::Deserialize,
+use aleo_rust_sdk::record_ciphertext::RecordCiphertext;
+use aleo_rust_sdk::snarkvm::{
+    console::program::{ProgramID, Value},
+    prelude::{FromStr, TestnetV0, ViewKey},
 };
-use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -221,8 +159,8 @@ async fn main() -> anyhow::Result<()> {
     client.set_account_from_private_key_str("APrivateKey1...")?;
 
     // Load records (from file, scan, or cached)
-    let ciphertext = Ciphertext::from_str("record1qyq...")?;
-    let view_key = ViewKey::from_str("AViewKey1...")?;
+    let ciphertext = RecordCiphertext::<TestnetV0>::from_string("record1qyq...")?;
+    let view_key = ViewKey::<TestnetV0>::from_str("AViewKey1...")?;
 
     // Decrypt the record
     let record = ciphertext.decrypt(&view_key)?;
@@ -248,7 +186,68 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
+> These four snippets are compiled on every CI run: they are mirrored in
+> [`examples/readme_quickstart.rs`](examples/readme_quickstart.rs), which
+> `cargo build --all-targets` builds. If you change one, change both — otherwise
+> this page starts documenting code that does not compile.
+
 The CLI tool handles this automatically — see the `aleo-cli transfer --mode private` command below.
+
+## Module Map
+
+| Group | Modules | What it covers |
+|-------|---------|----------------|
+| **Keys & accounts** | `account`, `address`, `private_key`, `view_key`, `compute_key`, `graph_key`, `signature`, `keypair`, `ciphertext`, `private_key_ciphertext`, `keys` | The key chain, JS-compatible `ciphertext1…` encrypted keys, value signing, per-record view keys |
+| **Records** | `record`, `record_plaintext`, `record_ciphertext`, `encryption` | Discovery, decryption, ownership, commitments and serial numbers, coin selection |
+| **Programs** | `program`, `program_parity`, `metadata` | Loading and parsing, JS `Program` introspection, the static parameter-URL catalogue |
+| **Transactions** | `transaction`, `transition`, `authorization`, `execution`, `execution_request`, `execution_response`, `proving_key`, `verifying_key`, `proving_request`, `offline_query`, `credits` | Authorize → execute → prove → package, fee folding, height-aware verification, `credits.aleo` value ops |
+| **Crypto primitives** | `field`, `group`, `scalar`, `boolean`, `plaintext`, `integer_types`, `hash_functions` | JS parity for the arithmetic types, the nine default hash domains, checked-halt vs lossy casts |
+| **Network** | `network`, `options`, `client`, `hosted`, `delegated`, `scanner` | REST + JSON-RPC transport, live Merkle paths, one-name network options, TEE proving/scanning |
+| **Domain extras** | `circle`, `sealance`, `utility_functions`, `version` | USDCx hook data, freeze-list exclusion proofs, the three module-level helpers, crate version constant |
+
+The rustdoc front page has the full one-line description of all 46 modules.
+
+## Features
+
+| Category | Feature |
+|----------|---------|
+| **🔑 Account Management** | Generate, import, and derive Aleo accounts (PrivateKey, ViewKey, ComputeKey, Address). Full key derivation chain. |
+| **📦 Program Loading** | Fetch programs from the network via REST API, parse `.aleo` source files, inspect function/mapping definitions. |
+| **⚡ Local Execution** | Authorize and execute Aleo program transitions locally **without broadcasting** — ideal for dry-runs and testing. |
+| **🔐 Proof Generation** | Generate zero-knowledge proofs (Varuna V2) for local execution. Fee proving with V0 fee keys for testnet. |
+| **🛡️ Delegated Proving** (v0.10.0+) | Hand proving to Provable's TEE prover (DPS). The authorization travels in a libsodium sealed box and comes back as a broadcast-ready transaction — 15–60s of local CPU becomes one network round-trip. |
+| **🔍 Record Scanning** (v0.10.0+) | Register a view key with Provable's record scanner (RSS) so the TEE indexes it once, then query owned records by `uuid` instead of walking `records/all`. Returned ciphertexts are still decrypted locally, so a forged response cannot invent a spendable record. |
+| **🌐 Network Queries** | Block height, latest block, block by height **or** hash, block ranges, per-block transactions, transaction lookup, committee and mempool, program source and mapping values, state root (latest **and** by height), and the reverse lookup from a state root back to its height. |
+| **🔗 Live State Paths** (v0.5.0+) | `ProvableQuery` fetches real Merkle paths from Provable API v2 (`api.provable.com/v2/testnet/statePath/{commitment}`) and caches the root each path was built against, so the proof and the root it verifies against cannot disagree. A commitment that is not on chain is answered with **502** and no not-found code — read that as "no such path", not "try again". |
+| **📋 Record Management** | Fetch, decrypt, and filter private `credits.aleo` records by owner. Scan record ciphertexts across block ranges. |
+| **🚀 Transaction Broadcasting** | Submit serialized transactions and wait for inclusion. Confirmation is polled on `/transaction/confirmed/{id}` — 404 while pending, 200 + `status` once mined — so a broadcast that the node accepted into its mempool is never reported as final. |
+| **🏗️ High-level Client** | `AleoClient` orchestrates the full lifecycle: account → program → execute → prove → broadcast. |
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────┐
+│                    AleoClient                        │
+│   (high-level orchestrator — account, program,       │
+│    execute, prove, broadcast in one place)           │
+├──────────┬──────────┬──────────┬──────────────────────┤
+│  account │  program │ execution│      network         │
+│  │        │         │          │                     │
+│  │        │         │          │  AleoHttpClient      │
+│ PK → VK  │ parse    │ auth     │  ├─ REST (v2)       │
+│ CK → ADDR│ inspect  │ execute  │  ├─ JSON-RPC        │
+│  │        │ from_net │ prove    │  ├─ ProvableQuery   │
+│  ▼        │  ▼       │  ▼      │       ▼            │
+├──────────┴──────────┴──────────┴──────────────────────┤
+│  record                                                │
+│  AleoRecord · RecordScanner · RecordManager · CoinSel  │
+├────────────────────────────────────────────────────────┤
+│              snarkVM 4.12.0 (Process<TestnetV0>)       │
+│          reqwest (async HTTP) — tokio runtime         │
+└──────────────────────────────────────────────────────┘
+```
+
+**v0.5.0+ new:** `ProvableQuery` (in the network layer) replaces the dummy `FixedStateRootQuery`. It fetches live Merkle state paths from `api.provable.com/v2/testnet/statePath/{commitment}` using `ureq` (sync HTTP), caches the `global_state_root()` from the response, and returns it in `current_state_root()` — ensuring the state root used for verification matches the root the Merkle path was built against.
 
 ## Coming from `@provablehq/sdk`
 
@@ -287,7 +286,7 @@ read, exactly as `Option::take()` implies.
 | # | Symptom | Fix |
 |---|---|---|
 | 1 | Encryption helper signatures don't line up | snarkVM 4.12 uses **rand 0.10**; inject the RNG instead of using an `OsRng` from a `rand = 0.8` project |
-| 2 | `Field::inverse()` "wrong" | It is the **additive** inverse; only `Group` has a multiplicative one, and `Group::scalar_multiply` doesn't exist — write `group * scalar` |
+| 2 | `Field::inverse()` "wrong" | The name means different things either side. **Rust**: snarkVM's `Field::inverse()` is really `1/x` (`2 * 2.inverse() == 1`, `0.inverse()` errors). **JS**: `f.inverse()` *negates*, so this crate mirrors it with `field::negate(&f)` and never calls the snarkVM method. `Group` has no `inverse()` in Rust at all — JS `g.inverse()` is `-g`. Scalar multiplication is `group * scalar`; `scalar_multiply` does not exist |
 | 3 | `i128` / `u128` JSON changed | They serialize as **strings** |
 | 4 | BHP `hashToGroup` missing | BHP has no `HashToGroup`; use `HashUncompressed::hash_uncompressed` |
 | 5 | Cross-width casts look wrong | "checked" ops `E::halt` (panic); widening does **not** sign-extend (`-1i8` → `255i32`) |
@@ -301,6 +300,12 @@ read, exactly as `Option::take()` implies.
 | `testnet_transfer` | [examples/testnet_transfer.rs](examples/testnet_transfer.rs) | Full pipeline: authorize → execute → prove → broadcast credits transfer |
 | `simple_execute` | [examples/simple_execute.rs](examples/simple_execute.rs) | Minimal workflow: load program, execute locally (dry-run) |
 | `sdk_v2_broadcast_test` | [examples/sdk_v2_broadcast_test.rs](examples/sdk_v2_broadcast_test.rs) | Exercise the v2 REST surface and broadcast path against testnet (requires `PRIVATE_KEY`; broadcasts a real 1-microcredit self-transfer) |
+
+Two of these broadcast a real transaction, so the account behind `PRIVATE_KEY`
+must already hold testnet credits. If it holds none, that is not a bug in the
+SDK: get free ones from the [official Aleo testnet
+faucet](https://faucet.aleo.org/) by pasting in the address you want funded.
+Nothing else on this page costs anything.
 
 Run an example:
 
@@ -383,6 +388,17 @@ aleo-cli verify at136grnr... --deep
 
 ## Development
 
+The `just` recipes are the intended entry point, and `just` is not installed by
+default. Neither are four of the tools `just gate` calls. Install them once:
+
+```bash
+cargo install just cargo-nextest typos-cli taplo-cli cargo-deny cargo-llvm-cov
+# `typos-cli` and `taplo-cli` install commands named `typos` and `taplo`.
+```
+
+`cargo-nextest` is the only optional one — `just test` falls back to `cargo
+test` without it. The rest are what `just gate` invokes by name.
+
 ```bash
 git clone https://github.com/qiaopengjun5162/aleo-rust-sdk.git
 cd aleo-rust-sdk
@@ -391,30 +407,43 @@ cd aleo-rust-sdk
 just build            # cargo build --all-features
 just build-release    # release build
 
-# Test
-just test             # cargo nextest run --all-features
+# Test (nextest if installed, plain cargo test otherwise)
+just test             # cargo nextest run --all-features || cargo test --all-features
 
 # Lint
 just check            # cargo check --all-features
-just clippy           # cargo clippy --all-targets -- -D warnings
+just clippy           # cargo clippy --all-targets --all-features -- -D warnings
 just format           # cargo fmt --all -- --check
-
-# Coverage (CI gate: 87% lines)
-just coverage         # cargo llvm-cov --lcov --output-path lcov.info
 
 # Dependency and licence audit
 just audit            # cargo deny check
 
-# Generate docs
-just docs             # cargo doc --no-deps --open
+# Generate docs (docs-open also opens a browser)
+just docs             # cargo doc --no-deps --all-features
 
-# Full check suite
+# Coverage report
+just coverage         # cargo llvm-cov --all-features --lcov --output-path lcov.info
+
+# Quick local pass — NOT the CI gate
 just all              # format + check + clippy + test
+```
+
+> 🔴 **`just all` can be green while CI is red.** It predates most of the
+> workflow: it does not run `taplo`, `typos`, `cargo deny`, rustdoc with
+> `-D warnings`, doc-tests, or the coverage floor. Use it for a fast loop, never
+> as permission to push.
+
+To reproduce the CI gate before pushing — same steps, same order:
+
+```bash
+just gate       # fmt, taplo, typos, clippy, deny, rustdoc, test, doc-test
+just gate-cov   # the above plus llvm-cov at the 87% line floor (slow, >10 min)
 ```
 
 > 🔴 `cargo check`, `cargo clippy` without `--tests`, and `cargo doc` do **not**
 > compile `#[cfg(test)]` modules — run `cargo test` separately after editing
-> tests.
+> tests. `cargo nextest` does not run doc-tests either, which is why `gate`
+> calls `cargo test --doc` as its own step.
 
 ## Pre-commit Quality Gates
 
@@ -428,22 +457,26 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg
 pre-commit run --all-files
 ```
 
-The following 12 checks run automatically before each commit:
+`.pre-commit-config.yaml` defines **11 hooks**, and they do not all run at the same
+moment — three of them fire on `pre-push`/`commit-msg`, not `pre-commit`:
 
-| # | Hook | What it checks |
-|---|------|---------------|
-| 1 | fix-byte-order-marker | BOM encoding |
-| 2 | check-case-conflict | Case-sensitive filename conflicts |
-| 3 | check-merge-conflict | Unresolved merge markers |
-| 4 | check-symlinks | Broken symlinks |
-| 5 | check-yaml | YAML syntax validity |
-| 6 | end-of-file-fixer | Files end with newline |
-| 7 | mixed-line-ending | Consistent line endings |
-| 8 | trailing-whitespace | No trailing whitespace |
-| 9 | cargo fmt | Rust formatting (`cargo fmt --check`) |
-| 10 | cargo check | Compilation (`cargo check`) |
-| 11 | cargo clippy | Lint (`cargo clippy -- -D warnings`) |
-| 12 | typos | Spelling errors |
+| Stage | Hook | What it checks |
+|-------|------|---------------|
+| commit-msg | conventional-pre-commit | Commit message follows Conventional Commits |
+| pre-commit | trailing-whitespace | No trailing whitespace |
+| pre-commit | end-of-file-fixer | Files end with a newline |
+| pre-commit | check-added-large-files | No file over 500 KB is committed |
+| pre-commit | check-merge-conflict | No unresolved merge markers |
+| pre-commit | check-yaml | YAML syntax validity |
+| pre-commit | check-toml | TOML syntax validity (this file included) |
+| pre-commit | cargo fmt | `cargo fmt --all -- --check` |
+| pre-commit | cargo clippy | `cargo clippy --all-targets --all-features -- -D warnings` |
+| pre-commit | cargo check | `cargo check --all-features` |
+| pre-push | cargo test | `cargo test` — the slow one, so it waits until push |
+
+`pre-commit run --all-files` runs the `pre-commit` stage only. That is 9 of the
+11 — it will not check your commit message, and it will not run the tests. Run
+`cargo test` yourself, or let the push hook do it.
 
 **`language: system`** note: All local hooks use `language: system` (not `language: rust`), which means they run tools from your system PATH. This ensures the hooks actually execute instead of silently skipping.
 
@@ -454,9 +487,14 @@ The following 12 checks run automatically before each commit:
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on reporting bugs, suggesting features, and submitting code changes.
 
 **Before submitting a PR:**
-1. Ensure pre-commit hooks pass (`pre-commit run --all-files`)
-2. Check CI passes (GitHub Actions)
-3. Update CHANGELOG.md following [conventional commits](https://www.conventionalcommits.org/)
+1. Reproduce the gate locally with `just gate` (not `just all` — see
+   [Development](#development))
+2. Write a [conventional commit](https://www.conventionalcommits.org/) message.
+   That *is* the changelog work: `CHANGELOG.md` is generated by release-please
+   from commit subjects, so editing it by hand gets overwritten on the next
+   release and can conflict with the release PR. The pre-commit hook rejects a
+   message that does not parse.
+3. Let CI pass (GitHub Actions)
 
 ## License
 

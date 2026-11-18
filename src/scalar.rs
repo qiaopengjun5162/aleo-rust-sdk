@@ -47,9 +47,11 @@
 //! which is wrong on both counts. The multiplicative inverse is `Inverse` in
 //! snarkVM. The helper here is deliberately named [`negate`].
 //!
-//! Note the contrast with `Group.inverse()`, which **is** a true group inverse
-//! (though the JS docs' geometric note about it is wrong — see [`crate::group`]).
-//! Three classes, two different meanings of `inverse()`.
+//! Note the contrast with **JS** `Group.inverse()`, which really is the group
+//! inverse — Rust's `-g`. snarkVM's own `Group` has no `inverse()` method at
+//! all, so the name only exists on the JS side. (The JS docs' geometric note
+//! about it is wrong too — see [`crate::group`].)
+//! Three classes, two meanings of `inverse()`, and the confusing one is JS-only.
 //!
 //! ## 🔴 Every lossy cast goes through `toField()` first
 //!
