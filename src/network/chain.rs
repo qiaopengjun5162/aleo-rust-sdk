@@ -42,6 +42,10 @@ pub const MAX_CONCURRENT_BLOCK_REQUESTS: usize = 4;
 impl AleoHttpClient {
     // ── Blocks ──────────────────────────────────────────────────────────
 
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not a JSON object.
     /// Fetch the latest block.
     pub async fn fetch_latest_block(&self) -> Result<Value> {
         let url = format!("{}/block/latest", self.base_url);
@@ -51,12 +55,21 @@ impl AleoHttpClient {
     /// Fetch a block by height **or** by hash — the node serves both from one
     /// route, so there is no separate `fetch_block_by_hash`.
     ///
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not a JSON object. A height the node
+    /// does not have yet is an error, never an empty block.
     /// A height the node does not have yet is an error, not an empty block.
     pub async fn fetch_block(&self, height_or_hash: &str) -> Result<Value> {
         let url = format!("{}/block/{height_or_hash}", self.base_url);
         self.get_json(&url).await
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not a JSON string.
     /// Fetch the hash of the latest block.
     pub async fn fetch_latest_block_hash(&self) -> Result<String> {
         let url = format!("{}/block/hash/latest", self.base_url);
@@ -68,6 +81,12 @@ impl AleoHttpClient {
     /// The inverse of [`Self::fetch_latest_block_hash`]; useful for turning a
     /// hash handed out by an explorer into the height a consensus-version
     /// lookup needs.
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not a bare integer. An unknown hash is
+    /// not one code: the node answers 404, while a malformed request is rejected by the
+    /// gateway with 502. Both surface as errors, which is all a caller can act on.
     pub async fn fetch_block_height_of_hash(&self, block_hash: &str) -> Result<u32> {
         let url = format!("{}/height/{block_hash}", self.base_url);
         let text = self.get_text_checked(&url).await?;
@@ -89,6 +108,12 @@ impl AleoHttpClient {
     /// but unknown, a root with a bad checksum, and a missing parameter are all
     /// answered with 502 — there is no 404 to distinguish them, so any non-2xx
     /// is reported as a plain error.
+    ///
+    /// # Errors
+    ///
+    /// Fails on any non-2xx, and answers 502 for both "no such root" and "the
+    /// gateway is unhappy" — there is no 404 to tell them apart, so the error is
+    /// deliberately plain rather than pretending to classify.
     pub async fn fetch_block_height_of_state_root(&self, state_root: &str) -> Result<u32> {
         let url = format!("{}/find/blockHeight/{state_root}", self.base_url);
         let text = self.get_text_checked(&url).await?;
@@ -115,6 +140,12 @@ impl AleoHttpClient {
     /// while the same block's embedded `transactions` array is ascending. Sort
     /// by `index` before pairing the result with anything positional; this
     /// method returns the node's order unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not an array. The node's order is
+    /// returned unchanged — sort by each transition's `index` before pairing with
+    /// anything positional.
     pub async fn fetch_block_transactions(&self, height: u32) -> Result<Value> {
         let url = format!("{}/block/{height}/transactions", self.base_url);
         self.get_json(&url).await
@@ -131,6 +162,11 @@ impl AleoHttpClient {
     /// 404 with a structured JSON body, while a malformed id is a 502 with a
     /// 16-byte `text/plain` body. Both surface as errors here, which is the only
     /// distinction a caller can act on.
+    ///
+    /// # Errors
+    ///
+    /// Fails on any non-2xx. A missing transaction answers 404 and a malformed id 502,
+    /// but both surface as errors here.
     pub async fn fetch_block_hash_of_transaction(&self, tx_id: &str) -> Result<String> {
         let url = format!("{}/find/blockHash/{tx_id}", self.base_url);
         self.get_json_string(&url).await
@@ -164,6 +200,12 @@ impl AleoHttpClient {
     /// order the caller asked for. Concurrency uses `tokio` tasks, which is the
     /// runtime `reqwest` already requires.
     ///
+    ///
+    /// # Errors
+    ///
+    /// Fails when a window cannot be fetched, or when one comes back with fewer blocks
+    /// than asked for ("the node is behind the requested range"). `end <= start` is
+    /// `Ok(vec![])` and sends nothing.
     /// `end <= start` is an empty range and performs no request.
     pub async fn fetch_block_range(&self, start: u32, end: u32) -> Result<Vec<Value>> {
         if end <= start {
@@ -244,6 +286,12 @@ impl AleoHttpClient {
     /// A body that is not an array of strings is an error rather than an empty
     /// list: "no mappings" and "the response shape changed" must not look the
     /// same.
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not an array of strings. A body of the
+    /// wrong shape is an error rather than an empty list, so "no mappings" and "the
+    /// response format changed" stay distinguishable.
     pub async fn fetch_mapping_names(&self, program_id: &str) -> Result<Vec<String>> {
         let url = format!("{}/program/{program_id}/mappings", self.base_url);
         let value = self.get_json(&url).await?;
@@ -262,6 +310,10 @@ impl AleoHttpClient {
     }
 
     /// The latest edition of a program on chain (0 for a program deployed once).
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not a bare integer.
     pub async fn fetch_latest_program_edition(&self, program_id: &str) -> Result<u16> {
         let url = format!("{}/program/{program_id}/latest_edition", self.base_url);
         let text = self.get_text_checked(&url).await?;
@@ -271,6 +323,11 @@ impl AleoHttpClient {
     }
 
     /// Transaction ID of the deployment that put `program_id` on chain.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the program is not on chain (404), or when the body is not a JSON
+    /// string.
     pub async fn fetch_deployment_transaction_id(&self, program_id: &str) -> Result<String> {
         let url = format!(
             "{}/find/transactionID/deployment/{program_id}",
@@ -287,6 +344,11 @@ impl AleoHttpClient {
     /// body of `/transaction/{id}` whatever it holds. This one hits
     /// `/transaction/confirmed/{id}`, so an unconfirmed id is a 404 instead of a
     /// JSON object whose shape the caller has to inspect.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the transaction is not confirmed yet (404), or when the body is not a
+    /// JSON object. An unconfirmed id is deliberately not a success.
     pub async fn fetch_confirmed_transaction(&self, tx_id: &str) -> Result<Value> {
         let url = format!("{}/transaction/confirmed/{tx_id}", self.base_url);
         self.get_json(&url).await
@@ -297,6 +359,10 @@ impl AleoHttpClient {
     /// Note the direction: this maps an input/output id to a transition id. The
     /// reverse (`/find/transactionID/{transition_id}`) is a different route and
     /// is not wrapped here.
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not a JSON string.
     pub async fn fetch_transition_id(&self, input_or_output_id: &str) -> Result<String> {
         let url = format!("{}/find/transitionID/{input_or_output_id}", self.base_url);
         self.get_json_string(&url).await
@@ -304,12 +370,20 @@ impl AleoHttpClient {
 
     // ── Committee and mempool ───────────────────────────────────────────
 
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not a JSON object.
     /// The current committee (validator set, stakes and rounds).
     pub async fn fetch_committee(&self) -> Result<Value> {
         let url = format!("{}/committee/latest", self.base_url);
         self.get_json(&url).await
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not a JSON object.
     /// The committee as of a specific block height.
     pub async fn fetch_committee_at(&self, height: u32) -> Result<Value> {
         let url = format!("{}/committee/{height}", self.base_url);
@@ -321,6 +395,11 @@ impl AleoHttpClient {
     /// Only a validator exposes this route — the Cloud API answers 404, which
     /// is a property of the endpoint and not something to work around. Use it
     /// against a node whose `base_url` points at `/v2/{network}` on a validator.
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not a JSON object. A hosted gateway
+    /// usually rejects this route; that is a property of the endpoint, not a bug.
     pub async fn fetch_mempool_transactions(&self) -> Result<Value> {
         let url = format!("{}/memoryPool/transactions", self.base_url);
         self.get_json(&url).await
@@ -333,6 +412,12 @@ impl AleoHttpClient {
     /// A missing mapping entry means the address was never paid, so 0 is the
     /// right answer there. A body that is present but not a `u64` is an error:
     /// reporting 0 for it is how a funded account comes to look drained.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the request fails, or when a present value is not a `u64`. A missing
+    /// mapping entry is `Ok(0)`, not an error; an unparsable one **is** an error,
+    /// because reporting 0 is how a funded account comes to look drained.
     pub async fn fetch_public_balance(&self, address: &str) -> Result<u64> {
         let Some(text) = self.mapping_value_raw("credits.aleo", "account", address).await? else {
             return Ok(0);
@@ -353,6 +438,11 @@ impl AleoHttpClient {
     /// An account with no `credits.aleo/account` entry counts as a zero
     /// balance (that is what [`fetch_public_balance`](Self::fetch_public_balance)
     /// reports), so a fresh account can only pass a zero fee.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the balance cannot be read, or when it is below
+    /// `fee_amount_microcredits`. Insufficient balance is an `Err`, not a `false`.
     pub async fn check_fee(&self, address: &str, fee_amount_microcredits: u64) -> Result<()> {
         let balance = self.fetch_public_balance(address).await?;
         if fee_amount_microcredits > balance {

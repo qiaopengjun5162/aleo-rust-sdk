@@ -72,6 +72,10 @@ impl SealanceMerkleTree {
     ///
     /// # Returns
     /// A `Field<N>` representing the address.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `address` is not a valid Aleo address string for this network.
     pub fn convert_address_to_field<N: Network>(address: &str) -> Result<Field<N>> {
         let addr = Address::<N>::from_str(address)?;
         addr.to_field()
@@ -86,6 +90,12 @@ impl SealanceMerkleTree {
     /// the `field` suffix. Accept both spellings so the endpoint response can
     /// be passed verbatim; anything else is an error rather than a skipped
     /// element (a shorter tree would silently prove against the wrong root).
+    ///
+    /// # Errors
+    ///
+    /// Fails when any element is not a decimal-string field element. A malformed
+    /// element is an error rather than a skipped one: a shorter tree would silently
+    /// prove against the wrong root.
     pub fn convert_tree_to_fields<N: Network>(tree: &[String]) -> Result<Vec<Field<N>>> {
         tree.iter()
             .map(|element| {
@@ -107,6 +117,10 @@ impl SealanceMerkleTree {
     ///
     /// `prefix` is `Field::one()` ("1field") for leaf-level hashing and
     /// `Field::zero()` ("0field") for internal node hashing.
+    ///
+    /// # Errors
+    ///
+    /// Fails when this network cannot compute the hash.
     pub fn hash_two_elements<N: Network>(
         prefix: Field<N>,
         el1: Field<N>,
@@ -203,6 +217,11 @@ impl SealanceMerkleTree {
     /// Leaf level uses prefix "1field", internal levels use "0field".
     ///
     /// Returns the complete Merkle tree as a flat array (leaves first, then internal nodes).
+    ///
+    /// # Errors
+    ///
+    /// Fails when `leaves` is empty, or when its length is odd — every level needs a
+    /// whole number of pairs.
     pub fn build_tree<N: Network>(leaves: &[Field<N>]) -> Result<Vec<Field<N>>> {
         if leaves.is_empty() {
             return Err(anyhow::anyhow!("Leaves array cannot be empty"));
@@ -244,10 +263,25 @@ impl SealanceMerkleTree {
     /// JS equivalent: `SealanceMerkleTree.getLeafIndices()`.
     /// Returns the indices of the two adjacent leaves that surround the target address.
     /// For non-inclusion proof, we need the siblings of these two leaves.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `tree` is empty, or when `address` is not a valid address. An empty
+    /// tree used to underflow `num_leaves - 1` here (panic in debug, `usize::MAX` in
+    /// release); it is now an error.
     pub fn get_leaf_indices<N: Network>(
         tree: &[Field<N>],
         address: &str,
     ) -> Result<(usize, usize)> {
+        // An empty tree has no leaves. Without this the `None` arm below computes
+        // `num_leaves - 1` on a zero, which panicked in debug and wrapped to
+        // `usize::MAX` in release — the second of which is worse, because it
+        // reads like a valid index until it is used.
+        if tree.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Cannot locate a leaf in an empty tree; build it first with build_tree"
+            ));
+        }
         let num_leaves = tree.len().div_ceil(2);
         let address_field = Self::convert_address_to_field::<N>(address)?;
         let leaves = &tree[..num_leaves];
@@ -277,11 +311,32 @@ impl SealanceMerkleTree {
     /// Returning exactly `depth` elements (the previous behaviour) produced a
     /// 15-element array that cannot be cast to `[field; 16u32]`, so the call
     /// only failed on chain.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `tree` is empty, or when `leaf_index` is past the end of it. Both
+    /// used to index straight into the slice and panic; they are errors now, because a
+    /// wrong index is a caller bug that should read as one.
     pub fn get_sibling_path<N: Network>(
         tree: &[Field<N>],
         leaf_index: usize,
         depth: u32,
     ) -> Result<Vec<Field<N>>> {
+        // `tree[leaf_index]` is the first thing this reads. Without the bounds
+        // check an out-of-range index (or an empty tree) indexed straight past
+        // the end, so a caller that passed the wrong index got a panic from
+        // inside the Merkle code rather than an answer.
+        if tree.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Cannot build a sibling path for an empty tree"
+            ));
+        }
+        if leaf_index >= tree.len() {
+            return Err(anyhow::anyhow!(
+                "leaf_index {leaf_index} is out of range for a {}-element tree",
+                tree.len()
+            ));
+        }
         let num_leaves = tree.len().div_ceil(2);
         let mut sibling_path: Vec<Field<N>> = Vec::with_capacity(depth as usize + 1);
         let mut index = leaf_index;
@@ -351,6 +406,12 @@ impl SealanceMerkleTree {
     ///
     /// # Returns
     /// A tuple of (left_sibling_path, right_sibling_path, left_leaf_index, right_leaf_index)
+    ///
+    /// # Errors
+    ///
+    /// Fails when an address does not parse, when the freeze list exceeds what `depth`
+    /// allows, or when the tree cannot be built — see [`Self::generate_leaves`],
+    /// [`Self::build_tree`] and [`Self::get_leaf_indices`].
     #[allow(clippy::type_complexity)]
     pub fn generate_exclusion_proof<N: Network>(
         addresses: &[String],
@@ -710,6 +771,44 @@ mod tests {
         assert!(
             format!("{err}").contains("even number"),
             "expected an even-length error, got: {err}"
+        );
+    }
+
+    /// A caller that hands an unbuilt tree to the lookup helpers used to get a
+    /// panic from inside the Merkle code: `get_leaf_indices` underflowed
+    /// `num_leaves - 1` on an empty slice, and `get_sibling_path` indexed
+    /// `tree[leaf_index]` without checking. Both are caller bugs, so they have
+    /// to read as errors — a wrapped `usize::MAX` in release was the worse half
+    /// of the first one, because it looks like a valid index until it is used.
+    #[test]
+    fn test_leaf_lookup_rejects_empty_tree_and_out_of_range_index() {
+        let empty: Vec<Field<N>> = vec![];
+
+        let err = SealanceMerkleTree::get_leaf_indices::<N>(
+            &empty,
+            "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px",
+        )
+        .unwrap_err();
+        assert!(
+            format!("{err}").contains("empty tree"),
+            "expected an empty-tree error, got: {err}"
+        );
+
+        let err = SealanceMerkleTree::get_sibling_path::<N>(&empty, 0, 15).unwrap_err();
+        assert!(
+            format!("{err}").contains("empty tree"),
+            "expected an empty-tree error, got: {err}"
+        );
+
+        // Two leaves plus the root makes three elements, so index 3 is one past
+        // the end — the smallest input that used to index out of bounds.
+        let tree =
+            SealanceMerkleTree::build_tree::<N>(&[Field::<N>::one(), Field::<N>::zero()]).unwrap();
+        assert_eq!(tree.len(), 3);
+        let err = SealanceMerkleTree::get_sibling_path::<N>(&tree, 3, 1).unwrap_err();
+        assert!(
+            format!("{err}").contains("out of range"),
+            "expected an out-of-range error, got: {err}"
         );
     }
 
