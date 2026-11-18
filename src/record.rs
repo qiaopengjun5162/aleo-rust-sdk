@@ -161,6 +161,61 @@ pub enum ScanWindow {
     Range(BlockRange),
 }
 
+/// What a block scan produced.
+///
+/// The scan has a hard page ceiling (100 pages × 500 records), so a dense range
+/// can stop before reaching its end. That used to be invisible: the scan
+/// returned a `Vec` and left a `tracing::warn!` as the only trace, which meant a
+/// caller rebuilding a balance could silently come up short. [`truncated`] says
+/// whether `records` is everything the range holds or only the first part of it.
+///
+/// A truncated `Vec` is *not* an error — the scan did what it was asked, within
+/// its limits. It is the caller's decision whether a prefix is acceptable, so it
+/// is reported as a value rather than raised.
+///
+/// [`truncated`]: ScanOutcome::truncated
+#[derive(Clone, Debug, Default)]
+#[non_exhaustive]
+pub struct ScanOutcome {
+    /// Records owned by the view key, sorted by amount descending.
+    pub records: Vec<AleoRecord>,
+    /// `true` when the scan stopped at the page ceiling instead of at the end of
+    /// the range, so `records` is a prefix of what the range holds.
+    ///
+    /// Narrow the range (or scan in slices and union the results) rather than
+    /// treating this as a transient condition: re-running the same scan hits the
+    /// same ceiling.
+    pub truncated: bool,
+}
+
+impl ScanOutcome {
+    /// An untruncated outcome wrapping `records`.
+    fn complete(records: Vec<AleoRecord>) -> Self {
+        Self {
+            records,
+            truncated: false,
+        }
+    }
+
+    /// The `true` count of records found, ignoring truncation.
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    /// Whether the scan found no records at all.
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    /// The records, discarding the truncation flag.
+    ///
+    /// Only use this when a prefix is genuinely acceptable — otherwise read
+    /// [`Self::truncated`] first.
+    pub fn into_records(self) -> Vec<AleoRecord> {
+        self.records
+    }
+}
+
 /// A decrypted Aleo record, ready for inspection or spending.
 ///
 /// Contains the original ciphertext (needed for creating spend proofs)
@@ -186,6 +241,13 @@ pub struct AleoRecord {
     pub spent: bool,
 }
 
+/// The page ceiling for [`RecordScanner::scan_blocks`]: 100 pages × 500 records.
+///
+/// The ceiling exists so a scan against a range that never ends cannot loop
+/// forever. Reaching it is reported through [`ScanOutcome::truncated`] rather
+/// than raised as an error.
+pub const MAX_SCAN_PAGES: u32 = 100;
+
 /// Scans blocks on the Aleo network to discover and decrypt records
 /// owned by a given view key.
 ///
@@ -208,7 +270,8 @@ impl RecordScanner {
 
     /// Scan a block range and decrypt all records owned by the given view key.
     ///
-    /// Returns records sorted by amount (descending).
+    /// Returns records sorted by amount (descending), wrapped in a [`ScanOutcome`]
+    /// that also says whether the range was covered completely.
     ///
     /// # Errors
     ///
@@ -216,15 +279,11 @@ impl RecordScanner {
     /// be fetched. Ciphertexts this key cannot decrypt are skipped, not reported — a
     /// block holds other people's records by design.
     ///
-    /// Scanning stops after 100 pages (50 000 records) with a warning and returns
-    /// what it has: a range that dense comes back **partial**, and the returned
-    /// vector cannot tell you that. Narrow the range if that matters.
-    pub async fn scan_blocks(
-        &self,
-        view_key: &str,
-        start: u32,
-        end: u32,
-    ) -> Result<Vec<AleoRecord>> {
+    /// The scan stops after [`MAX_SCAN_PAGES`] pages (50 000 records). That is a
+    /// ceiling, not an error: the outcome reports it as
+    /// [`ScanOutcome::truncated`], and a range that ends exactly on the boundary is
+    /// **not** reported as truncated — one extra request distinguishes the two.
+    pub async fn scan_blocks(&self, view_key: &str, start: u32, end: u32) -> Result<ScanOutcome> {
         let vk = ViewKey::<TestnetV0>::from_str(view_key).context("Invalid view key")?;
         let owner_addr = vk.to_address();
 
@@ -262,20 +321,28 @@ impl RecordScanner {
 
             // Stop if this page returned fewer records than the page size (last page)
             if count < per_page as usize {
-                break;
+                // Sort by amount descending (largest first for coin selection)
+                results.sort_by_key(|a| std::cmp::Reverse(a.microcredits));
+                return Ok(ScanOutcome::complete(results));
             }
             page += 1;
 
-            // Safety: max 100 pages (50K records) to avoid infinite loops
-            if page >= 100 {
-                tracing::warn!("Reached max page limit (100) while scanning records");
-                break;
+            // Safety: max `MAX_SCAN_PAGES` pages (50K records) to avoid infinite loops.
+            if page >= MAX_SCAN_PAGES {
+                tracing::warn!("Reached max page limit ({MAX_SCAN_PAGES}) while scanning records");
+                // The ceiling counts pages, it does not know the range ended. One
+                // more request tells "there was more" from "that was all" — without
+                // it, a range of exactly 50 000 records would report truncation
+                // forever, and a flag that cries wolf gets ignored.
+                let probe = self.client.fetch_all_records(start, end, page, per_page).await?;
+                let truncated = probe.as_array().is_some_and(|a| !a.is_empty());
+                results.sort_by_key(|a| std::cmp::Reverse(a.microcredits));
+                return Ok(ScanOutcome {
+                    records: results,
+                    truncated,
+                });
             }
         }
-
-        // Sort by amount descending (largest first for coin selection)
-        results.sort_by_key(|a| std::cmp::Reverse(a.microcredits));
-        Ok(results)
     }
 
     /// Scan the last `num_blocks` blocks (default 5_000) for records owned by the given view key.
@@ -283,8 +350,9 @@ impl RecordScanner {
     /// # Errors
     ///
     /// Fails when the current height cannot be fetched, or for the same reasons as
-    /// [`Self::scan_blocks`] — including its 100-page ceiling.
-    pub async fn scan_recent(&self, view_key: &str, num_blocks: u32) -> Result<Vec<AleoRecord>> {
+    /// [`Self::scan_blocks`] — including its page ceiling, which is reported as
+    /// [`ScanOutcome::truncated`].
+    pub async fn scan_recent(&self, view_key: &str, num_blocks: u32) -> Result<ScanOutcome> {
         let height = self.client.fetch_block_height().await?;
         let start = height.saturating_sub(num_blocks);
         tracing::info!("Scanning last {num_blocks} blocks ({start}..{height}) for records...");
@@ -444,6 +512,10 @@ impl HostedScanner {
     /// Every returned ciphertext is decrypted here, with the local view key —
     /// the service's own `record_plaintext` field is ignored.
     ///
+    /// The outcome is never truncated: there is no page ceiling on this path.
+    /// The service enforces its own registration window, and this side only
+    /// filters what came back.
+    ///
     /// # Errors
     ///
     /// Fails if the registration fails, the query fails twice (once before and
@@ -455,7 +527,7 @@ impl HostedScanner {
         &mut self,
         view_key: &ViewKey<TestnetV0>,
         window: ScanWindow,
-    ) -> Result<Vec<AleoRecord>> {
+    ) -> Result<ScanOutcome> {
         let owned = self.owned(view_key).await?;
         let range = match window {
             ScanWindow::Range(range) => Some(range),
@@ -496,7 +568,7 @@ impl HostedScanner {
         }
 
         records.sort_by_key(|a| std::cmp::Reverse(a.microcredits));
-        Ok(records)
+        Ok(ScanOutcome::complete(records))
     }
 
     /// `records/owned`, registering first and healing a stale uuid once.
@@ -576,7 +648,7 @@ impl RecordSource {
         &mut self,
         view_key: &ViewKey<TestnetV0>,
         window: ScanWindow,
-    ) -> Result<Vec<AleoRecord>> {
+    ) -> Result<ScanOutcome> {
         match self {
             Self::Local(scanner) => {
                 let view_key = view_key.to_string();
@@ -704,6 +776,7 @@ pub struct RecordManager {
     view_key: ViewKey<TestnetV0>,
     address: Address<TestnetV0>,
     records: Vec<AleoRecord>,
+    last_scan_truncated: bool,
 }
 
 impl RecordManager {
@@ -734,6 +807,7 @@ impl RecordManager {
             view_key: vk,
             address,
             records: Vec::new(),
+            last_scan_truncated: false,
         })
     }
 
@@ -753,13 +827,17 @@ impl RecordManager {
     /// Scan the latest blocks (up to 100K locally, everything the service has
     /// when hosted) and update the internal cache.
     ///
+    /// A local scan that stops at the page ceiling still succeeds; it sets
+    /// [`Self::last_scan_truncated`].
+    ///
     /// # Errors
     ///
     /// Fails when the underlying source cannot produce records — a network error for
     /// a local scan, an API error for a hosted one.
     pub async fn scan(&mut self) -> Result<&[AleoRecord]> {
         let fetched = self.source.fetch(&self.view_key, ScanWindow::All).await?;
-        self.merge_records(fetched);
+        self.merge_records(fetched.records);
+        self.last_scan_truncated = fetched.truncated;
         Ok(&self.records)
     }
 
@@ -770,6 +848,9 @@ impl RecordManager {
     /// narrowing to `num_blocks`. That is more than asked, never less; use
     /// [`Self::scan_range`] when a specific window matters.
     ///
+    /// A local scan that stops at the page ceiling still succeeds; it sets
+    /// [`Self::last_scan_truncated`].
+    ///
     /// # Errors
     ///
     /// Fails when the underlying source cannot produce records. A hosted source
@@ -777,11 +858,15 @@ impl RecordManager {
     /// a window that is merely too new.
     pub async fn scan_recent(&mut self, num_blocks: u32) -> Result<&[AleoRecord]> {
         let fetched = self.source.fetch(&self.view_key, ScanWindow::Recent(num_blocks)).await?;
-        self.merge_records(fetched);
+        self.merge_records(fetched.records);
+        self.last_scan_truncated = fetched.truncated;
         Ok(&self.records)
     }
 
     /// Scan a specific block range and update the cache.
+    ///
+    /// A range too dense to finish in `MAX_SCAN_PAGES` still succeeds — check
+    /// [`Self::last_scan_truncated`] before treating the cache as complete.
     ///
     /// # Errors
     ///
@@ -796,11 +881,29 @@ impl RecordManager {
                 ScanWindow::Range(BlockRange::new(start, end)),
             )
             .await?;
-        self.merge_records(fetched);
+        self.merge_records(fetched.records);
+        self.last_scan_truncated = fetched.truncated;
         Ok(&self.records)
     }
 
+    /// Whether the most recent scan stopped at the page ceiling.
+    ///
+    /// The cached API returns a slice, which cannot carry the flag, so the flag
+    /// lives here instead. `false` before the first scan, and `false` again after
+    /// any scan that covered its range completely.
+    ///
+    /// Read it after [`Self::scan`], [`Self::scan_recent`] or [`Self::scan_range`]
+    /// when a short cache would be a wrong answer rather than a small one — a
+    /// balance, a spend selection, an index. [`Self::merge_records`] does not
+    /// reset it, because injecting a record is not a scan.
+    pub fn last_scan_truncated(&self) -> bool {
+        self.last_scan_truncated
+    }
+
     /// Merge new records into the cache, deduplicating by ciphertext.
+    ///
+    /// Does not touch [`Self::last_scan_truncated`] — this is the injection path
+    /// for records obtained elsewhere, not a scan.
     pub fn merge_records(&mut self, new_records: Vec<AleoRecord>) {
         for rec in new_records {
             if let Some(pos) = self.records.iter().position(|r| r.ciphertext == rec.ciphertext) {
@@ -1020,6 +1123,7 @@ mod tests {
             view_key,
             address,
             records,
+            last_scan_truncated: false,
         }
     }
 

@@ -640,7 +640,7 @@ impl AleoClient {
         priority_fee_microcredits: u64,
     ) -> Result<String> {
         let account = self.require_account()?;
-        let call = plan_bond_public(validator_address, withdrawal_address, amount_microcredits)?;
+        let call = plan_bond_public(validator_address, withdrawal_address, amount_microcredits);
         self.run_credits_call(
             account,
             &call,
@@ -671,7 +671,7 @@ impl AleoClient {
         priority_fee_microcredits: u64,
     ) -> Result<String> {
         let account = self.require_account()?;
-        let call = plan_bond_validator(withdrawal_address, amount_microcredits, commission)?;
+        let call = plan_bond_validator(withdrawal_address, amount_microcredits, commission);
         self.run_credits_call(
             account,
             &call,
@@ -697,7 +697,7 @@ impl AleoClient {
         priority_fee_microcredits: u64,
     ) -> Result<String> {
         let account = self.require_account()?;
-        let call = plan_unbond_public(staker_address, amount_microcredits)?;
+        let call = plan_unbond_public(staker_address, amount_microcredits);
         self.run_credits_call(
             account,
             &call,
@@ -721,7 +721,7 @@ impl AleoClient {
         priority_fee_microcredits: u64,
     ) -> Result<String> {
         let account = self.require_account()?;
-        let call = plan_claim_unbond_public(staker_address)?;
+        let call = plan_claim_unbond_public(staker_address);
         self.run_credits_call(
             account,
             &call,
@@ -746,7 +746,7 @@ impl AleoClient {
         priority_fee_microcredits: u64,
     ) -> Result<String> {
         let account = self.require_account()?;
-        let call = plan_set_validator_state(validator_state)?;
+        let call = plan_set_validator_state(validator_state);
         self.run_credits_call(
             account,
             &call,
@@ -1009,14 +1009,24 @@ impl AleoClient {
     ///
     /// # Errors
     ///
-    /// Fails when no account is set, when the scan fails, or when a returned
-    /// ciphertext cannot be decrypted under this account's view key.
+    /// Fails when no account is set, when the scan fails, when a returned
+    /// ciphertext cannot be decrypted under this account's view key, or when the
+    /// scan stopped at its page ceiling — a truncated result would report fewer
+    /// credits than the account holds, so it is refused rather than returned.
     pub async fn find_private_credits_records(&self) -> Result<Vec<(String, u64)>> {
         use crate::record::RecordScanner;
 
         let account = self.require_account()?;
         let scanner = RecordScanner::new(self.network.clone());
-        let records = scanner.scan_recent(&account.view_key.to_string(), 100_000).await?;
+        let outcome = scanner.scan_recent(&account.view_key.to_string(), 100_000).await?;
+        // A truncated scan would under-report here, and a balance that is quietly
+        // too low is worse than a loud failure. The caller can retry with a
+        // narrower range if this fires.
+        anyhow::ensure!(
+            !outcome.truncated,
+            "record scan stopped at the page ceiling; narrow the range and retry"
+        );
+        let records = outcome.records;
 
         // `scan_blocks` returns records for every program owned by this view key
         // and sorts them by amount descending, so filtering preserves the order.

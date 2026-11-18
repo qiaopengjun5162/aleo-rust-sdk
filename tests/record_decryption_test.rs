@@ -12,14 +12,14 @@
 
 use aleo_rust_sdk::account::AleoAccount;
 use aleo_rust_sdk::network::AleoHttpClient;
-use aleo_rust_sdk::record::{AleoRecord, RecordManager, RecordScanner};
+use aleo_rust_sdk::record::{AleoRecord, MAX_SCAN_PAGES, RecordManager, RecordScanner};
 use indexmap::IndexMap;
 use snarkvm::console::program::{Entry, Identifier, Literal, Plaintext, Record};
 use snarkvm::prelude::{FromStr, Network, Owner, Scalar, TestRng, TestnetV0, U8};
 use snarkvm::utilities::rand::Uniform;
 use std::collections::BTreeMap;
 use wiremock::matchers::{body_string_contains, method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 const PER_PAGE: usize = 500;
 
@@ -107,7 +107,7 @@ async fn scan_decrypts_a_record_owned_by_the_view_key() {
     .await;
 
     let scanner = RecordScanner::new(client(&server));
-    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap();
+    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap().records;
 
     assert_eq!(records.len(), 1, "own record must be discovered");
     assert_eq!(records[0].microcredits, 1_000_000);
@@ -143,7 +143,7 @@ async fn scan_rejects_a_record_encrypted_for_another_account() {
         .await;
 
     let scanner = RecordScanner::new(client(&server));
-    let records = scanner.scan_blocks(&me.view_key.to_string(), 1, 2).await.unwrap();
+    let records = scanner.scan_blocks(&me.view_key.to_string(), 1, 2).await.unwrap().records;
 
     assert!(
         records.is_empty(),
@@ -169,7 +169,7 @@ async fn scan_skips_unparsable_ciphertext() {
     .await;
 
     let scanner = RecordScanner::new(client(&server));
-    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap();
+    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap().records;
 
     assert_eq!(records.len(), 1, "one bad entry must not hide the good one");
     assert_eq!(records[0].microcredits, 42);
@@ -193,7 +193,7 @@ async fn scan_skips_entries_without_ciphertext() {
     .await;
 
     let scanner = RecordScanner::new(client(&server));
-    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap();
+    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap().records;
 
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].microcredits, 7);
@@ -215,7 +215,7 @@ async fn scan_reports_zero_amount_for_non_u64_microcredits() {
         .await;
 
     let scanner = RecordScanner::new(client(&server));
-    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap();
+    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap().records;
 
     assert_eq!(records.len(), 1, "record is still returned");
     assert_eq!(records[0].microcredits, 0, "unparsable amount becomes 0");
@@ -243,7 +243,7 @@ async fn scan_sorts_records_largest_first() {
     .await;
 
     let scanner = RecordScanner::new(client(&server));
-    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap();
+    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap().records;
 
     let amounts: Vec<u64> = records.iter().map(|r| r.microcredits).collect();
     assert_eq!(amounts, vec![900, 70, 5]);
@@ -267,7 +267,7 @@ async fn scan_stops_after_a_short_page() {
     .await;
 
     let scanner = RecordScanner::new(client(&server));
-    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap();
+    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap().records;
 
     assert_eq!(records.len(), 1);
     assert!(PER_PAGE > records.len());
@@ -347,7 +347,7 @@ async fn scan_reads_a_public_u64_entry() {
         .await;
 
     let scanner = RecordScanner::new(client(&server));
-    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap();
+    let records = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap().records;
 
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].microcredits, 5);
@@ -398,6 +398,107 @@ async fn scan_range_merges_instead_of_replacing_the_cache() {
     assert_eq!(mgr.scan_range(1, 2).await.unwrap().len(), 1);
     assert_eq!(mgr.scan_range(1, 2).await.unwrap().len(), 1);
     assert_eq!(mgr.balance(), 300);
+}
+
+/// Serves `records/all` for **every** page, so a scan can walk past the ceiling.
+///
+/// Pages before `full_pages` come back full; from `full_pages` on they come back
+/// empty, which is how a real node ends a range. The entries carry no ciphertext,
+/// so the scanner skips them at the decrypt step — that keeps the test at the
+/// paging bookkeeping instead of paying for 50 000 decryptions.
+struct PagedRecords {
+    full_pages: u32,
+}
+
+impl Respond for PagedRecords {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap_or_default();
+        let page = body["params"]["page"].as_u64().unwrap_or(0) as u32;
+        let entries: Vec<serde_json::Value> = if page < self.full_pages {
+            (0..PER_PAGE).map(|_| jsonrpc_entry("credits.aleo", "")).collect()
+        } else {
+            Vec::new()
+        };
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": entries,
+        }))
+    }
+}
+
+/// Mock `records/all` so that `full_pages` pages of 500 come back before the empty one.
+async fn mock_paged_records(full_pages: u32) -> Mock {
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(PagedRecords { full_pages })
+}
+
+/// The page ceiling is a limit, not knowledge about the range. A range that ends
+/// exactly on the boundary must **not** be reported as truncated — otherwise the
+/// flag cries wolf for every scan of exactly 50 000 records, and gets ignored.
+#[tokio::test]
+async fn scan_reports_no_truncation_when_the_range_ends_at_the_ceiling() {
+    let rng = &mut TestRng::default();
+    let acct = account(rng);
+
+    let server = MockServer::start().await;
+    mock_paged_records(MAX_SCAN_PAGES).await.mount(&server).await;
+
+    let scanner = RecordScanner::new(client(&server));
+    let outcome = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap();
+
+    assert!(
+        !outcome.truncated,
+        "the probe page was empty, so the range was covered"
+    );
+    assert!(outcome.is_empty(), "the fixture never provides ciphertexts");
+}
+
+/// With one page more than the ceiling allows, the outcome has to say so. This is
+/// the case the old signature could not express: `Vec<AleoRecord>` came back
+/// looking complete while the tail of the range had never been read.
+#[tokio::test]
+async fn scan_reports_truncation_when_the_range_outruns_the_ceiling() {
+    let rng = &mut TestRng::default();
+    let acct = account(rng);
+
+    let server = MockServer::start().await;
+    mock_paged_records(MAX_SCAN_PAGES + 1).await.mount(&server).await;
+
+    let scanner = RecordScanner::new(client(&server));
+    let outcome = scanner.scan_blocks(&acct.view_key.to_string(), 1, 2).await.unwrap();
+
+    assert!(
+        outcome.truncated,
+        "page {MAX_SCAN_PAGES} still had records, so the scan stopped short"
+    );
+}
+
+/// The cached API returns a slice, which cannot carry the flag, so the manager
+/// keeps it. Injecting records by hand is not a scan and must not clear it.
+#[tokio::test]
+async fn manager_exposes_the_truncation_flag_without_letting_merge_clear_it() {
+    let rng = &mut TestRng::default();
+    let acct = account(rng);
+
+    let server = MockServer::start().await;
+    mock_paged_records(MAX_SCAN_PAGES + 1).await.mount(&server).await;
+
+    let mut mgr = RecordManager::new(client(&server), &acct.view_key.to_string()).unwrap();
+    assert!(!mgr.last_scan_truncated(), "nothing scanned yet");
+
+    mgr.scan_range(1, 2).await.unwrap();
+    assert!(
+        mgr.last_scan_truncated(),
+        "the range outran the ceiling, so the cache is a prefix"
+    );
+
+    mgr.merge_records(Vec::new());
+    assert!(
+        mgr.last_scan_truncated(),
+        "merge_records injects records, it does not re-scan"
+    );
 }
 
 /// Invalid view keys must be rejected at construction, not at scan time.
@@ -731,10 +832,15 @@ mod hosted_source {
         .await;
 
         let mut source = RecordSource::Hosted(HostedScanner::new(service(&server), 0));
-        let records = source
+        let outcome = source
             .fetch(&acct.view_key, ScanWindow::All)
             .await
             .expect("the retry after re-registration must succeed");
+        assert!(
+            !outcome.truncated,
+            "the hosted path has no page ceiling, so it must never report truncation"
+        );
+        let records = outcome.records;
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].microcredits, 42);
         assert_eq!(
@@ -782,11 +888,11 @@ mod hosted_source {
         .await;
 
         let mut source = RecordSource::Hosted(HostedScanner::new(service(&server), 0));
-        let records = source
+        let outcome = source
             .fetch(&acct.view_key, ScanWindow::Range(BlockRange::new(1, 100)))
             .await
             .unwrap();
-        let amounts: Vec<u64> = records.iter().map(|r| r.microcredits).collect();
+        let amounts: Vec<u64> = outcome.records.iter().map(|r| r.microcredits).collect();
         assert_eq!(
             amounts,
             vec![40, 10],

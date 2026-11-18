@@ -286,26 +286,26 @@ pub fn plan_split(split_amount_microcredits: u64, amount_record: &str) -> Result
 /// The function asserts the amount is at least 1 credit; committee-level
 /// minimums are finalize-time chain rules (see the module notes).
 ///
-/// # Errors
-///
-/// Never returns `Err`. This builder only formats inputs; every check it could
-/// make (address validity, amount rules, caller constraints) is left to the
-/// `credits.aleo` program, which asserts them on chain. The `Result` is kept for
-/// signature uniformity with the builders that *can* fail, so a call site can
-/// swap one for another without touching its `?`.
+/// Never fails, by design. This builder only formats inputs; every check it
+/// could make (address validity, amount rules, caller constraints) is left to
+/// the `credits.aleo` program, which asserts them on chain. It used to return
+/// `Result<CreditsCall>` anyway, which forced callers to write a `?` that could
+/// never fire — the same mistake as reporting a failure mode that does not
+/// exist. Validating here instead would be worse: it would reject exactly the
+/// inputs the chain is the authority on.
 pub fn plan_bond_public(
     validator_address: &str,
     withdrawal_address: &str,
     amount_microcredits: u64,
-) -> Result<CreditsCall> {
-    Ok(CreditsCall {
+) -> CreditsCall {
+    CreditsCall {
         function: "bond_public",
         inputs: vec![
             validator_address.to_string(),
             withdrawal_address.to_string(),
             format!("{amount_microcredits}u64"),
         ],
-    })
+    }
 }
 
 /// Plan a bond as a validator (self-bond) with a commission rate — the JS
@@ -321,26 +321,26 @@ pub fn plan_bond_public(
 /// asserts it). `commission` is the validator's take in percent; the program
 /// asserts it is at most 100.
 ///
-/// # Errors
-///
-/// Never returns `Err`. This builder only formats inputs; every check it could
-/// make (address validity, amount rules, caller constraints) is left to the
-/// `credits.aleo` program, which asserts them on chain. The `Result` is kept for
-/// signature uniformity with the builders that *can* fail, so a call site can
-/// swap one for another without touching its `?`.
+/// Never fails, by design. This builder only formats inputs; every check it
+/// could make (address validity, amount rules, caller constraints) is left to
+/// the `credits.aleo` program, which asserts them on chain. It used to return
+/// `Result<CreditsCall>` anyway, which forced callers to write a `?` that could
+/// never fire — the same mistake as reporting a failure mode that does not
+/// exist. Validating here instead would be worse: it would reject exactly the
+/// inputs the chain is the authority on.
 pub fn plan_bond_validator(
     withdrawal_address: &str,
     amount_microcredits: u64,
     commission: u8,
-) -> Result<CreditsCall> {
-    Ok(CreditsCall {
+) -> CreditsCall {
+    CreditsCall {
         function: "bond_validator",
         inputs: vec![
             withdrawal_address.to_string(),
             format!("{amount_microcredits}u64"),
             format!("{commission}u8"),
         ],
-    })
+    }
 }
 
 /// Plan an unbond of staked credits — the JS `buildUnbondPublicTransaction`,
@@ -349,18 +349,18 @@ pub fn plan_bond_validator(
 /// `staker_address` is the address whose stake shrinks; `amount_microcredits`
 /// unbonds part of the stake (the chain enforces what may remain).
 ///
-/// # Errors
-///
-/// Never returns `Err`. This builder only formats inputs; every check it could
-/// make (address validity, amount rules, caller constraints) is left to the
-/// `credits.aleo` program, which asserts them on chain. The `Result` is kept for
-/// signature uniformity with the builders that *can* fail, so a call site can
-/// swap one for another without touching its `?`.
-pub fn plan_unbond_public(staker_address: &str, amount_microcredits: u64) -> Result<CreditsCall> {
-    Ok(CreditsCall {
+/// Never fails, by design. This builder only formats inputs; every check it
+/// could make (address validity, amount rules, caller constraints) is left to
+/// the `credits.aleo` program, which asserts them on chain. It used to return
+/// `Result<CreditsCall>` anyway, which forced callers to write a `?` that could
+/// never fire — the same mistake as reporting a failure mode that does not
+/// exist. Validating here instead would be worse: it would reject exactly the
+/// inputs the chain is the authority on.
+pub fn plan_unbond_public(staker_address: &str, amount_microcredits: u64) -> CreditsCall {
+    CreditsCall {
         function: "unbond_public",
         inputs: vec![staker_address.to_string(), format!("{amount_microcredits}u64")],
-    })
+    }
 }
 
 /// Plan a claim of unbonded credits — the JS
@@ -369,18 +369,18 @@ pub fn plan_unbond_public(staker_address: &str, amount_microcredits: u64) -> Res
 /// After [`plan_unbond_public`], the credits wait out the unbonding period and
 /// are then claimed to `staker_address`'s public balance.
 ///
-/// # Errors
-///
-/// Never returns `Err`. This builder only formats inputs; every check it could
-/// make (address validity, amount rules, caller constraints) is left to the
-/// `credits.aleo` program, which asserts them on chain. The `Result` is kept for
-/// signature uniformity with the builders that *can* fail, so a call site can
-/// swap one for another without touching its `?`.
-pub fn plan_claim_unbond_public(staker_address: &str) -> Result<CreditsCall> {
-    Ok(CreditsCall {
+/// Never fails, by design. This builder only formats inputs; every check it
+/// could make (address validity, amount rules, caller constraints) is left to
+/// the `credits.aleo` program, which asserts them on chain. It used to return
+/// `Result<CreditsCall>` anyway, which forced callers to write a `?` that could
+/// never fire — the same mistake as reporting a failure mode that does not
+/// exist. Validating here instead would be worse: it would reject exactly the
+/// inputs the chain is the authority on.
+pub fn plan_claim_unbond_public(staker_address: &str) -> CreditsCall {
+    CreditsCall {
         function: "claim_unbond_public",
         inputs: vec![staker_address.to_string()],
-    })
+    }
 }
 
 /// Plan opening or closing a validator to new stakers — the JS
@@ -390,18 +390,18 @@ pub fn plan_claim_unbond_public(staker_address: &str) -> Result<CreditsCall> {
 /// (existing stakers can still bond and unbond). Formatted as the boolean
 /// literal `true`/`false`, exactly the input the wasm layer builds.
 ///
-/// # Errors
-///
-/// Never returns `Err`. This builder only formats inputs; every check it could
-/// make (address validity, amount rules, caller constraints) is left to the
-/// `credits.aleo` program, which asserts them on chain. The `Result` is kept for
-/// signature uniformity with the builders that *can* fail, so a call site can
-/// swap one for another without touching its `?`.
-pub fn plan_set_validator_state(validator_state: bool) -> Result<CreditsCall> {
-    Ok(CreditsCall {
+/// Never fails, by design. This builder only formats inputs; every check it
+/// could make (address validity, amount rules, caller constraints) is left to
+/// the `credits.aleo` program, which asserts them on chain. It used to return
+/// `Result<CreditsCall>` anyway, which forced callers to write a `?` that could
+/// never fire — the same mistake as reporting a failure mode that does not
+/// exist. Validating here instead would be worse: it would reject exactly the
+/// inputs the chain is the authority on.
+pub fn plan_set_validator_state(validator_state: bool) -> CreditsCall {
+    CreditsCall {
         function: "set_validator_state",
         inputs: vec![validator_state.to_string()],
-    })
+    }
 }
 
 /// Parse a caller-supplied plaintext record, labelling errors with the
@@ -630,8 +630,7 @@ mod tests {
 
     #[test]
     fn bond_public_formats_three_inputs_in_js_order() {
-        let call =
-            plan_bond_public("aleo1validator", "aleo1withdrawal", 10_000_000_000_000).unwrap();
+        let call = plan_bond_public("aleo1validator", "aleo1withdrawal", 10_000_000_000_000);
         assert_eq!(call.function, "bond_public");
         assert_eq!(
             call.inputs,
@@ -647,7 +646,7 @@ mod tests {
     fn bond_validator_carries_only_withdrawal_amount_and_commission() {
         // The validator is the signer; the deployed credits.aleo has three
         // inputs, while the JS wrapper wrongly prepends the validator address.
-        let call = plan_bond_validator("aleo1withdrawal", 2_000_000, 25).unwrap();
+        let call = plan_bond_validator("aleo1withdrawal", 2_000_000, 25);
         assert_eq!(call.function, "bond_validator");
         assert_eq!(
             call.inputs,
@@ -656,13 +655,13 @@ mod tests {
 
         // The 0–100 cap is asserted by the program circuit (gt r2 100u8);
         // the plan layer formats whatever u8 it is given.
-        assert_eq!(plan_bond_validator("w", 1, 0).unwrap().inputs[2], "0u8");
-        assert_eq!(plan_bond_validator("w", 1, 100).unwrap().inputs[2], "100u8");
+        assert_eq!(plan_bond_validator("w", 1, 0).inputs[2], "0u8");
+        assert_eq!(plan_bond_validator("w", 1, 100).inputs[2], "100u8");
     }
 
     #[test]
     fn unbond_public_scales_the_amount_like_every_other_amount() {
-        let call = plan_unbond_public("aleo1staker", 4_000_000).unwrap();
+        let call = plan_unbond_public("aleo1staker", 4_000_000);
         assert_eq!(call.function, "unbond_public");
         assert_eq!(
             call.inputs,
@@ -672,17 +671,17 @@ mod tests {
 
     #[test]
     fn claim_unbond_public_carries_only_the_staker_address() {
-        let call = plan_claim_unbond_public("aleo1staker").unwrap();
+        let call = plan_claim_unbond_public("aleo1staker");
         assert_eq!(call.function, "claim_unbond_public");
         assert_eq!(call.inputs, vec!["aleo1staker".to_string()]);
     }
 
     #[test]
     fn set_validator_state_formats_the_boolean_literal() {
-        let open = plan_set_validator_state(true).unwrap();
+        let open = plan_set_validator_state(true);
         assert_eq!(open.function, "set_validator_state");
         assert_eq!(open.inputs, vec!["true".to_string()]);
-        let closed = plan_set_validator_state(false).unwrap();
+        let closed = plan_set_validator_state(false);
         assert_eq!(closed.inputs, vec!["false".to_string()]);
     }
 
