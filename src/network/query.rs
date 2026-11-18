@@ -68,7 +68,9 @@ fn state_paths_url(api_base_url: &str, commitments: &[Field<TestnetV0>]) -> Stri
 /// Custom query returning a fixed state root (bypasses ureq/WAF issues).
 #[derive(Clone, Debug)]
 pub struct FixedStateRootQuery<N: Network> {
+    /// The state root every call reports, regardless of `block_height`.
     pub state_root: N::StateRoot,
+    /// The block height every call reports.
     pub block_height: u32,
 }
 
@@ -120,7 +122,10 @@ impl<N: Network> QueryTrait<N> for FixedStateRootQuery<N> {
 /// verifies against are consistent.
 #[derive(Debug)]
 pub struct ProvableQuery {
+    /// Fallback state root, used until the first state path has been fetched.
+    /// Afterwards [`Self::current_state_root`] returns the cached value instead.
     pub state_root: <TestnetV0 as Network>::StateRoot,
+    /// Block height reported alongside the state root.
     pub block_height: u32,
     /// Provable API v2 base URL (e.g. `https://api.provable.com/v2/testnet`)
     pub api_base_url: String,
@@ -157,6 +162,11 @@ impl ProvableQuery {
         self.last_state_root.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Build a query for one block height.
+    ///
+    /// `state_root` is the fallback reported before any state path has been
+    /// fetched; pass the root you expect the height to have (or any placeholder
+    /// if you will only ever use it after `trace.prepare()` has run).
     pub fn new(
         state_root: <TestnetV0 as Network>::StateRoot,
         block_height: u32,

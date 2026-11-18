@@ -171,6 +171,13 @@ fn literal_to_json<N: Network>(literal: &Literal<N>) -> Value {
 ///
 /// # Arguments
 /// * `plaintext` - The plaintext to encode.
+///
+/// # Panics
+///
+/// In practice: never. The one `expect` covers `U8::from_bits_le` on a chunk of
+/// at most 8 bits, which cannot fail by construction. It is documented here
+/// because readers of a `Result`-returning function deserve to know that the
+/// error path never carries a panic.
 pub fn to_bytes_raw_le<N: Network>(plaintext: &Plaintext<N>) -> anyhow::Result<Vec<u8>> {
     // `from_bits_le` cannot fail for a chunk of at most 8 bits, so there is no
     // real error path — dereferencing the `U8` to its `u8` avoids both the
@@ -193,6 +200,12 @@ pub fn to_bytes_raw_le<N: Network>(plaintext: &Plaintext<N>) -> anyhow::Result<V
 ///
 /// # Arguments
 /// * `plaintext` - The plaintext to encode.
+///
+/// # Panics
+///
+/// In practice: never — same invariant as [`to_bytes_raw_le`]: every chunk fed
+/// to `U8::from_bits_be` is at most 8 bits, so the `expect` cannot fire unless
+/// `to_bits_raw_be` itself is broken.
 pub fn to_bytes_raw_be<N: Network>(plaintext: &Plaintext<N>) -> anyhow::Result<Vec<u8>> {
     let mut bytes: Vec<u8> = plaintext
         .to_bits_raw_be()

@@ -152,6 +152,13 @@ impl<N: Network> OfflineQuery<N> {
     /// );
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// In practice: never. Every field of `OfflineQuery` is a string, a number
+    /// or a bech32 `StateRoot`, so `serde_json::to_string` has no failure path
+    /// (no maps with non-string keys, no NaN floats, no custom `Serialize` that
+    /// can error). The `expect` names that assumption explicitly.
     pub fn to_json(&self) -> String {
         serde_json::to_string(&self).expect("OfflineQuery serialization cannot fail")
     }

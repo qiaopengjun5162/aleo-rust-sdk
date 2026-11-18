@@ -161,6 +161,22 @@
 //!
 //! Licensed under MIT OR Apache-2.0.
 
+// The library contains no `unsafe` and does not intend to add any: there is no
+// FFI, no transmute, no raw pointer. `forbid` (not `deny`) turns that into a
+// build error that cannot be switched off further down the module tree.
+//
+// This lives here rather than in `[lints.rust]` on purpose: manifest lints apply
+// to *every* target of the package, including `tests/`, where
+// `network_coverage.rs` legitimately needs an `unsafe { std::env::set_var(..) }`
+// (edition 2024 made that function unsafe). The promise being made is about the
+// shipped library, so it is declared on the library crate.
+#![forbid(unsafe_code)]
+// Same placement argument as above: `missing_docs` fires once per crate root, so
+// at manifest level it would complain about every integration test and example
+// having no `//!` header. Here it covers the library — including public struct
+// fields and enum variants, which is the part users actually read.
+#![warn(missing_docs)]
+
 pub mod account;
 pub mod address;
 pub mod authorization;

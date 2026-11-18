@@ -98,22 +98,52 @@ pub type FunctionKeyPair = (ProvingKey<TestnetV0>, VerifyingKey<TestnetV0>);
 /// (the `OfflineSearchParams.*Params()` constructors).
 ///
 /// [`CreditsFunction::locator`] returns exactly the JS cache-key strings.
+///
+/// # Not an exhaustive set
+///
+/// This mirrors the `credits.aleo` function set of one snarkVM release. Upstream
+/// has added functions over time (`bond_validator`, `unbond_validator`, …) and
+/// may add more, so the enum is `#[non_exhaustive]`: match on it with a `_`
+/// fallback arm instead of assuming the fifteen variants below are all there
+/// will ever be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CreditsFunction {
+    /// `credits.aleo/bond_public` — bond public balance as a delegator.
     BondPublic,
+    /// `credits.aleo/bond_validator` — bond public balance and become a validator.
     BondValidator,
+    /// `credits.aleo/claim_unbond_public` — claim an unbonded public balance
+    /// after the lockup height has passed.
     ClaimUnbondPublic,
+    /// `credits.aleo/fee_private` — pay a fee out of a private record.
     FeePrivate,
+    /// `credits.aleo/fee_public` — pay a fee out of the public balance.
     FeePublic,
+    /// The `inclusion` proof slot. Its locator is the bare `"inclusion"`, not
+    /// `credits.aleo/inclusion`.
     Inclusion,
+    /// `credits.aleo/join` — merge two records of the same type into one.
     Join,
+    /// `credits.aleo/set_validator_state` — open or close a validator to
+    /// delegation.
     SetValidatorState,
+    /// `credits.aleo/split` — split one record into two at a requested amount.
     Split,
+    /// `credits.aleo/transfer_private` — transfer a record without revealing it.
     TransferPrivate,
+    /// `credits.aleo/transfer_private_to_public` — turn a record into public
+    /// balance.
     TransferPrivateToPublic,
+    /// `credits.aleo/transfer_public` — move public balance to another address.
     TransferPublic,
+    /// `credits.aleo/transfer_public_as_signer` — move public balance on behalf
+    /// of a signer.
     TransferPublicAsSigner,
+    /// `credits.aleo/transfer_public_to_private` — turn public balance into a
+    /// record.
     TransferPublicToPrivate,
+    /// `credits.aleo/unbond_public` — start unbonding a public bond.
     UnbondPublic,
 }
 

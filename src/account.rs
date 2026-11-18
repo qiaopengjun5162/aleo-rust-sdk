@@ -105,9 +105,16 @@ fn field_from_seed_le(seed: &[u8; SEED_LEN]) -> Field<TestnetV0> {
 /// An Aleo account holding the full key chain.
 #[derive(Clone, Debug)]
 pub struct AleoAccount {
+    /// The account's private key. A secret: it authorises spending every record
+    /// the account owns.
     pub private_key: PrivateKey<TestnetV0>,
+    /// The view key derived from the private key — decrypts records and
+    /// transitions addressed to this account, without the right to spend them.
     pub view_key: ViewKey<TestnetV0>,
+    /// The compute key derived from the private key — the public half used for
+    /// `sk_tag` derivation and signature verification.
     pub compute_key: ComputeKey<TestnetV0>,
+    /// The account's address, derived from the view key.
     pub address: Address<TestnetV0>,
 }
 
