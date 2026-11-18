@@ -383,6 +383,17 @@ aleo-cli verify at136grnr... --deep
 
 ## Development
 
+The `just` recipes are the intended entry point, and `just` is not installed by
+default. Neither are four of the tools `just gate` calls. Install them once:
+
+```bash
+cargo install just cargo-nextest typos-cli taplo-cli cargo-deny cargo-llvm-cov
+# `typos-cli` and `taplo-cli` install commands named `typos` and `taplo`.
+```
+
+`cargo-nextest` is the only optional one — `just test` falls back to `cargo
+test` without it. The rest are what `just gate` invokes by name.
+
 ```bash
 git clone https://github.com/qiaopengjun5162/aleo-rust-sdk.git
 cd aleo-rust-sdk

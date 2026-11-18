@@ -377,6 +377,17 @@ aleo-cli verify at136grnr... --deep
 
 ## 本地开发
 
+`just` 系列命令是约定的入口，但 `just` 本身默认不装；`just gate` 用到的工具里
+还有四个也不默认存在。先装一次：
+
+```bash
+cargo install just cargo-nextest typos-cli taplo-cli cargo-deny cargo-llvm-cov
+# 注意：typos-cli 装出来的命令叫 typos，taplo-cli 装出来的叫 taplo。
+```
+
+其中只有 `cargo-nextest` 是可选的——没装时 `just test` 会回落到 `cargo test`。
+其余几个是 `just gate` 按名字直接调用的，缺一个就报 `command not found`。
+
 ```bash
 git clone https://github.com/qiaopengjun5162/aleo-rust-sdk.git
 cd aleo-rust-sdk
