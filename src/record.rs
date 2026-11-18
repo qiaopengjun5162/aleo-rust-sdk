@@ -109,6 +109,12 @@
 //! Record-level block-height filtering is likewise unavailable: [`AleoRecord`]
 //! keeps no creation height. Use [`RecordManager::scan_range`] to bound the
 //! scan itself instead.
+//!
+//! One difference the table cannot show: a scan has a page ceiling, so a dense
+//! range can come back as a prefix. JS returns an array and says nothing; here
+//! the scan returns [`ScanOutcome`], and the cached API reports the same fact
+//! through [`RecordManager::last_scan_truncated`]. A prefix that looks complete
+//! is a wrong balance, so it is not left to a log line.
 
 use anyhow::{Context, Result};
 use snarkvm::console::program::{Ciphertext, Record};

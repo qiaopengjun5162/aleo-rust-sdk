@@ -192,7 +192,11 @@ impl ProvingRequest {
         };
         let broadcast = bool::read_le(&mut reader).context("Failed to read broadcast flag")?;
 
-        let consumed = reader.position() as usize;
+        // `position()` is a `u64`; a plain `as usize` would wrap on a 32-bit
+        // target, and a wrapped value can equal `bytes.len()` by accident — which
+        // is exactly the case this check exists to catch.
+        let consumed = usize::try_from(reader.position())
+            .context("Proving request declares more bytes than this platform can address")?;
         if consumed != bytes.len() {
             bail!(
                 "Trailing bytes after proving request: consumed {consumed} of {}",
