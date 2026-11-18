@@ -8,7 +8,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-基于 **Rust** 的 [Aleo](https://aleo.org) 区块链 SDK，提供账户管理、程序加载、本地零知识证明执行、网络查询、交易广播，以及**实时 Merkle 路径获取**（通过 Provable API v2）的全套工具。
+**[Aleo](https://aleo.org) 的 Rust SDK** —— 建账户、转账、生成零知识证明，全程 Rust，不用装 Node.js。
 
 > **为什么需要这个 SDK？** 官方 [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) 已经**存档废弃**，不再维护。本 SDK 基于 snarkVM 4.12.0 和当前 Aleo 测试网端点提供了最新的实现。
 

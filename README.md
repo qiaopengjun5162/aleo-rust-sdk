@@ -8,7 +8,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-A **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain — account management, program loading, local execution with zero-knowledge proof generation, network querying, transaction broadcasting, and **live Merkle path fetching** for private transfers (via Provable API v2).
+**The Rust SDK for [Aleo](https://aleo.org)** — accounts, transfers, and zero-knowledge proofs, from Rust, with no Node.js in the loop.
 
 > **Why this SDK?** The official [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) has been **archived** and is no longer maintained. This SDK provides an up-to-date implementation using snarkVM 4.12.0 and the current Aleo testnet endpoints.
 
