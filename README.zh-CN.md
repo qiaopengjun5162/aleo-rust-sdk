@@ -283,6 +283,8 @@ CLI 工具会自动处理这个流程——参见下面 `aleo-cli transfer --mod
 | 5 | 跨宽度转换结果怪 | 「checked」类操作是 `E::halt`（panic）；加宽**不做符号扩展**（`-1i8` → `255i32`） |
 | 6 | `Program::from_str` 解析失败 | `import` 必须写在 program 声明之前；字面量要带显式后缀 |
 
+同样的六行也在 [`docs/js-rust-guide.md`](docs/js-rust-guide.md)，经过测试锁定的细节在模块文档里（`src/field.rs`、`src/group.rs`、`src/hash_functions.rs`、`src/integer_types.rs`）。要改就一起改——第 2 行曾经在三处中的两处写反。
+
 ## 示例
 
 | 示例 | 源码 | 说明 |

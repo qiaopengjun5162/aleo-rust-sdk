@@ -292,6 +292,11 @@ read, exactly as `Option::take()` implies.
 | 5 | Cross-width casts look wrong | "checked" ops `E::halt` (panic); widening does **not** sign-extend (`-1i8` → `255i32`) |
 | 6 | `Program::from_str` fails | `import` lines must precede the program declaration; keep explicit literal suffixes |
 
+The same six rows live in [`docs/js-rust-guide.md`](docs/js-rust-guide.md), and
+the test-pinned detail lives in the module docs (`src/field.rs`, `src/group.rs`,
+`src/hash_functions.rs`, `src/integer_types.rs`). Change all of them together —
+row 2 used to say the opposite in two of the three places.
+
 ## Examples
 
 | Example | Source | Description |

@@ -182,7 +182,7 @@ let url = options.rest_url();            // .../v2/testnet
 | v2 vs v1 | **v2 is recommended** (a superset of v1 plus indexed data); v1 is still online and `with_rest_base(".../v1")` switches without touching any other code |
 | `x-api-key` | **Optional rate-limit boost, not a requirement.** The Explorer API's free tier needs no key and is not metered; only Delegated Proving / Record Scanning differ (90 → 300 / 1000 requests per minute) |
 | `ApiAuth` | `None` / `ApiKey { value, header }` (default header `X-API-Key`; header names are case-insensitive) / `Jwt` |
-| `ApiAuth::Jwt` | **Deprecated upstream.** Kept for compatibility, never used by default — do not pick it in new code |
+| `ApiAuth::Jwt` | Mints a short-lived token at `/jwts/{consumer_id}` and sends it as `Authorization`. Provable's encrypted delegated proving requires it; plain REST reads use `ApiAuth::None` |
 
 `AleoHttpClient` sends no key on plain REST reads. That is the intended design,
 not a missing feature.
@@ -191,10 +191,16 @@ not a missing feature.
 
 ## 5. The six differences that bite
 
+These six rows also appear on the README. The test-pinned detail lives in the
+module docs — `src/field.rs`, `src/group.rs`, `src/hash_functions.rs` and
+`src/integer_types.rs` — so if a row here changes, change those too. Row 2 in
+particular had the Rust and JS meanings of `inverse()` swapped in both places
+until it was checked against a running probe.
+
 | # | Symptom | What to do |
 |---|---|---|
 | 1 | Encryption signatures do not match | snarkVM 4.12 uses **rand 0.10**; an `OsRng` from a project on `rand = 0.8` does not satisfy `Rng + CryptoRng` → **inject the RNG**, do not add argument-free convenience wrappers |
-| 2 | `Field::inverse()` gives the wrong answer | `inverse()` on `Field` / `Scalar` is the **additive** inverse (negation); only `Group` has a multiplicative one. `Group::scalar_multiply` does not exist — write `group * scalar` |
+| 2 | `Field::inverse()` gives the wrong answer | Two languages, two meanings. **Rust/snarkVM**: `Field::inverse()` (and `Inverse` on `Scalar`) is the **multiplicative** inverse — `2 * 2.inverse() == 1`, and `0` errors. **JS**: `f.inverse()` **negates**, so this crate mirrors it with `field::negate` / `scalar::negate`. **Rust `Group` has no `inverse()` at all** — JS `g.inverse()` is `-g`. Scalar multiplication is `group * scalar`; `scalar_multiply` does not exist |
 | 3 | `i128` / `u128` JSON changed | They serialize as **strings**, not numbers |
 | 4 | BHP `hashToGroup` is missing | BHP does not implement `HashToGroup`; use `HashUncompressed::hash_uncompressed`. An empty input returns the identity — Poseidon's same-named method errors instead |
 | 5 | Cross-width casts look wrong | The "checked" operations (`AbsChecked`, `Rem`) `E::halt`, i.e. **panic**, rather than returning `Result`; and widening does **not** sign-extend (`-1i8` → `255i32`) |
