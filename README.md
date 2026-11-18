@@ -176,7 +176,7 @@ async fn main() -> anyhow::Result<()> {
 
 ```rust
 use aleo_rust_sdk::AleoClient;
-use snarkvm::{prelude::TestRng, console::program::ProgramID};
+use snarkvm::console::program::ProgramID;
 use std::str::FromStr;
 
 #[tokio::main]
@@ -203,17 +203,12 @@ async fn main() -> anyhow::Result<()> {
 For private transfers, you must provide **decrypted record values** rather than raw `&str` arguments. Use `execute_and_broadcast_with_values` (v0.5.0+) to pass pre-parsed `Vec<Value>`:
 
 ```rust
+use aleo_rust_sdk::record_ciphertext::RecordCiphertext;
 use aleo_rust_sdk::AleoClient;
 use snarkvm::{
-    prelude::{TestRng, Network, FromBytes},
-    console::{
-        program::{Value, Record, Ciphertext, Literal, Plaintext, Identifier},
-        account::ViewKey,
-        network::TestnetV0,
-    },
-    utilities::Deserialize,
+    console::program::{ProgramID, Value},
+    prelude::{FromStr, TestnetV0, ViewKey},
 };
-use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -221,8 +216,8 @@ async fn main() -> anyhow::Result<()> {
     client.set_account_from_private_key_str("APrivateKey1...")?;
 
     // Load records (from file, scan, or cached)
-    let ciphertext = Ciphertext::from_str("record1qyq...")?;
-    let view_key = ViewKey::from_str("AViewKey1...")?;
+    let ciphertext = RecordCiphertext::<TestnetV0>::from_string("record1qyq...")?;
+    let view_key = ViewKey::<TestnetV0>::from_str("AViewKey1...")?;
 
     // Decrypt the record
     let record = ciphertext.decrypt(&view_key)?;
@@ -247,6 +242,11 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 ```
+
+> These four snippets are compiled on every CI run: they are mirrored in
+> [`examples/readme_quickstart.rs`](examples/readme_quickstart.rs), which
+> `cargo build --all-targets` builds. If you change one, change both — otherwise
+> this page starts documenting code that does not compile.
 
 The CLI tool handles this automatically — see the `aleo-cli transfer --mode private` command below.
 

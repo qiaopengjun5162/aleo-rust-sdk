@@ -175,7 +175,7 @@ async fn main() -> anyhow::Result<()> {
 
 ```rust
 use aleo_rust_sdk::AleoClient;
-use snarkvm::{prelude::TestRng, console::program::ProgramID};
+use snarkvm::console::program::ProgramID;
 use std::str::FromStr;
 
 #[tokio::main]
@@ -202,17 +202,12 @@ async fn main() -> anyhow::Result<()> {
 私密转账需要提供**解密的记录值**，而非原始 `&str` 参数。使用 `execute_and_broadcast_with_values`（v0.5.0+）传入预先解析的 `Vec<Value>`：
 
 ```rust
+use aleo_rust_sdk::record_ciphertext::RecordCiphertext;
 use aleo_rust_sdk::AleoClient;
 use snarkvm::{
-    prelude::{TestRng, Network, FromBytes},
-    console::{
-        program::{Value, Record, Ciphertext, Literal, Plaintext, Identifier},
-        account::ViewKey,
-        network::TestnetV0,
-    },
-    utilities::Deserialize,
+    console::program::{ProgramID, Value},
+    prelude::{FromStr, TestnetV0, ViewKey},
 };
-use std::str::FromStr;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -220,8 +215,8 @@ async fn main() -> anyhow::Result<()> {
     client.set_account_from_private_key_str("APrivateKey1...")?;
 
     // 加载记录（从文件、扫描或缓存）
-    let ciphertext = Ciphertext::from_str("record1qyq...")?;
-    let view_key = ViewKey::from_str("AViewKey1...")?;
+    let ciphertext = RecordCiphertext::<TestnetV0>::from_string("record1qyq...")?;
+    let view_key = ViewKey::<TestnetV0>::from_str("AViewKey1...")?;
 
     // 解密记录
     let record = ciphertext.decrypt(&view_key)?;
@@ -246,6 +241,11 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 ```
+
+> 上面四段代码在每次 CI 都会参与编译：它们被逐字镜像到
+> [`examples/readme_quickstart.rs`](examples/readme_quickstart.rs)，由
+> `cargo build --all-targets` 编译。改一边就要改另一边——否则这一页又会开始
+> 教人写编译不过的代码。
 
 CLI 工具会自动处理这个流程——参见下面 `aleo-cli transfer --mode private` 命令。
 
