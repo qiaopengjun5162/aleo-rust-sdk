@@ -391,30 +391,43 @@ cd aleo-rust-sdk
 just build            # cargo build --all-features
 just build-release    # release build
 
-# Test
-just test             # cargo nextest run --all-features
+# Test (nextest if installed, plain cargo test otherwise)
+just test             # cargo nextest run --all-features || cargo test --all-features
 
 # Lint
 just check            # cargo check --all-features
-just clippy           # cargo clippy --all-targets -- -D warnings
+just clippy           # cargo clippy --all-targets --all-features -- -D warnings
 just format           # cargo fmt --all -- --check
-
-# Coverage (CI gate: 87% lines)
-just coverage         # cargo llvm-cov --lcov --output-path lcov.info
 
 # Dependency and licence audit
 just audit            # cargo deny check
 
-# Generate docs
-just docs             # cargo doc --no-deps --open
+# Generate docs (docs-open also opens a browser)
+just docs             # cargo doc --no-deps --all-features
 
-# Full check suite
+# Coverage report
+just coverage         # cargo llvm-cov --all-features --lcov --output-path lcov.info
+
+# Quick local pass — NOT the CI gate
 just all              # format + check + clippy + test
+```
+
+> 🔴 **`just all` can be green while CI is red.** It predates most of the
+> workflow: it does not run `taplo`, `typos`, `cargo deny`, rustdoc with
+> `-D warnings`, doc-tests, or the coverage floor. Use it for a fast loop, never
+> as permission to push.
+
+To reproduce the CI gate before pushing — same steps, same order:
+
+```bash
+just gate       # fmt, taplo, typos, clippy, deny, rustdoc, test, doc-test
+just gate-cov   # the above plus llvm-cov at the 87% line floor (slow, >10 min)
 ```
 
 > 🔴 `cargo check`, `cargo clippy` without `--tests`, and `cargo doc` do **not**
 > compile `#[cfg(test)]` modules — run `cargo test` separately after editing
-> tests.
+> tests. `cargo nextest` does not run doc-tests either, which is why `gate`
+> calls `cargo test --doc` as its own step.
 
 ## Pre-commit Quality Gates
 
@@ -428,22 +441,26 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg
 pre-commit run --all-files
 ```
 
-The following 12 checks run automatically before each commit:
+`.pre-commit-config.yaml` defines **11 hooks**, and they do not all run at the same
+moment — three of them fire on `pre-push`/`commit-msg`, not `pre-commit`:
 
-| # | Hook | What it checks |
-|---|------|---------------|
-| 1 | fix-byte-order-marker | BOM encoding |
-| 2 | check-case-conflict | Case-sensitive filename conflicts |
-| 3 | check-merge-conflict | Unresolved merge markers |
-| 4 | check-symlinks | Broken symlinks |
-| 5 | check-yaml | YAML syntax validity |
-| 6 | end-of-file-fixer | Files end with newline |
-| 7 | mixed-line-ending | Consistent line endings |
-| 8 | trailing-whitespace | No trailing whitespace |
-| 9 | cargo fmt | Rust formatting (`cargo fmt --check`) |
-| 10 | cargo check | Compilation (`cargo check`) |
-| 11 | cargo clippy | Lint (`cargo clippy -- -D warnings`) |
-| 12 | typos | Spelling errors |
+| Stage | Hook | What it checks |
+|-------|------|---------------|
+| commit-msg | conventional-pre-commit | Commit message follows Conventional Commits |
+| pre-commit | trailing-whitespace | No trailing whitespace |
+| pre-commit | end-of-file-fixer | Files end with a newline |
+| pre-commit | check-added-large-files | No file over 500 KB is committed |
+| pre-commit | check-merge-conflict | No unresolved merge markers |
+| pre-commit | check-yaml | YAML syntax validity |
+| pre-commit | check-toml | TOML syntax validity (this file included) |
+| pre-commit | cargo fmt | `cargo fmt --all -- --check` |
+| pre-commit | cargo clippy | `cargo clippy --all-targets --all-features -- -D warnings` |
+| pre-commit | cargo check | `cargo check --all-features` |
+| pre-push | cargo test | `cargo test` — the slow one, so it waits until push |
+
+`pre-commit run --all-files` runs the `pre-commit` stage only. That is 9 of the
+11 — it will not check your commit message, and it will not run the tests. Run
+`cargo test` yourself, or let the push hook do it.
 
 **`language: system`** note: All local hooks use `language: system` (not `language: rust`), which means they run tools from your system PATH. This ensures the hooks actually execute instead of silently skipping.
 
@@ -454,9 +471,14 @@ The following 12 checks run automatically before each commit:
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on reporting bugs, suggesting features, and submitting code changes.
 
 **Before submitting a PR:**
-1. Ensure pre-commit hooks pass (`pre-commit run --all-files`)
-2. Check CI passes (GitHub Actions)
-3. Update CHANGELOG.md following [conventional commits](https://www.conventionalcommits.org/)
+1. Reproduce the gate locally with `just gate` (not `just all` — see
+   [Development](#development))
+2. Write a [conventional commit](https://www.conventionalcommits.org/) message.
+   That *is* the changelog work: `CHANGELOG.md` is generated by release-please
+   from commit subjects, so editing it by hand gets overwritten on the next
+   release and can conflict with the release PR. The pre-commit hook rejects a
+   message that does not parse.
+3. Let CI pass (GitHub Actions)
 
 ## License
 

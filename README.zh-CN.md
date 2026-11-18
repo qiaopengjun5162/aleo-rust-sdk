@@ -385,29 +385,41 @@ cd aleo-rust-sdk
 just build            # cargo build --all-features
 just build-release    # release 模式构建
 
-# 测试
-just test             # cargo nextest run --all-features
+# 测试（装了 nextest 用它，没装则回落到 cargo test）
+just test             # cargo nextest run --all-features || cargo test --all-features
 
 # 代码检查
 just check            # cargo check --all-features
-just clippy           # cargo clippy --all-targets -- -D warnings
+just clippy           # cargo clippy --all-targets --all-features -- -D warnings
 just format           # cargo fmt --all -- --check
-
-# 覆盖率（CI 门禁：行覆盖 87%）
-just coverage         # cargo llvm-cov --lcov --output-path lcov.info
 
 # 依赖与许可证审计
 just audit            # cargo deny check
 
-# 生成文档
-just docs             # cargo doc --no-deps --open
+# 生成文档（docs-open 会同时打开浏览器）
+just docs             # cargo doc --no-deps --all-features
 
-# 完整检查
+# 覆盖率报告
+just coverage         # cargo llvm-cov --all-features --lcov --output-path lcov.info
+
+# 本地快速检查——不是 CI 门禁
 just all              # format + check + clippy + test
 ```
 
+> 🔴 **`just all` 可能本地全绿、CI 全红。** 它早于现在的工作流：不跑 `taplo`、
+> `typos`、`cargo deny`、带 `-D warnings` 的 rustdoc、doc-test，也不跑覆盖率门禁。
+> 用它加速本地循环可以，别拿它当可以推送的依据。
+
+推送前要对齐 CI 门禁，用这条——步骤和顺序与 workflow 完全一致：
+
+```bash
+just gate       # fmt、taplo、typos、clippy、deny、rustdoc、test、doc-test
+just gate-cov   # 上面全部 + llvm-cov 的 87% 行覆盖门禁（慢，10 分钟以上）
+```
+
 > 🔴 `cargo check`、不带 `--tests` 的 `cargo clippy`、`cargo doc` **都不编译
-> `#[cfg(test)]` 模块**——改完测试代码务必单独跑 `cargo test`。
+> `#[cfg(test)]` 模块**——改完测试代码务必单独跑 `cargo test`。`cargo nextest`
+> 也不跑 doc-test，所以 `gate` 里单独加了 `cargo test --doc` 一步。
 
 ## Pre-commit 质量门禁
 
@@ -421,22 +433,25 @@ pre-commit install --hook-type pre-commit --hook-type commit-msg
 pre-commit run --all-files
 ```
 
-每次 `git commit` 前自动运行以下 12 项检查：
+`.pre-commit-config.yaml` 里定义了 **11 个钩子**，但它们不在同一时刻运行——其中
+三个分别在 `pre-push` 和 `commit-msg` 阶段：
 
-| # | 钩子 | 检查内容 |
-|---|------|---------|
-| 1 | fix-byte-order-marker | BOM 编码 |
-| 2 | check-case-conflict | 大小写敏感的文件名冲突 |
-| 3 | check-merge-conflict | 未解决的合并标记 |
-| 4 | check-symlinks | 损坏的符号链接 |
-| 5 | check-yaml | YAML 语法有效性 |
-| 6 | end-of-file-fixer | 文件以换行符结尾 |
-| 7 | mixed-line-ending | 一致的行尾符 |
-| 8 | trailing-whitespace | 无尾随空格 |
-| 9 | cargo fmt | Rust 格式 (`cargo fmt --check`) |
-| 10 | cargo check | 编译检查 (`cargo check`) |
-| 11 | cargo clippy | 代码规范 (`cargo clippy -- -D warnings`) |
-| 12 | typos | 拼写错误检测 |
+| 阶段 | 钩子 | 检查内容 |
+|------|------|---------|
+| commit-msg | conventional-pre-commit | 提交信息符合 Conventional Commits |
+| pre-commit | trailing-whitespace | 无尾随空格 |
+| pre-commit | end-of-file-fixer | 文件以换行符结尾 |
+| pre-commit | check-added-large-files | 不提交超过 500 KB 的文件 |
+| pre-commit | check-merge-conflict | 无未解决的合并标记 |
+| pre-commit | check-yaml | YAML 语法有效性 |
+| pre-commit | check-toml | TOML 语法有效性（含本文件） |
+| pre-commit | cargo fmt | `cargo fmt --all -- --check` |
+| pre-commit | cargo clippy | `cargo clippy --all-targets --all-features -- -D warnings` |
+| pre-commit | cargo check | `cargo check --all-features` |
+| pre-push | cargo test | `cargo test`——最慢的那个，所以留到推送时 |
+
+`pre-commit run --all-files` **只跑 `pre-commit` 阶段**，也就是 11 个里的 9 个：
+不检查提交信息，也不跑测试。测试要么自己跑 `cargo test`，要么交给推送钩子。
 
 **`language: system` 说明：** 所有本地钩子使用 `language: system`（而非 `language: rust`），直接从系统 PATH 运行工具。这确保钩子实际执行而不是静默跳过。
 
@@ -447,9 +462,12 @@ pre-commit run --all-files
 欢迎贡献代码！请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 了解如何报告 Bug、建议功能或提交代码变更。
 
 **提交 PR 之前：**
-1. 确保 pre-commit 钩子通过 (`pre-commit run --all-files`)
-2. 检查 CI 通过 (GitHub Actions)
-3. 按照 [conventional commits](https://www.conventionalcommits.org/) 更新 CHANGELOG.md
+1. 在本地复现门禁：`just gate`（**不是** `just all`，原因见[本地开发](#本地开发)一节）
+2. 写符合 [conventional commits](https://www.conventionalcommits.org/) 的提交信息。
+   这**就是**更新日志的工作：`CHANGELOG.md` 由 release-please 从提交标题自动生成，
+   手动改会在下次发版时被覆盖，还可能与 release PR 冲突。不符合规范的提交信息会被
+   钩子直接拒绝。
+3. 让 CI 通过 (GitHub Actions)
 
 ## 许可
 
