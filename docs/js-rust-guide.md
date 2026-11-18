@@ -182,7 +182,7 @@ let url = options.rest_url();            // .../v2/testnet
 | v2 vs v1 | **v2 is recommended** (a superset of v1 plus indexed data); v1 is still online and `with_rest_base(".../v1")` switches without touching any other code |
 | `x-api-key` | **Optional rate-limit boost, not a requirement.** The Explorer API's free tier needs no key and is not metered; only Delegated Proving / Record Scanning differ (90 → 300 / 1000 requests per minute) |
 | `ApiAuth` | `None` / `ApiKey { value, header }` (default header `X-API-Key`; header names are case-insensitive) / `Jwt` |
-| `ApiAuth::Jwt` | Mints a short-lived token at `/jwts/{consumer_id}` and sends it as `Authorization`. Provable's encrypted delegated proving requires it; plain REST reads use `ApiAuth::None` |
+| `ApiAuth::Jwt` | **Deprecated upstream — do not use in new code.** The [auth page](https://docs.explorer.provable.com/docs/auth) says "JWT authentication is no longer supported. Switch to an API key in the `x-api-key` header" and tells callers to remove the `POST /jwts/{consumerId}` exchange. The type stays for compatibility; the default paths use `None` / `ApiKey`. Note the DPS encrypted-proving reference still says a JWT is required, so the upstream pages disagree — another reason not to build on it |
 
 `AleoHttpClient` sends no key on plain REST reads. That is the intended design,
 not a missing feature.
