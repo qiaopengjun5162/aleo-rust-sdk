@@ -17,11 +17,11 @@
 ## Table of Contents
 
 - [One crate](#one-crate)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
 - [Module Map](#module-map)
 - [Features](#features)
 - [Architecture](#architecture)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
 - [Coming from `@provablehq/sdk`](#coming-from-provablehqsdk)
 - [Examples](#examples)
 - [Roadmap](#roadmap)
@@ -38,62 +38,6 @@ Everything on this page ships as **one crate, `aleo-rust-sdk`**: no companion
 crate to add, nothing to enable, no Node.js sidecar to run. The command-line
 tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a separate
 crate that consumes this one.
-
-## Module Map
-
-| Group | Modules | What it covers |
-|-------|---------|----------------|
-| **Keys & accounts** | `account`, `address`, `private_key`, `view_key`, `compute_key`, `graph_key`, `signature`, `keypair`, `ciphertext`, `private_key_ciphertext`, `keys` | The key chain, JS-compatible `ciphertext1…` encrypted keys, value signing, per-record view keys |
-| **Records** | `record`, `record_plaintext`, `record_ciphertext`, `encryption` | Discovery, decryption, ownership, commitments and serial numbers, coin selection |
-| **Programs** | `program`, `program_parity`, `metadata` | Loading and parsing, JS `Program` introspection, the static parameter-URL catalogue |
-| **Transactions** | `transaction`, `transition`, `authorization`, `execution`, `execution_request`, `execution_response`, `proving_key`, `verifying_key`, `proving_request`, `offline_query`, `credits` | Authorize → execute → prove → package, fee folding, height-aware verification, `credits.aleo` value ops |
-| **Crypto primitives** | `field`, `group`, `scalar`, `boolean`, `plaintext`, `integer_types`, `hash_functions` | JS parity for the arithmetic types, the nine default hash domains, checked-halt vs lossy casts |
-| **Network** | `network`, `options`, `client`, `hosted`, `delegated`, `scanner` | REST + JSON-RPC transport, live Merkle paths, one-name network options, TEE proving/scanning |
-| **Domain extras** | `circle`, `sealance`, `utility_functions`, `version` | USDCx hook data, freeze-list exclusion proofs, the three module-level helpers, crate version constant |
-
-The rustdoc front page has the full one-line description of all 46 modules.
-
-## Features
-
-| Category | Feature |
-|----------|---------|
-| **🔑 Account Management** | Generate, import, and derive Aleo accounts (PrivateKey, ViewKey, ComputeKey, Address). Full key derivation chain. |
-| **📦 Program Loading** | Fetch programs from the network via REST API, parse `.aleo` source files, inspect function/mapping definitions. |
-| **⚡ Local Execution** | Authorize and execute Aleo program transitions locally **without broadcasting** — ideal for dry-runs and testing. |
-| **🔐 Proof Generation** | Generate zero-knowledge proofs (Varuna V2) for local execution. Fee proving with V0 fee keys for testnet. |
-| **🛡️ Delegated Proving** (v0.10.0+) | Hand proving to Provable's TEE prover (DPS). The authorization travels in a libsodium sealed box and comes back as a broadcast-ready transaction — 15–60s of local CPU becomes one network round-trip. |
-| **🔍 Record Scanning** (v0.10.0+) | Register a view key with Provable's record scanner (RSS) so the TEE indexes it once, then query owned records by `uuid` instead of walking `records/all`. Returned ciphertexts are still decrypted locally, so a forged response cannot invent a spendable record. |
-| **🌐 Network Queries** | Block height, latest block, block by height **or** hash, block ranges, per-block transactions, transaction lookup, committee and mempool, program source and mapping values, state root (latest **and** by height), and the reverse lookup from a state root back to its height. |
-| **🔗 Live State Paths** (v0.5.0+) | `ProvableQuery` fetches real Merkle paths from Provable API v2 (`api.provable.com/v2/testnet/statePath/{commitment}`) and caches the root each path was built against, so the proof and the root it verifies against cannot disagree. A commitment that is not on chain is answered with **502** and no not-found code — read that as "no such path", not "try again". |
-| **📋 Record Management** | Fetch, decrypt, and filter private `credits.aleo` records by owner. Scan record ciphertexts across block ranges. |
-| **🚀 Transaction Broadcasting** | Submit serialized transactions and wait for inclusion. Confirmation is polled on `/transaction/confirmed/{id}` — 404 while pending, 200 + `status` once mined — so a broadcast that the node accepted into its mempool is never reported as final. |
-| **🏗️ High-level Client** | `AleoClient` orchestrates the full lifecycle: account → program → execute → prove → broadcast. |
-
-## Architecture
-
-```text
-┌─────────────────────────────────────────────────────┐
-│                    AleoClient                        │
-│   (high-level orchestrator — account, program,       │
-│    execute, prove, broadcast in one place)           │
-├──────────┬──────────┬──────────┬──────────────────────┤
-│  account │  program │ execution│      network         │
-│  │        │         │          │                     │
-│  │        │         │          │  AleoHttpClient      │
-│ PK → VK  │ parse    │ auth     │  ├─ REST (v2)       │
-│ CK → ADDR│ inspect  │ execute  │  ├─ JSON-RPC        │
-│  │        │ from_net │ prove    │  ├─ ProvableQuery   │
-│  ▼        │  ▼       │  ▼      │       ▼            │
-├──────────┴──────────┴──────────┴──────────────────────┤
-│  record                                                │
-│  AleoRecord · RecordScanner · RecordManager · CoinSel  │
-├────────────────────────────────────────────────────────┤
-│              snarkVM 4.12.0 (Process<TestnetV0>)       │
-│          reqwest (async HTTP) — tokio runtime         │
-└──────────────────────────────────────────────────────┘
-```
-
-**v0.5.0+ new:** `ProvableQuery` (in the network layer) replaces the dummy `FixedStateRootQuery`. It fetches live Merkle state paths from `api.provable.com/v2/testnet/statePath/{commitment}` using `ureq` (sync HTTP), caches the `global_state_root()` from the response, and returns it in `current_state_root()` — ensuring the state root used for verification matches the root the Merkle path was built against.
 
 ## Installation
 
@@ -248,6 +192,62 @@ async fn main() -> anyhow::Result<()> {
 > this page starts documenting code that does not compile.
 
 The CLI tool handles this automatically — see the `aleo-cli transfer --mode private` command below.
+
+## Module Map
+
+| Group | Modules | What it covers |
+|-------|---------|----------------|
+| **Keys & accounts** | `account`, `address`, `private_key`, `view_key`, `compute_key`, `graph_key`, `signature`, `keypair`, `ciphertext`, `private_key_ciphertext`, `keys` | The key chain, JS-compatible `ciphertext1…` encrypted keys, value signing, per-record view keys |
+| **Records** | `record`, `record_plaintext`, `record_ciphertext`, `encryption` | Discovery, decryption, ownership, commitments and serial numbers, coin selection |
+| **Programs** | `program`, `program_parity`, `metadata` | Loading and parsing, JS `Program` introspection, the static parameter-URL catalogue |
+| **Transactions** | `transaction`, `transition`, `authorization`, `execution`, `execution_request`, `execution_response`, `proving_key`, `verifying_key`, `proving_request`, `offline_query`, `credits` | Authorize → execute → prove → package, fee folding, height-aware verification, `credits.aleo` value ops |
+| **Crypto primitives** | `field`, `group`, `scalar`, `boolean`, `plaintext`, `integer_types`, `hash_functions` | JS parity for the arithmetic types, the nine default hash domains, checked-halt vs lossy casts |
+| **Network** | `network`, `options`, `client`, `hosted`, `delegated`, `scanner` | REST + JSON-RPC transport, live Merkle paths, one-name network options, TEE proving/scanning |
+| **Domain extras** | `circle`, `sealance`, `utility_functions`, `version` | USDCx hook data, freeze-list exclusion proofs, the three module-level helpers, crate version constant |
+
+The rustdoc front page has the full one-line description of all 46 modules.
+
+## Features
+
+| Category | Feature |
+|----------|---------|
+| **🔑 Account Management** | Generate, import, and derive Aleo accounts (PrivateKey, ViewKey, ComputeKey, Address). Full key derivation chain. |
+| **📦 Program Loading** | Fetch programs from the network via REST API, parse `.aleo` source files, inspect function/mapping definitions. |
+| **⚡ Local Execution** | Authorize and execute Aleo program transitions locally **without broadcasting** — ideal for dry-runs and testing. |
+| **🔐 Proof Generation** | Generate zero-knowledge proofs (Varuna V2) for local execution. Fee proving with V0 fee keys for testnet. |
+| **🛡️ Delegated Proving** (v0.10.0+) | Hand proving to Provable's TEE prover (DPS). The authorization travels in a libsodium sealed box and comes back as a broadcast-ready transaction — 15–60s of local CPU becomes one network round-trip. |
+| **🔍 Record Scanning** (v0.10.0+) | Register a view key with Provable's record scanner (RSS) so the TEE indexes it once, then query owned records by `uuid` instead of walking `records/all`. Returned ciphertexts are still decrypted locally, so a forged response cannot invent a spendable record. |
+| **🌐 Network Queries** | Block height, latest block, block by height **or** hash, block ranges, per-block transactions, transaction lookup, committee and mempool, program source and mapping values, state root (latest **and** by height), and the reverse lookup from a state root back to its height. |
+| **🔗 Live State Paths** (v0.5.0+) | `ProvableQuery` fetches real Merkle paths from Provable API v2 (`api.provable.com/v2/testnet/statePath/{commitment}`) and caches the root each path was built against, so the proof and the root it verifies against cannot disagree. A commitment that is not on chain is answered with **502** and no not-found code — read that as "no such path", not "try again". |
+| **📋 Record Management** | Fetch, decrypt, and filter private `credits.aleo` records by owner. Scan record ciphertexts across block ranges. |
+| **🚀 Transaction Broadcasting** | Submit serialized transactions and wait for inclusion. Confirmation is polled on `/transaction/confirmed/{id}` — 404 while pending, 200 + `status` once mined — so a broadcast that the node accepted into its mempool is never reported as final. |
+| **🏗️ High-level Client** | `AleoClient` orchestrates the full lifecycle: account → program → execute → prove → broadcast. |
+
+## Architecture
+
+```text
+┌─────────────────────────────────────────────────────┐
+│                    AleoClient                        │
+│   (high-level orchestrator — account, program,       │
+│    execute, prove, broadcast in one place)           │
+├──────────┬──────────┬──────────┬──────────────────────┤
+│  account │  program │ execution│      network         │
+│  │        │         │          │                     │
+│  │        │         │          │  AleoHttpClient      │
+│ PK → VK  │ parse    │ auth     │  ├─ REST (v2)       │
+│ CK → ADDR│ inspect  │ execute  │  ├─ JSON-RPC        │
+│  │        │ from_net │ prove    │  ├─ ProvableQuery   │
+│  ▼        │  ▼       │  ▼      │       ▼            │
+├──────────┴──────────┴──────────┴──────────────────────┤
+│  record                                                │
+│  AleoRecord · RecordScanner · RecordManager · CoinSel  │
+├────────────────────────────────────────────────────────┤
+│              snarkVM 4.12.0 (Process<TestnetV0>)       │
+│          reqwest (async HTTP) — tokio runtime         │
+└──────────────────────────────────────────────────────┘
+```
+
+**v0.5.0+ new:** `ProvableQuery` (in the network layer) replaces the dummy `FixedStateRootQuery`. It fetches live Merkle state paths from `api.provable.com/v2/testnet/statePath/{commitment}` using `ureq` (sync HTTP), caches the `global_state_root()` from the response, and returns it in `current_state_root()` — ensuring the state root used for verification matches the root the Merkle path was built against.
 
 ## Coming from `@provablehq/sdk`
 
