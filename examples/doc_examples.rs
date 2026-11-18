@@ -11,7 +11,7 @@
 //! cargo check --example doc_examples
 //! ```
 
-use aleo_rust_sdk::{AleoAccount, AleoClient};
+use aleo_rust_sdk::{AleoAccount, AleoClient, AleoNetworkOptions, ApiAuth};
 use snarkvm::console::program::ProgramID;
 use snarkvm::prelude::TestRng;
 use std::str::FromStr;
@@ -47,6 +47,11 @@ async fn main() -> anyhow::Result<()> {
 
     // --- Waiting for confirmation lives on the network client ---
     client.network.wait_for_confirmation(&tx_id).await?;
+
+    // --- Every service base URL comes from one options value ---
+    // (block 5 of the guide: `AleoNetworkOptions` + `ApiAuth`)
+    let options = AleoNetworkOptions::testnet().with_auth(ApiAuth::None); // free tier
+    println!("rest: {}", options.rest_url());
 
     Ok(())
 }

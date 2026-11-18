@@ -14,6 +14,11 @@
 //! `cargo build --all-targets` (and therefore `just gate`, and therefore CI)
 //! builds this file. A README snippet that stops compiling now fails here first.
 //!
+//! Same idea as [`doc_examples`](doc_examples.rs), which guards the snippets in
+//! `docs/js-rust-guide.md` — the README was simply the one page nobody guarded.
+//! Kept separate because the two files follow different sources: that one tracks
+//! the JS-migration guide, this one tracks the front page.
+//!
 //! **Changing `README.md`'s Quick Start means changing this file too.** That
 //! duplication is the price of the check; the alternative is the state this file
 //! was written to end.
