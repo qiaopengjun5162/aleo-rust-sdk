@@ -287,7 +287,7 @@ read, exactly as `Option::take()` implies.
 | # | Symptom | Fix |
 |---|---|---|
 | 1 | Encryption helper signatures don't line up | snarkVM 4.12 uses **rand 0.10**; inject the RNG instead of using an `OsRng` from a `rand = 0.8` project |
-| 2 | `Field::inverse()` "wrong" | It is the **additive** inverse; only `Group` has a multiplicative one, and `Group::scalar_multiply` doesn't exist — write `group * scalar` |
+| 2 | `Field::inverse()` "wrong" | The name means different things either side. **Rust**: snarkVM's `Field::inverse()` is really `1/x` (`2 * 2.inverse() == 1`, `0.inverse()` errors). **JS**: `f.inverse()` *negates*, so this crate mirrors it with `field::negate(&f)` and never calls the snarkVM method. `Group` has no `inverse()` in Rust at all — JS `g.inverse()` is `-g`. Scalar multiplication is `group * scalar`; `scalar_multiply` does not exist |
 | 3 | `i128` / `u128` JSON changed | They serialize as **strings** |
 | 4 | BHP `hashToGroup` missing | BHP has no `HashToGroup`; use `HashUncompressed::hash_uncompressed` |
 | 5 | Cross-width casts look wrong | "checked" ops `E::halt` (panic); widening does **not** sign-extend (`-1i8` → `255i32`) |

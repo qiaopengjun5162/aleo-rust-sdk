@@ -281,7 +281,7 @@ CLI 工具会自动处理这个流程——参见下面 `aleo-cli transfer --mod
 | # | 现象 | 做法 |
 |---|---|---|
 | 1 | 加密函数签名对不上 | snarkVM 4.12 用 **rand 0.10**；把 RNG 注入进去，别用 `rand = 0.8` 项目的 `OsRng` |
-| 2 | `Field::inverse()` 结果不对 | 它是**加法逆**；只有 `Group` 有真正的群逆，且 `Group::scalar_multiply` 不存在，写 `group * scalar` |
+| 2 | `Field::inverse()` 结果不对 | 这个名字在两边含义相反。**Rust**：snarkVM 的 `Field::inverse()` 确实是 `1/x`（`2 * 2.inverse() == 1`，`0.inverse()` 报错）。**JS**：`f.inverse()` 是取反，所以本项目用 `field::negate(&f)` 对拍它，从不调 snarkVM 那个方法。Rust 的 `Group` **没有** `inverse()`——JS 的 `g.inverse()` 就是 `-g`。标量乘写 `group * scalar`，没有 `scalar_multiply` |
 | 3 | `i128` / `u128` 的 JSON 变了 | 序列化成**字符串** |
 | 4 | 找不到 BHP `hashToGroup` | BHP 不实现 `HashToGroup`，用 `HashUncompressed::hash_uncompressed` |
 | 5 | 跨宽度转换结果怪 | 「checked」类操作是 `E::halt`（panic）；加宽**不做符号扩展**（`-1i8` → `255i32`） |
