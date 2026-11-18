@@ -221,8 +221,22 @@ impl QueryTrait<TestnetV0> for ProvableQuery {
         }
         let url = state_paths_url(&self.api_base_url, commitments);
         let body = ureq_get_text("statePaths", &url)?;
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse state paths from '{body}': {e}"))
+        let paths: Vec<StatePath<TestnetV0>> = serde_json::from_str(&body)
+            .map_err(|e| anyhow::anyhow!("Failed to parse state paths from '{body}': {e}"))?;
+        // Cache the root the same way the single-commitment fetch does, and for
+        // the same reason: `current_state_root()` has to agree with the paths or
+        // a proof gets verified against a root it was not built for. Without
+        // this, the batch call left the constructor's placeholder in place and
+        // `current_state_root()` kept reporting it after a successful fetch.
+        //
+        // The front path is not an arbitrary pick. snarkVM's own
+        // `trace.prepare` reads exactly this vector's `front()` for the root it
+        // records in the execution, so reporting anything else here would mean
+        // this object disagrees with the proof it just helped build.
+        if let Some(first) = paths.first() {
+            *self.lock_state_root() = Some(first.global_state_root());
+        }
+        Ok(paths)
     }
     async fn current_state_root_async(&self) -> Result<<TestnetV0 as Network>::StateRoot> {
         // Must match the sync version: return the root cached from the last
