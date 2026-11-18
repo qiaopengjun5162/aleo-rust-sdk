@@ -94,6 +94,11 @@ impl<N: Network> OfflineQuery<N> {
     /// assert_eq!(query.current_block_height()?, 0);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Fails when `state_root` is not an `sr1…` identifier for this network. The height
+    /// is not validated: the query is built offline and may describe any block.
     pub fn new(block_height: u32, state_root: &str) -> Result<Self> {
         // `N::StateRoot::from_str`'s error type is an unbounded associated
         // type, so it cannot flow into `anyhow` with `?`; echo the input.
@@ -121,6 +126,12 @@ impl<N: Network> OfflineQuery<N> {
     /// Both arguments are parsed strictly: `commitment` is a field string
     /// (`"42field"`), `state_path` a `"path1…"` identifier. Re-inserting an
     /// existing commitment overwrites its path (`IndexMap::insert`).
+    ///
+    /// # Errors
+    ///
+    /// Fails when `commitment` is not a field string or `state_path` is not a `path1…`
+    /// identifier. Returning an error rather than skipping keeps a typo from silently
+    /// shrinking the query.
     pub fn add_state_path(&mut self, commitment: &str, state_path: &str) -> Result<()> {
         let commitment = Field::<N>::from_str(commitment)?;
         let state_path = StatePath::<N>::from_str(state_path)?;
@@ -166,6 +177,11 @@ impl<N: Network> OfflineQuery<N> {
     /// Parses the JSON representation — the JS `OfflineQuery.fromString(s)`.
     ///
     /// The inverse of [`OfflineQuery::to_json`]; malformed JSON is an error.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `json` is not a valid serialized query. An unparsable input is not
+    /// treated as an empty query.
     pub fn from_json(json: &str) -> Result<Self> {
         Ok(serde_json::from_str(json)?)
     }

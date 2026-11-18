@@ -36,6 +36,13 @@ rust-version = "1.96"
 # `Options::testnet`.
 missing_panics_doc = "warn"
 
+# Every `pub fn -> Result` must have a `# Errors` section. The sweep is done —
+# zero hits across the library, the integration tests and the examples — so
+# this can be a gate rather than a backlog. Unlike `missing_docs`, this one is
+# meaningful on test and example targets too: they call the fallible API and a
+# documented contract is what tells the reader which failures to expect.
+missing_errors_doc = "warn"
+
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"

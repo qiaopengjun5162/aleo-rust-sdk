@@ -77,6 +77,10 @@ impl<N: Network> ProvingKey<N> {
     ///
     /// This is `hex(SHA-256(to_bytes_le()))`, exactly the upstream wasm
     /// formula, shared with the credits-key validation in `keys`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the key cannot be serialized for hashing.
     pub fn checksum(&self) -> Result<String> {
         crate::keys::key_checksum(&self.0)
     }
@@ -89,6 +93,11 @@ impl<N: Network> ProvingKey<N> {
     }
 
     /// Constructs a proving key from its canonical bytes — JS `fromBytes`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `bytes` is not a valid serialized proving key (wrong length,
+    /// corrupt encoding).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         NativeProvingKey::from_bytes_le(bytes)
             .map(Self)
@@ -97,6 +106,10 @@ impl<N: Network> ProvingKey<N> {
 
     /// Parses a proving key from its bech32m `prover1…` string — JS
     /// `fromString`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `string` is not a bech32m `prover1…` encoding for this network.
     pub fn from_string(string: &str) -> Result<Self> {
         NativeProvingKey::<N>::from_str(string)
             .map(Self)
@@ -104,6 +117,10 @@ impl<N: Network> ProvingKey<N> {
     }
 
     /// Returns the canonical byte representation — JS `toBytes`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the native key cannot be serialized.
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         self.0.to_bytes_le().context("Failed to serialize proving key")
     }

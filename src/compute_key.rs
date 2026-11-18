@@ -64,6 +64,11 @@ use snarkvm::prelude::{Address, ComputeKey, Group, Network, PrivateKey, Scalar};
 ///
 /// # Arguments
 /// * `private_key` - The private key to derive from.
+///
+/// # Errors
+///
+/// Fails only on a malformed private key. Deriving the compute key from a valid
+/// one cannot fail.
 pub fn from_private_key<N: Network>(private_key: &PrivateKey<N>) -> Result<ComputeKey<N>> {
     ComputeKey::try_from(private_key)
 }

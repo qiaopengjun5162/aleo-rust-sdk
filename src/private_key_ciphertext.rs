@@ -96,6 +96,10 @@ impl<N: Network> fmt::Display for PrivateKeyCiphertext<N> {
 
 impl<N: Network> PrivateKeyCiphertext<N> {
     /// Parses a `ciphertext1…` string — JS `PrivateKeyCiphertext.fromString`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `s` is not a bech32m `ciphertext1…` encoding.
     pub fn from_string(s: &str) -> Result<Self> {
         Self::from_str(s)
     }
@@ -113,6 +117,11 @@ impl<N: Network> PrivateKeyCiphertext<N> {
     /// reproducible, while production callers supply a secure RNG. Note that
     /// snarkVM 4.12 uses rand 0.10's `CryptoRng`, so a rand 0.8 `OsRng` is not
     /// accepted.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the encryption fails — see
+    /// [`crate::private_key::encrypt_private_key`]. No passphrase is rejected.
     pub fn encrypt_with_rng<R: Rng + CryptoRng>(
         private_key: &PrivateKey<N>,
         secret: &str,
@@ -128,6 +137,11 @@ impl<N: Network> PrivateKeyCiphertext<N> {
     /// Decrypts back into the private key — JS `ct.decryptToPrivateKey(secret)`.
     ///
     /// A wrong secret fails: symmetric decryption rejects the tag, or the
+    /// recovered seed is not a valid private key.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `secret` is wrong: symmetric decryption rejects the tag, or the
     /// recovered seed is not a valid private key.
     pub fn decrypt_to_private_key(&self, secret: &str) -> Result<PrivateKey<N>> {
         crate::private_key::decrypt_private_key(&self.0, secret)

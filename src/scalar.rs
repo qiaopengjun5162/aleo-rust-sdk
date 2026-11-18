@@ -163,6 +163,11 @@ pub fn random<N: Network, R: Rng + CryptoRng>(rng: &mut R) -> Scalar<N> {
 ///
 /// # Arguments
 /// * `scalar` - The scalar element to convert.
+///
+/// # Errors
+///
+/// Fails when the scalar's bit pattern does not form a canonical field element —
+/// `ToField::to_field` rejects rather than reducing.
 pub fn to_field<N: Network>(scalar: &Scalar<N>) -> Result<Field<N>> {
     ToField::to_field(scalar).context("Failed to convert scalar to field")
 }
@@ -173,6 +178,11 @@ pub fn to_field<N: Network>(scalar: &Scalar<N>) -> Result<Field<N>> {
 ///
 /// # Arguments
 /// * `scalar` - The scalar element to cast.
+///
+/// # Errors
+///
+/// Fails when the scalar is neither `0scalar` nor `1scalar`. Use
+/// [`to_boolean_lossy`] when any scalar must produce a bit.
 pub fn to_boolean<N: Network>(scalar: &Scalar<N>) -> Result<bool> {
     if *scalar == Scalar::zero() {
         Ok(false)
@@ -201,6 +211,11 @@ pub fn to_boolean_lossy<N: Network>(scalar: &Scalar<N>) -> bool {
 ///
 /// # Arguments
 /// * `scalar` - The scalar element to cast.
+///
+/// # Errors
+///
+/// Fails when the corresponding field is not a valid x-coordinate on the curve —
+/// roughly half of all field elements are not.
 pub fn to_group<N: Network>(scalar: &Scalar<N>) -> Result<Group<N>> {
     let field = to_field(scalar)?;
     <Group<N> as FromField>::from_field(&field).context("Field is not a valid x-coordinate")
@@ -213,6 +228,11 @@ pub fn to_group<N: Network>(scalar: &Scalar<N>) -> Result<Group<N>> {
 ///
 /// # Arguments
 /// * `scalar` - The scalar element to cast.
+///
+/// # Errors
+///
+/// Fails only through the underlying [`to_field`] conversion. The x-coordinate
+/// recovery itself cannot fail, because `CastLossy` falls back to Elligator-2.
 pub fn to_group_lossy<N: Network>(scalar: &Scalar<N>) -> Result<Group<N>> {
     let field = to_field(scalar)?;
     Ok(CastLossy::cast_lossy(&field))
@@ -224,6 +244,11 @@ pub fn to_group_lossy<N: Network>(scalar: &Scalar<N>) -> Result<Group<N>> {
 ///
 /// # Arguments
 /// * `scalar` - The scalar element to cast.
+///
+/// # Errors
+///
+/// Fails wherever [`to_group`] fails: a scalar whose field form is not a valid
+/// x-coordinate has no group element, and therefore no address.
 pub fn to_address<N: Network>(scalar: &Scalar<N>) -> Result<Address<N>> {
     Ok(Address::new(to_group(scalar)?))
 }
@@ -234,6 +259,11 @@ pub fn to_address<N: Network>(scalar: &Scalar<N>) -> Result<Address<N>> {
 ///
 /// # Arguments
 /// * `scalar` - The scalar element to cast.
+///
+/// # Errors
+///
+/// Fails only through the underlying [`to_field`] conversion; the group and address
+/// steps are infallible.
 pub fn to_address_lossy<N: Network>(scalar: &Scalar<N>) -> Result<Address<N>> {
     Ok(Address::new(to_group_lossy(scalar)?))
 }

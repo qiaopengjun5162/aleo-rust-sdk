@@ -169,6 +169,11 @@ pub fn random<N: Network, R: Rng + CryptoRng>(rng: &mut R) -> Field<N> {
 ///
 /// # Arguments
 /// * `field` - The field element to cast.
+///
+/// # Errors
+///
+/// Fails when the field is neither `0field` nor `1field`. Use [`to_boolean_lossy`]
+/// when any field must produce a bit.
 pub fn to_boolean<N: Network>(field: &Field<N>) -> anyhow::Result<bool> {
     if *field == Field::zero() {
         Ok(false)
@@ -209,6 +214,11 @@ pub fn to_scalar_lossy<N: Network>(field: &Field<N>) -> Scalar<N> {
 ///
 /// # Arguments
 /// * `field` - The field element to cast.
+///
+/// # Errors
+///
+/// Fails when the field is not a valid x-coordinate on the curve. Use
+/// [`to_group_lossy`] when every field has to map to some group element.
 pub fn to_group<N: Network>(field: &Field<N>) -> anyhow::Result<Group<N>> {
     <Group<N> as FromField>::from_field(field).map_err(|e| anyhow::anyhow!(e))
 }
@@ -231,6 +241,11 @@ pub fn to_group_lossy<N: Network>(field: &Field<N>) -> Group<N> {
 ///
 /// # Arguments
 /// * `field` - The field element to cast.
+///
+/// # Errors
+///
+/// Fails when the field is not a valid x-coordinate, since there is then no group
+/// element to turn into an address.
 pub fn to_address<N: Network>(field: &Field<N>) -> anyhow::Result<Address<N>> {
     Ok(Address::new(to_group(field)?))
 }

@@ -64,6 +64,11 @@ use std::str::FromStr;
 ///
 /// # Arguments
 /// * `view_key` - The view key to derive the graph key from.
+///
+/// # Errors
+///
+/// Fails only on a malformed view key. Deriving the graph key from a valid one
+/// cannot fail.
 pub fn from_view_key<N: Network>(view_key: &ViewKey<N>) -> Result<GraphKey<N>> {
     GraphKey::try_from(view_key)
 }
@@ -75,6 +80,10 @@ pub fn from_view_key<N: Network>(view_key: &ViewKey<N>) -> Result<GraphKey<N>> {
 ///
 /// # Arguments
 /// * `s` - The string representation of the graph key.
+///
+/// # Errors
+///
+/// Fails when `s` is not a valid bech32m graph-key encoding for this network.
 pub fn from_string<N: Network>(s: &str) -> Result<GraphKey<N>> {
     GraphKey::from_str(s)
 }

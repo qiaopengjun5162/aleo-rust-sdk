@@ -115,6 +115,12 @@ type ImportVerifyingKeys =
 /// > lower-level primitive this delegates to. Use it directly (loading the
 /// > program once via [`ExecutionEngine::add_program`]) when verifying many
 /// > executions against the same engine.
+///
+/// # Errors
+///
+/// Fails when the execution engine cannot be built, or when the program or its imports
+/// cannot be loaded (malformed program source, missing import). A proof that simply does
+/// not check out is `Ok(false)`, not an error: the two channels mean different things.
 pub fn verify_function_execution(
     execution: &Execution<TestnetV0>,
     verifying_key: &VerifyingKey<TestnetV0>,

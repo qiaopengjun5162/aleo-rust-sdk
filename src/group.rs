@@ -141,6 +141,11 @@ pub fn random<N: Network, R: Rng + CryptoRng>(rng: &mut R) -> Group<N> {
 ///
 /// # Arguments
 /// * `field` - The x-coordinate, as a field string (e.g. `"2field"`).
+///
+/// # Errors
+///
+/// Fails when `field` is not a field literal, or when it is a field that is not a
+/// valid x-coordinate — `1field` is the canonical example of the second case.
 pub fn from_field_string<N: Network>(field: &str) -> anyhow::Result<Group<N>> {
     let x = Field::<N>::from_str(field)
         .map_err(|e| anyhow::anyhow!("failed to parse field '{field}': {e}"))?;

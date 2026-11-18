@@ -114,6 +114,11 @@ impl<N: Network> fmt::Display for Program<N> {
 
 impl<N: Network> Program<N> {
     /// Parses Aleo program source — JS `Program.fromString`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `source` is not syntactically valid program source, or when its imports
+    /// cannot be resolved.
     pub fn from_string(source: &str) -> Result<Self> {
         Self::from_str(source)
     }
@@ -146,6 +151,12 @@ impl<N: Network> Program<N> {
     ///
     /// Each element carries a `register` (`r0`, `r1`, …) plus the type
     /// description produced by the crate-internal `plaintext_input` helper.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `function_name` is not a valid identifier, or when the program declares
+    /// no such function. The type descriptors come from the parsed program, so rendering
+    /// them cannot fail afterwards.
     pub fn get_function_inputs(&self, function_name: &str) -> Result<Vec<JsonValue>> {
         let function_id = Identifier::<N>::from_str(function_name)?;
         let function = self.0.functions().get(&function_id).ok_or_else(|| {
@@ -204,6 +215,11 @@ impl<N: Network> Program<N> {
     }
 
     /// A record's members plus the synthetic `_nonce` — JS `getRecordMembers`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `record_name` is not a valid identifier, or when the program declares
+    /// no such record.
     pub fn get_record_members(&self, record_name: &str) -> Result<JsonValue> {
         let record_id = Identifier::<N>::from_str(record_name)?;
         let record = self
@@ -232,6 +248,11 @@ impl<N: Network> Program<N> {
     }
 
     /// A struct's members — JS `getStructMembers`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `struct_name` is not a valid identifier, or when the program declares
+    /// no such struct.
     pub fn get_struct_members(&self, struct_name: &str) -> Result<Vec<JsonValue>> {
         let struct_id = Identifier::<N>::from_str(struct_name)?;
         let program_struct = self
@@ -247,6 +268,11 @@ impl<N: Network> Program<N> {
     }
 
     /// The built-in `credits.aleo` program — JS `getCreditsProgram`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if snarkVM cannot build its built-in credits program — a library invariant
+    /// rather than an input error.
     pub fn get_credits_program() -> Result<Self> {
         Ok(Self(ProgramNative::<N>::credits()?))
     }
@@ -257,6 +283,10 @@ impl<N: Network> Program<N> {
     }
 
     /// The program's unique address — JS `address()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the program ID cannot be hashed to a group element.
     pub fn address(&self) -> Result<Address<N>> {
         self.0.id().to_address()
     }

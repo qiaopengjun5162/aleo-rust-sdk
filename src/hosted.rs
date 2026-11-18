@@ -179,6 +179,13 @@ impl AuthProvider {
     ///
     /// Called once per logical request: a token refresh mid-flight would make
     /// the two calls of one `pubkey`/`submit` pair disagree.
+    ///
+    /// # Errors
+    ///
+    /// Fails only under `ApiAuth::Jwt`, and only when a fresh token has to be minted:
+    /// the request to `/jwts/{consumer_id}` fails, the service answers non-2xx, or the 2xx
+    /// response carries no `authorization` header. `ApiAuth::None` and `ApiAuth::ApiKey`
+    /// always succeed.
     pub async fn headers(&self) -> Result<Vec<(String, String)>> {
         match &self.mode {
             ApiAuth::None => Ok(self
@@ -298,6 +305,11 @@ pub struct EphemeralKey {
 /// generated per call from the OS RNG, so the same plaintext encrypted twice
 /// produces different ciphertexts — which is what makes the one-time `key_id`
 /// meaningful.
+///
+/// # Errors
+///
+/// Fails when `recipient_public_key_b64` is not valid base64, when it does not
+/// decode to exactly 32 bytes, or when the sealed-box construction itself fails.
 pub fn seal_sealed_box(recipient_public_key_b64: &str, plaintext: &[u8]) -> Result<String> {
     let raw = BASE64
         .decode(recipient_public_key_b64.trim())
