@@ -9,7 +9,8 @@
 ///    export PRIVATE_KEY="APrivateKey1..."
 ///    ```
 ///
-/// 2. The account must have testnet credits (use the Aleo testnet faucet).
+/// 2. The account must have testnet credits (use the Aleo testnet faucet at
+///    <https://faucet.aleo.org/>).
 ///
 /// # Usage
 ///

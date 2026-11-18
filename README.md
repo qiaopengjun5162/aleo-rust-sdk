@@ -8,7 +8,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-**The Rust SDK for [Aleo](https://aleo.org)** — accounts, transfers, and zero-knowledge proofs, from Rust, with no Node.js in the loop.
+**The Rust SDK for [Aleo](https://aleo.org)** — accounts, private transfers, and zero-knowledge proofs, with no Node.js in the loop.
 
 > **Why this SDK?** The official [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) has been **archived** and is no longer maintained. This SDK provides an up-to-date implementation using snarkVM 4.12.0 and the current Aleo testnet endpoints.
 
@@ -300,6 +300,12 @@ read, exactly as `Option::take()` implies.
 | `testnet_transfer` | [examples/testnet_transfer.rs](examples/testnet_transfer.rs) | Full pipeline: authorize → execute → prove → broadcast credits transfer |
 | `simple_execute` | [examples/simple_execute.rs](examples/simple_execute.rs) | Minimal workflow: load program, execute locally (dry-run) |
 | `sdk_v2_broadcast_test` | [examples/sdk_v2_broadcast_test.rs](examples/sdk_v2_broadcast_test.rs) | Exercise the v2 REST surface and broadcast path against testnet (requires `PRIVATE_KEY`; broadcasts a real 1-microcredit self-transfer) |
+
+Two of these broadcast a real transaction, so the account behind `PRIVATE_KEY`
+must already hold testnet credits. If it holds none, that is not a bug in the
+SDK: get free ones from the [official Aleo testnet
+faucet](https://faucet.aleo.org/) by pasting in the address you want funded.
+Nothing else on this page costs anything.
 
 Run an example:
 

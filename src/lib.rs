@@ -1,7 +1,7 @@
 //! # Aleo Rust SDK
 //!
-//! **The Rust SDK for [Aleo](https://aleo.org)** — accounts, transfers, and
-//! zero-knowledge proofs, from Rust, with no Node.js in the loop.
+//! **The Rust SDK for [Aleo](https://aleo.org)** — accounts, private transfers,
+//! and zero-knowledge proofs, with no Node.js in the loop.
 //!
 //! ```no_run
 //! use aleo_rust_sdk::AleoClient;

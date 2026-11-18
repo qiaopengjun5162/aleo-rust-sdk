@@ -3,7 +3,7 @@ name = "aleo-rust-sdk"
 version = "0.11.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "The Rust SDK for the Aleo blockchain — accounts, transfers, and zero-knowledge proofs without a Node.js runtime"
+description = "The Rust SDK for the Aleo blockchain — accounts, private transfers, and zero-knowledge proofs, with no Node.js in the loop"
 # No `homepage`: it was byte-identical to `repository`, and cargo warns that the
 # two are redundant. crates.io falls back to `repository` for the link.
 repository = "https://github.com/qiaopengjun5162/aleo-rust-sdk"

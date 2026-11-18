@@ -8,7 +8,7 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-**[Aleo](https://aleo.org) 的 Rust SDK** —— 建账户、转账、生成零知识证明，全程 Rust，不用装 Node.js。
+**[Aleo](https://aleo.org) 的 Rust SDK** —— 建账户、私密转账、生成零知识证明，不用碰 Node.js。
 
 > **为什么需要这个 SDK？** 官方 [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) 已经**存档废弃**，不再维护。本 SDK 基于 snarkVM 4.12.0 和当前 Aleo 测试网端点提供了最新的实现。
 
@@ -291,6 +291,10 @@ CLI 工具会自动处理这个流程——参见下面 `aleo-cli transfer --mod
 | `testnet_transfer` | [examples/testnet_transfer.rs](examples/testnet_transfer.rs) | 完整流水线：授权 → 执行 → 证明 → 广播 credits 转账 |
 | `simple_execute` | [examples/simple_execute.rs](examples/simple_execute.rs) | 最小工作流：加载程序、本地执行（脱机模拟） |
 | `sdk_v2_broadcast_test` | [examples/sdk_v2_broadcast_test.rs](examples/sdk_v2_broadcast_test.rs) | 对测试网走一遍 v2 REST 接口与广播路径（需要 `PRIVATE_KEY`，会真实广播一笔 1 microcredit 自转） |
+
+其中两个会真实广播交易，所以 `PRIVATE_KEY` 对应的账户必须已经有测试网 credits。
+一个都没有不是 SDK 的 bug：去[官方 Aleo 测试网水龙头](https://faucet.aleo.org/)
+贴上你要充值的地址，免费领。这一页上其余的东西都不花钱。
 
 运行示例：
 
