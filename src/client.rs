@@ -81,6 +81,8 @@ pub enum PipelineFee {
 /// High-level Aleo client that orchestrates the full lifecycle.
 #[derive(Clone, Debug)]
 pub struct AleoClient {
+    /// The HTTP layer this client talks through. Public so callers can reach
+    /// endpoints the high-level helpers do not wrap.
     pub network: AleoHttpClient,
     account: Option<crate::account::AleoAccount>,
     program: Option<AleoProgram>,

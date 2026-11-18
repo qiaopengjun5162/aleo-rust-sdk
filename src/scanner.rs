@@ -191,36 +191,54 @@ pub fn compute_uuid(view_key: &ViewKey<TestnetV0>) -> Result<Field<TestnetV0>> {
 /// omits it. Mirrors the JS `RecordsResponseFilter`.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct RecordsResponseFilter {
+    /// Include the height of the block the record was created in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_height: Option<bool>,
+    /// Include that block's timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_timestamp: Option<bool>,
+    /// Include the record checksum — the ledger-wide dedup key for the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checksum: Option<bool>,
+    /// Include the record commitment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commitment: Option<bool>,
+    /// Include the encrypted record itself — the column you need in order to
+    /// decrypt anything.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record_ciphertext: Option<bool>,
+    /// Include the sender ciphertext (the sender address, encrypted).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sender_ciphertext: Option<bool>,
+    /// Include the name of the function that produced the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_name: Option<bool>,
+    /// Include the record nonce.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<bool>,
+    /// Include the index of the transition output that carries the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_index: Option<bool>,
+    /// Include the record owner — an address, or a program address for
+    /// program-owned records.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<bool>,
+    /// Include the name of the program that owns the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub program_name: Option<bool>,
+    /// Include the record's name (e.g. `credits`, `token_registry`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record_name: Option<bool>,
+    /// Include the id of the transaction that created the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_id: Option<bool>,
+    /// Include the id of the transition that carries the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transition_id: Option<bool>,
+    /// Include the transaction's position within its block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_index: Option<bool>,
+    /// Include the transition's position within its transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transition_index: Option<bool>,
 }
@@ -271,36 +289,53 @@ pub struct EncryptedRecordsFilter {
 /// `checksum` / `nonce` / `sender_ciphertext` but no `tag` / `sender` / `spent`.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct OwnedRecordsResponseFilter {
+    /// Include the record commitment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commitment: Option<bool>,
+    /// Include the record owner.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<bool>,
+    /// Include the record tag — the view-key-derived value the server uses to
+    /// match records to an address without decrypting them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<bool>,
+    /// Include the sender address.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sender: Option<bool>,
+    /// Include whether the record has already been spent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spent: Option<bool>,
+    /// Include the encrypted record itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record_ciphertext: Option<bool>,
+    /// Include the height of the block the record was created in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_height: Option<bool>,
+    /// Include that block's timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_timestamp: Option<bool>,
+    /// Include the index of the transition output that carries the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_index: Option<bool>,
+    /// Include the record's name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record_name: Option<bool>,
+    /// Include the name of the function that produced the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function_name: Option<bool>,
+    /// Include the name of the program that owns the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub program_name: Option<bool>,
+    /// Include the id of the transition that carries the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transition_id: Option<bool>,
+    /// Include the id of the transaction that created the record.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_id: Option<bool>,
+    /// Include the transaction's position within its block.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transaction_index: Option<bool>,
+    /// Include the transition's position within its transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transition_index: Option<bool>,
 }

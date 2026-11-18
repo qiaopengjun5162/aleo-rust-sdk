@@ -147,6 +147,9 @@ pub enum DeploymentKind {
 
 /// Execution engine wrapping a snarkVM `Process`.
 pub struct ExecutionEngine {
+    /// The underlying snarkVM `Process`. Public because a few workflows
+    /// (inserting non-standard keys, calling `execute` directly) need it;
+    /// bypassing the engine means losing its key cache.
     pub process: Process<TestnetV0>,
 }
 

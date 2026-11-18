@@ -156,6 +156,14 @@ impl AleoNetworkOptions {
     }
 
     /// Options for testnet with every default filled in.
+    ///
+    /// # Panics
+    ///
+    /// In practice: never. `"testnet"` is a literal that passes
+    /// [`AleoNetworkOptions::new`]'s segment checks, so the `expect` documents an
+    /// invariant rather than a reachable failure. Use
+    /// [`AleoNetworkOptions::new`] if you need to handle a rejectable network
+    /// name.
     pub fn testnet() -> Self {
         Self::new("testnet").expect("`testnet` passes `new`'s segment checks")
     }

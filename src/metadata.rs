@@ -82,14 +82,29 @@ impl Metadata {
     /// Read the 7-character checksum prefix out of a `Xxx::METADATA` JSON string,
     /// exactly as the JS `Metadata::new` does. Only the `prover_checksum` field
     /// is ever read, for both URLs.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the compiled-in `METADATA` constant is not valid JSON, or if its
+    /// `prover_checksum` field is missing / not a string / shorter than 7 chars.
+    /// Both only happen when an snarkVM upgrade changes the metadata format — the
+    /// input is a `&'static str` baked into the dependency, never user data — and
+    /// the `#[cfg(test)]` test `metadata_constants_are_all_well_formed` turns such
+    /// an upgrade into a CI failure instead of a runtime surprise.
     fn checksum_prefix(metadata: &'static str) -> String {
-        let metadata: Value =
-            serde_json::from_str(metadata).expect("parameter metadata was not well-formatted");
-        metadata["prover_checksum"]
+        // Two checks instead of three: the string comparison below is what
+        // catches a short checksum, so the intermediate `as_str().expect()`
+        // collapses into the same error path as `get(0..7)`.
+        let parsed: Value = serde_json::from_str(metadata).expect(
+            "compiled-in parameter METADATA is not valid JSON — did a snarkVM upgrade change the format?",
+        );
+        parsed["prover_checksum"]
             .as_str()
-            .expect("failed to parse prover_checksum")
-            .get(0..7)
-            .expect("prover_checksum is shorter than 7 chars")
+            .and_then(|checksum| checksum.get(0..7))
+            .expect(
+                "compiled-in parameter METADATA has no `prover_checksum` of at least 7 chars — \
+                 did a snarkVM upgrade change the format?",
+            )
             .to_string()
     }
 
@@ -381,6 +396,34 @@ mod tests {
         // And the verifier URL uses the *same* prefix, even though its label says
         // "verifier".
         assert_eq!(m.verifier, format!("fee_public.verifier.{expected}"));
+    }
+
+    /// The upgrade tripwire for the three `expect`s in `checksum_prefix`.
+    ///
+    /// The inputs are `&'static str` constants that come from snarkVM, so the
+    /// only way `checksum_prefix` can panic is an upstream format change. This
+    /// test walks every entry and asserts the shape directly, which means an
+    /// snarkVM bump that renames `prover_checksum` fails **CI**, not a user's
+    /// proving run. It also pinpoints the offending function by name, which the
+    /// panic messages in `checksum_prefix` cannot do (they never see the name).
+    #[test]
+    fn metadata_constants_are_all_well_formed() {
+        for m in all() {
+            for url in [&m.prover, &m.verifier] {
+                let checksum = url.rsplit('.').next().expect("URL has at least one dot");
+                assert_eq!(
+                    checksum.len(),
+                    7,
+                    "{}: expected a 7-char checksum suffix in {url}",
+                    m.name
+                );
+                assert!(
+                    checksum.chars().all(|c| c.is_ascii_hexdigit()),
+                    "{}: checksum suffix must be hex, got {checksum}",
+                    m.name
+                );
+            }
+        }
     }
 
     #[test]

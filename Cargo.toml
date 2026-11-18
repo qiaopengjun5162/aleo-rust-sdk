@@ -4,7 +4,8 @@ version = "0.11.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Rust SDK for the Aleo blockchain — accounts, programs, local/remote execution, ZK proving, on-chain verification"
-homepage = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
+# No `homepage`: it was byte-identical to `repository`, and cargo warns that the
+# two are redundant. crates.io falls back to `repository` for the link.
 repository = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
 documentation = "https://docs.rs/aleo-rust-sdk"
 readme = "README.md"
@@ -13,6 +14,27 @@ categories = ["cryptography", "web-programming::http-client"]
 # snarkVM 4.12.0 itself declares rust-version = "1.96.0", so that — not 1.88 —
 # is the real floor. CI verifies this value instead of trusting the comment.
 rust-version = "1.96"
+
+# Crate-level lint promises. CI already enforces these through
+# `clippy -- -D warnings`; declaring them in the manifest means a plain
+# `cargo check` catches the same class of problem locally, and that the
+# promises are auditable instead of living only in a workflow file.
+#
+# `unsafe_code = "forbid"` is deliberately NOT here: manifest lints cover every
+# target including `tests/`, and `tests/network_coverage.rs` needs an
+# `unsafe { set_var(..) }` under edition 2024. The library-scoped promise lives
+# in `src/lib.rs` as `#![forbid(unsafe_code)]`.
+#
+# Same reason `missing_docs` is not here: it fires once per crate root, and every
+# integration test / example is its own crate root with no `//!` header — that
+# would be ~20 warnings about test files nobody documents. It lives in
+# `src/lib.rs` too.
+
+[lints.clippy]
+# Every `expect` in a `pub fn` must say so in its docs; see the `# Panics`
+# sections on `plaintext::to_bytes_raw_*`, `OfflineQuery::to_json` and
+# `Options::testnet`.
+missing_panics_doc = "warn"
 
 [dependencies]
 anyhow = "1.0"
