@@ -154,6 +154,11 @@ pub struct ExecutionEngine {
 }
 
 impl ExecutionEngine {
+    ///
+    /// # Errors
+    ///
+    /// Fails when snarkVM's parameter set cannot be loaded — usually a partial or
+    /// corrupt download of the universal SRS, not a problem with this code.
     /// Initialize using `Process::load()` (loads current consensus version keys).
     pub fn new() -> Result<Self> {
         let process = Process::<TestnetV0>::load()?;
@@ -161,6 +166,11 @@ impl ExecutionEngine {
     }
 
     /// Initialize using `Process::load_v0()` (V0 credits keys) with explicit
+    ///
+    /// # Errors
+    ///
+    /// Fails when the parameter set cannot be loaded, or when the V0 fee keys cannot
+    /// be deserialized; see [`Self::inject_fee_keys`].
     /// V0 fee proving/verifying key injection.
     pub fn new_with_fee_keys() -> Result<Self> {
         let mut engine = Self::new()?;
@@ -168,6 +178,11 @@ impl ExecutionEngine {
         Ok(engine)
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Fails when the V0 fee proving or verifying key cannot be deserialized from the
+    /// compiled-in parameters.
     /// Inject fee proving/verifying keys for testnet fee_public support.
     pub fn inject_fee_keys(&mut self) -> Result<()> {
         tracing::info!("Loading fee keys from testnet parameters...");
@@ -184,6 +199,12 @@ impl ExecutionEngine {
         Ok(())
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Fails when the program's imports are not already in the process, or when it
+    /// conflicts with a program of the same id already loaded. Imports are not
+    /// resolved on demand — add them first.
     /// Add a program to the engine.
     pub fn add_program(&self, program: &Program<TestnetV0>) -> Result<()> {
         // `add_program` is on ProcessExclusiveGuard, accessed via lock()
@@ -305,6 +326,12 @@ impl ExecutionEngine {
     /// Use this variant when the caller already built `Value`s — e.g. a record
     /// input wrapped as [`snarkvm::prelude::Value::Record`], which holds a
     /// **plaintext** record (the decrypted form, not the `record1...` string).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the call cannot be authorized or executed locally: an input of the
+    /// wrong shape, an unsatisfied `assert`, or a missing program/import. Records must
+    /// be passed as **plaintext** values, not `record1…` ciphertexts.
     pub fn authorize_and_execute_with_values(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -336,6 +363,12 @@ impl ExecutionEngine {
     /// server-side, so the local side stops after authorization and never pays
     /// the proving cost. [`authorize_and_execute`](Self::authorize_and_execute)
     /// is the local-execution path and builds on this.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the call cannot be authorized: unknown program or function, inputs
+    /// that do not match the function signature, or a record that cannot be decrypted
+    /// by the supplied key.
     pub fn authorize(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -359,6 +392,11 @@ impl ExecutionEngine {
     ///
     /// This is the Rust counterpart of the JS `ProgramManager` remembering the
     /// call behind `buildAuthorization`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the authorization contains no requests, so there is no program or
+    /// function to report.
     pub fn authorization_locator(
         authorization: &Authorization<TestnetV0>,
     ) -> Result<(ProgramID<TestnetV0>, String)> {
@@ -391,6 +429,12 @@ impl ExecutionEngine {
     /// (the JS version likewise accepts the source and resolves it). Its own
     /// imports must already be loaded — add them first with
     /// [`add_program`](Self::add_program) if it has any.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the program's imports are missing, when `function_name` is not in the
+    /// program, or when the sampled call cannot be authorized. The estimate itself is
+    /// offline: no network, no account, no proving.
     pub fn estimate_execution_fee(
         &self,
         program: &Program<TestnetV0>,
@@ -450,6 +494,11 @@ impl ExecutionEngine {
     /// with [`add_program`](Self::add_program) first). Computed at
     /// [`ConsensusVersion::latest()`], like
     /// [`estimate_execution_fee`](Self::estimate_execution_fee).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the authorization's program is not in the process, or when its cost
+    /// cannot be computed for the latest consensus version.
     pub fn estimate_fee_for_authorization(
         &self,
         authorization: &Authorization<TestnetV0>,
@@ -472,6 +521,11 @@ impl ExecutionEngine {
     ///
     /// Unlike the JS version (which looks the stack up without ever loading
     /// the program), the program is added to the process when missing.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the function has no finalize block, when its imports are missing, or
+    /// when the finalize cost cannot be computed.
     pub fn estimate_finalize_fee(
         &self,
         program: &Program<TestnetV0>,
@@ -493,6 +547,12 @@ impl ExecutionEngine {
     /// _nonce: ...group.public }`) — snarkVM's `Value` parser has no arm for
     /// `record1...` ciphertexts, so a record must be decrypted before it can be
     /// spent. See [`crate::credits`] for callers that format these.
+    ///
+    /// # Errors
+    ///
+    /// Fails when a `record1…` ciphertext cannot be parsed as a plaintext record, or
+    /// when authorization fails. Ciphertexts are decrypted here, so an input record
+    /// must be spendable by the supplied private key.
     pub fn authorize_and_execute(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -521,6 +581,11 @@ impl ExecutionEngine {
     ///
     /// The program behind the authorization must already be loaded in this
     /// engine's process (see [`add_program`](Self::add_program)).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the authorization's program is not loaded in this engine, or when
+    /// local execution fails.
     pub fn execute_authorization(
         &self,
         authorization: Authorization<TestnetV0>,
@@ -641,6 +706,12 @@ impl ExecutionEngine {
     /// This fixes broadcast failures that occur when the consensus version advances
     /// (e.g. V14→V20 changed the minimum cost from 100_000 to 2_725).
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// # Errors
+    ///
+    /// Fails when the execution trace cannot be proved, when the fee cannot be
+    /// authorized or proved, or when packaging the transaction fails. Nothing is
+    /// broadcast.
     pub fn prove_and_package(
         &self,
         trace: Trace<TestnetV0>,
@@ -695,6 +766,11 @@ impl ExecutionEngine {
     /// [`prove_and_package`](Self::prove_and_package), which authorizes and
     /// proves a `fee_public`.
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// # Errors
+    ///
+    /// Fails when the execution trace cannot be proved or when packaging fails. As the
+    /// name says, no fee half is produced — the caller supplies one separately.
     pub fn prove_and_package_feeless(
         &self,
         trace: Trace<TestnetV0>,
@@ -750,6 +826,11 @@ impl ExecutionEngine {
     /// the JS SDK's `privateFee` path. The record must cover the dynamically
     /// computed `base_fee` plus `priority_fee` in microcredits.
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// # Errors
+    ///
+    /// Fails when the execution trace cannot be proved, when the private fee record
+    /// does not cover `base_fee + priority_fee`, or when packaging fails.
     pub fn prove_and_package_with_private_fee(
         &self,
         trace: Trace<TestnetV0>,
@@ -814,6 +895,10 @@ impl ExecutionEngine {
     /// [`ExecutionEngine::deployment_cost_minimum`] for deployments, or a value
     /// obtained from a prior local run; the chain rejects anything below the
     /// minimum for the current consensus version.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the fee call cannot be authorized for `credits.aleo/fee_public`.
     pub fn authorize_fee_public_authorization(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -848,6 +933,11 @@ impl ExecutionEngine {
     /// Only the authorize step runs here — no proving — so this is cheap and
     /// fully offline. The resulting authorization is the fee half of
     /// [`prove_and_package_with_private_fee`](Self::prove_and_package_with_private_fee).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the fee call cannot be authorized for `credits.aleo/fee_private`,
+    /// usually because the supplied record cannot be decrypted or is too small.
     pub fn authorize_fee_private_authorization(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -884,6 +974,12 @@ impl ExecutionEngine {
     ///
     /// This only proves the program circuit. Fee and transaction packaging
     /// must be done separately via [`build_deployment_transaction`](Self::build_deployment_transaction).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the deployment circuit cannot be proved. This proves the program
+    /// circuit only; the fee and transaction packaging happen in
+    /// [`Self::build_deployment_transaction`].
     pub fn deploy_program<R: Rng + CryptoRng>(
         &self,
         program: &Program<TestnetV0>,
@@ -942,6 +1038,12 @@ impl ExecutionEngine {
     /// `consensus_version` determines which fee proving key to use.
     /// `query` supplies the current state root (from [`AleoHttpClient::fetch_state_root`](crate::network::AleoHttpClient::fetch_state_root)).
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// # Errors
+    ///
+    /// Fails when the deployment proof cannot be produced, when the fee cannot be
+    /// proved, or when packaging the transaction fails. `query` supplies the state root,
+    /// so a stale root produces a transaction the node will reject.
     pub fn build_deployment_transaction<R: Rng + CryptoRng>(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -976,6 +1078,12 @@ impl ExecutionEngine {
     /// with [`Self::deploy_program`]. Skipping that step yields edition 1 and
     /// the node will reject the upgrade.
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// # Errors
+    ///
+    /// Fails when the program is not a valid upgrade of the one on chain, when proving
+    /// fails, or when packaging fails. The node rejects checks here as errors rather
+    /// than deferring them to broadcast.
     pub fn build_upgrade_transaction<R: Rng + CryptoRng>(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -1079,6 +1187,14 @@ impl ExecutionEngine {
     /// JS SDK's `Execution.verifyFunctionExecution` (which swallows the error and
     /// returns a boolean). Use [`Self::verify_execution_transaction`] when you
     /// want the error chain instead.
+    ///
+    /// # Errors
+    ///
+    /// `Ok(false)` means the proof did **not** verify. `Err` means the question could
+    /// not be answered: `block_height` maps to no consensus version, the inclusion
+    /// upgrade height cannot be read, or a stack for one of the transitions is missing
+    /// from this engine. Those two must not be conflated — "invalid" and "cannot
+    /// tell" call for different responses.
     pub fn verify_execution_at_height(
         &self,
         execution: &snarkvm::ledger::block::Execution<TestnetV0>,
@@ -1109,6 +1225,13 @@ impl ExecutionEngine {
     /// Verify an **execute** transaction's proof.
     ///
     /// The program must already be registered in this engine via `add_program()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when a transition's program is not registered in this engine, or when the
+    /// proof does not verify under the given consensus version. Unlike
+    /// [`Self::verify_execution_at_height`] a failure is an `Err` carrying the reason,
+    /// not `Ok(false)`.
     pub fn verify_execution_transaction(
         &self,
         execution: &snarkvm::ledger::block::Execution<TestnetV0>,
@@ -1128,6 +1251,11 @@ impl ExecutionEngine {
 
     /// Verify a **deploy** transaction's proof.
     /// Uses an empty engine (no user programs loaded) to avoid edition-zero collision.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the deployment proof does not verify, or when the verifying key for
+    /// its edition cannot be resolved.
     pub fn verify_deployment_transaction(
         &self,
         deployment: &Deployment<TestnetV0>,
