@@ -120,11 +120,19 @@ impl<N: Network> fmt::Display for Transition<N> {
 
 impl<N: Network> Transition<N> {
     /// Parses a transition JSON string — JS `Transition.fromString`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `s` is not a valid transition JSON string.
     pub fn from_string(s: &str) -> Result<Self> {
         Self::from_str(s)
     }
 
     /// Reads a transition from little-endian bytes — JS `fromBytesLe`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `bytes` is truncated or does not decode to a transition.
     pub fn from_bytes_le(bytes: &[u8]) -> Result<Self> {
         Ok(Self(TransitionNative::<N>::from_bytes_le(bytes)?))
     }
@@ -136,6 +144,11 @@ impl<N: Network> Transition<N> {
     }
 
     /// Writes little-endian bytes — JS `toBytesLe`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the native serialization fails. The transition is already validated,
+    /// so this is a rare encoder error rather than a bad-input one.
     pub fn to_bytes_le(&self) -> Result<Vec<u8>> {
         self.0.to_bytes_le()
     }
@@ -236,6 +249,11 @@ impl<N: Network> Transition<N> {
     /// 🔴 The rebuilt transition has a **different ID**: input/output IDs are
     /// preserved, but the private ciphertexts become public plaintexts. Never
     /// broadcast the result. A wrong `tvk` fails decryption.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `tvk` is not this transition's view key: the ciphertexts then
+    /// decrypt to garbage and the rebuilt transition is rejected.
     pub fn decrypt_transition(&self, tvk: &Field<N>) -> Result<Self> {
         Ok(Self(crate::encryption::decrypt_transition_with_tvk(
             &self.0, tvk,

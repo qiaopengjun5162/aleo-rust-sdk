@@ -141,6 +141,12 @@ impl ProvingRequest {
     ///
     /// The returned buffer holds private inputs, so it is zeroized on drop —
     /// the prover is the only party that should ever hold this plaintext.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the authorization cannot be serialized — which means snarkVM's
+    /// writer rejected a value it just produced, so treat it as a version mismatch
+    /// rather than a bad input.
     pub fn to_bytes_le(&self) -> Result<Zeroizing<Vec<u8>>> {
         let mut out = Vec::new();
         self.authorization
@@ -164,6 +170,13 @@ impl ProvingRequest {
     /// Trailing bytes are rejected: a length mismatch means the reader and the
     /// writer disagree about the layout, and silently ignoring the tail would
     /// hide exactly that bug.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `bytes` are not a serialized proving request, or when there is a
+    /// non-empty tail after the fields this layout expects. The tail check is
+    /// deliberate: a reader and writer that disagree about the layout would
+    /// otherwise succeed while silently dropping fields.
     pub fn from_bytes_le(bytes: &[u8]) -> Result<Self> {
         let mut reader = Cursor::new(bytes);
         let authorization = Authorization::<TestnetV0>::read_le(&mut reader)
@@ -215,6 +228,11 @@ impl fmt::Debug for ProvingRequest {
 /// generated per call from the OS RNG, so the same request encrypted twice
 /// produces different ciphertexts — which is what makes the one-time `key_id`
 /// meaningful.
+///
+/// # Errors
+///
+/// Fails when `recipient_public_key_b64` is not a valid base64-encoded X25519
+/// public key, or when the sealed-box encryption fails.
 pub fn seal_for_prover(recipient_public_key_b64: &str, plaintext: &[u8]) -> Result<String> {
     crate::hosted::seal_sealed_box(recipient_public_key_b64, plaintext)
 }
@@ -263,6 +281,11 @@ pub struct DelegatedProver {
 impl DelegatedProver {
     /// Build a client for `network` (`"testnet"` or `"mainnet"`) against
     /// Provable's hosted prover.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `network` is empty, or when the default HTTP client cannot be
+    /// built; see [`Self::with_endpoints_and_http`].
     pub fn new(network: &str, auth: ApiAuth) -> Result<Self> {
         if network.is_empty() {
             bail!("Network name must not be empty");
@@ -278,6 +301,11 @@ impl DelegatedProver {
     ///
     /// `prover_base` must already include the network segment. Useful for a
     /// self-hosted prover and for tests.
+    ///
+    /// # Errors
+    ///
+    /// Fails only when the default HTTP client cannot be built. The endpoints are
+    /// not validated here — a wrong base surfaces as a failed request later.
     pub fn with_endpoints(
         prover_base: impl Into<String>,
         api_origin: impl Into<String>,
@@ -293,6 +321,11 @@ impl DelegatedProver {
     /// `Some` uses the supplied client verbatim, which is how
     /// [`AleoNetworkOptions`](crate::AleoNetworkOptions) gives proving and
     /// scanning one shared connection pool.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `http` is `None` and the hosted HTTP client cannot be built. A
+    /// supplied client is used verbatim, so nothing else here can fail.
     pub fn with_endpoints_and_http(
         prover_base: impl Into<String>,
         api_origin: impl Into<String>,
@@ -315,6 +348,10 @@ impl DelegatedProver {
     /// The second return value is the `Set-Cookie` value when the prover sent
     /// one; it must be echoed on the follow-up POST so the prover can pair the
     /// two calls.
+    ///
+    /// # Errors
+    ///
+    /// Fails when auth headers cannot be minted, or when the key endpoint fails.
     pub async fn fetch_pubkey(&self) -> Result<(EphemeralKey, Option<String>)> {
         let headers = self.auth_headers().await?;
         self.fetch_pubkey_with(&headers).await
@@ -383,6 +420,12 @@ impl DelegatedProver {
     ///
     /// Exposed so callers that manage their own key/encryption (or that target
     /// `/prove/request`) can reuse the transport and auth plumbing.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the request cannot be sent, when the prover answers with a
+    /// non-2xx status, or when a 2xx body is not JSON. An error page served with a
+    /// 200 is therefore caught here rather than handed to a parser.
     pub async fn post_encrypted(
         &self,
         path: &str,
@@ -413,6 +456,10 @@ impl DelegatedProver {
     }
 
     /// Resolve the auth headers for one request, minting a JWT when needed.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the JWT cannot be minted or refreshed.
     pub async fn auth_headers(&self) -> Result<Vec<(String, String)>> {
         self.auth.headers().await
     }

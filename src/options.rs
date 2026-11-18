@@ -308,6 +308,11 @@ impl AleoNetworkOptions {
     }
 
     /// Build the delegated-proving client these options describe.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the delegated prover rejects the endpoint/auth combination — see
+    /// [`DelegatedProver::with_endpoints_and_http`].
     pub fn prover(&self) -> Result<DelegatedProver> {
         DelegatedProver::with_endpoints_and_http(
             self.prover_url(),
@@ -318,6 +323,11 @@ impl AleoNetworkOptions {
     }
 
     /// Build the record-scanning client these options describe.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the scan service rejects the endpoint/auth combination — see
+    /// [`RecordScanService::with_endpoints_and_http`].
     pub fn scanner(&self) -> Result<RecordScanService> {
         RecordScanService::with_endpoints_and_http(
             self.scanner_url(),
@@ -328,6 +338,11 @@ impl AleoNetworkOptions {
     }
 
     /// Build a high-level [`AleoClient`] wired to these endpoints.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the underlying HTTP client cannot be built, which is the only fallible
+    /// step here — see [`AleoNetworkOptions::http_client`].
     pub fn client(&self) -> Result<AleoClient> {
         Ok(AleoClient::with_network(self.http_client()?))
     }

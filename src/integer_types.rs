@@ -120,6 +120,11 @@ use std::str::FromStr;
 /// The literal is produced through the type's own `Display`/`FromStr` pair
 /// (`"42u32"`, `"-5i32"`), which parses back into the matching
 /// `Literal::U32` / `Literal::I32` variant.
+///
+/// # Errors
+///
+/// Fails only if the rendered literal cannot be parsed back, which would mean this
+/// crate's `Display` and snarkVM's `FromStr` disagree — a bug here, not a bad input.
 pub fn to_plaintext<N: Network, I: IntegerType>(value: &Integer<N, I>) -> Result<Plaintext<N>> {
     // snarkVM's `FromStr` for `Plaintext` already returns `anyhow::Result`, so
     // the literal is parsed straight back into a `Plaintext::Literal`.
@@ -144,6 +149,11 @@ pub fn to_boolean_lossy<N: Network, I: IntegerType>(value: &Integer<N, I>) -> Bo
 ///
 /// The type parameters are the *native* primitive widths (`u32`, `i128`, …),
 /// because those are what implement `IntegerType`.
+///
+/// # Errors
+///
+/// Fails when the source value cannot be converted to a field. The truncation into the
+/// target width is infallible: it drops high bits rather than range-checking.
 pub fn cast_lossy<N: Network, S: IntegerType, T: IntegerType>(
     value: &Integer<N, S>,
 ) -> Result<Integer<N, T>> {

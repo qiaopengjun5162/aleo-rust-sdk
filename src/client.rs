@@ -89,11 +89,19 @@ pub struct AleoClient {
 }
 
 impl AleoClient {
+    ///
+    /// # Errors
+    ///
+    /// Fails when the default HTTP client cannot be built.
     /// Create a new client pointing at an Aleo node.
     pub fn new(node_url: &str) -> Result<Self> {
         Ok(Self::with_network(AleoHttpClient::new(node_url)?))
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Fails when the default HTTP client cannot be built.
     /// Create a client with a custom RPC URL (for testing with wiremock).
     pub fn new_with_rpc(rest_url: &str, rpc_url: &str) -> Result<Self> {
         let network = AleoHttpClient::new_with_rpc(rest_url, rpc_url)?;
@@ -114,6 +122,11 @@ impl AleoClient {
 
     // ── Account management ──────────────────────────────────────────────
 
+    ///
+    /// # Errors
+    ///
+    /// Fails when `pk_str` is not a valid private key. On failure a previously set
+    /// account stays in place, so a typo cannot clear working state.
     /// Set the account from a private key string.
     pub fn set_account_from_private_key_str(&mut self, pk_str: &str) -> Result<()> {
         let account = crate::account::AleoAccount::from_private_key_str(pk_str)?;
@@ -121,6 +134,11 @@ impl AleoClient {
         Ok(())
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account has been set. See
+    /// [`Self::set_account_from_private_key_str`].
     /// Get a reference to the current account, or error if not set.
     pub fn require_account(&self) -> Result<&crate::account::AleoAccount> {
         self.account.as_ref().ok_or_else(|| {
@@ -130,6 +148,11 @@ impl AleoClient {
 
     // ── Program management ──────────────────────────────────────────────
 
+    ///
+    /// # Errors
+    ///
+    /// Fails when `source` is not a valid Aleo program. On failure a previously
+    /// loaded program stays in place.
     /// Load a program from source string and store it.
     pub fn load_program_from_source(&mut self, source: &str) -> Result<()> {
         let program = AleoProgram::from_source(source)?;
@@ -142,6 +165,11 @@ impl AleoClient {
         self.program = Some(program);
     }
 
+    ///
+    /// # Errors
+    ///
+    /// Fails when no program has been loaded. See
+    /// [`Self::load_program_from_source`].
     /// Get a reference to the stored program, or error if not set.
     pub fn require_program(&self) -> Result<&AleoProgram> {
         self.program.as_ref().ok_or_else(|| {
@@ -160,6 +188,12 @@ impl AleoClient {
     /// If a program has been loaded via `load_program_from_source()`, it
     /// will be registered automatically. For built-in programs (credits.aleo),
     /// no pre-loading is needed.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the account or program is missing, when the program cannot be added
+    /// to the engine, or when authorization fails. Nothing is proved and nothing is
+    /// broadcast; this only produces an `Authorization`.
     pub fn execute_local(
         &self,
         program_id: &str,
@@ -330,6 +364,12 @@ impl AleoClient {
     /// ```
     ///
     /// Returns the transaction ID.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, or when the call cannot be authorized, proved
+    /// and broadcast. See [`Self::prove_execution`] and
+    /// [`Self::execute_and_broadcast`].
     pub async fn execute_credits(&self, call: &CreditsCall, fee: PipelineFee) -> Result<String> {
         let account = self.require_account()?;
         self.run_credits_call(account, call, fee).await
@@ -340,6 +380,11 @@ impl AleoClient {
     /// Equivalent to JS SDK `run(_, _, _, proveExecution=true)` without the broadcast step.
     /// Returns the serialized transaction as a JSON string.
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// # Errors
+    ///
+    /// Fails when a program or function cannot be resolved, when the proving keys
+    /// cannot be fetched, or when proving fails. Nothing is broadcast.
     pub async fn prove_execution(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -392,6 +437,11 @@ impl AleoClient {
     /// ```
     ///
     /// Returns the serialized transaction as a JSON string (not broadcast).
+    ///
+    /// # Errors
+    ///
+    /// Fails when `authorization_json` does not parse, when the programs it references
+    /// cannot be fetched, or when packaging or proving fails.
     pub async fn build_transaction_from_authorization(
         &self,
         authorization_json: &str,
@@ -417,6 +467,12 @@ impl AleoClient {
     ///
     /// Returns the transaction ID on success.
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// # Errors
+    ///
+    /// Fails for any reason [`Self::prove_execution`] does, and additionally when the
+    /// node rejects the broadcast. A rejection is the node's verdict, not a transport
+    /// error: retrying the same bytes will be rejected again.
     pub async fn execute_and_broadcast(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -445,6 +501,11 @@ impl AleoClient {
     /// wrap as `Value::Record`, and pass here instead of raw strings.
     /// Otherwise behaves identically to `execute_and_broadcast`.
     #[allow(clippy::too_many_arguments)]
+    ///
+    /// # Errors
+    ///
+    /// Same failures as [`Self::execute_and_broadcast`]; only the way inputs are
+    /// supplied differs.
     pub async fn execute_and_broadcast_with_values(
         &self,
         private_key: &PrivateKey<TestnetV0>,
@@ -485,6 +546,11 @@ impl AleoClient {
     ///
     /// Returns the transaction ID, like the JS `transfer()` rather than the
     /// raw `Transaction` of `buildTransferTransaction()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, when the call cannot be planned (see
+    /// [`crate::credits::plan_transfer`]), or when proving or broadcast fails.
     pub async fn transfer(
         &self,
         kind: TransferKind,
@@ -507,6 +573,11 @@ impl AleoClient {
     ///
     /// Both records are plaintext record literals (see [`crate::credits`]).
     /// The fee is `fee_public` with `priority_fee_microcredits` on top.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, when the call cannot be planned (see
+    /// [`crate::credits::plan_join`]), or when proving or broadcast fails.
     pub async fn join(
         &self,
         record_one: &str,
@@ -530,6 +601,11 @@ impl AleoClient {
     /// change. `credits.aleo/split` is the one call the protocol allows
     /// **without a fee**, so there is no priority-fee parameter — matching the
     /// JS `split()`, which packages with a `None` fee.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, when the call cannot be planned (see
+    /// [`crate::credits::plan_split`]), or when proving or broadcast fails.
     pub async fn split(
         &self,
         split_amount_microcredits: u64,
@@ -551,6 +627,11 @@ impl AleoClient {
     /// (see [`crate::credits`]).
     ///
     /// The fee is `fee_public` with `priority_fee_microcredits` on top.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, when proving or broadcast fails, or when the
+    /// `credits.aleo` program rejects the call on chain.
     pub async fn bond_public(
         &self,
         validator_address: &str,
@@ -577,6 +658,11 @@ impl AleoClient {
     /// three-input function; see [`crate::credits`] for the divergence.
     /// `withdrawal_address` must differ from the account. `commission` is the
     /// validator's take in percent; the program asserts it is at most 100.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, when proving or broadcast fails, or when the
+    /// `credits.aleo` program rejects the call on chain.
     pub async fn bond_validator(
         &self,
         withdrawal_address: &str,
@@ -599,6 +685,11 @@ impl AleoClient {
     ///
     /// Shrinks the stake of `staker_address` by `amount_microcredits`; the
     /// chain enforces what may remain bonded.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, when proving or broadcast fails, or when the
+    /// `credits.aleo` program rejects the call on chain.
     pub async fn unbond_public(
         &self,
         staker_address: &str,
@@ -619,6 +710,11 @@ impl AleoClient {
     /// `ProgramManager.claimUnbondPublic()`.
     ///
     /// Run after [`Self::unbond_public`] and the unbonding period.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, when proving or broadcast fails, or when the
+    /// `credits.aleo` program rejects the call on chain.
     pub async fn claim_unbond_public(
         &self,
         staker_address: &str,
@@ -639,6 +735,11 @@ impl AleoClient {
     ///
     /// `validator_state: true` opens the validator to new bonds; `false`
     /// closes it (existing stakers can still bond and unbond).
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, when proving or broadcast fails, or when the
+    /// `credits.aleo` program rejects the call on chain.
     pub async fn set_validator_state(
         &self,
         validator_state: bool,
@@ -659,6 +760,11 @@ impl AleoClient {
     ///
     /// `fee_amount_microcredits` is compared against the account's public
     /// `credits.aleo` balance; an account with no mapping entry counts as 0.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, or when the public balance cannot be read.
+    /// Insufficient balance is an `Err`, not a `false`.
     pub async fn check_fee(&self, fee_amount_microcredits: u64) -> Result<()> {
         let address = self.require_account()?.address_str();
         self.network.check_fee(&address, fee_amount_microcredits).await
@@ -679,6 +785,11 @@ impl AleoClient {
     /// plus `credits.aleo` itself). See
     /// [`ExecutionEngine::estimate_execution_fee`](crate::ExecutionEngine::estimate_execution_fee)
     /// for the sampling and pricing details.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `program_source` does not parse, when `function_name` is not in it,
+    /// or when the fee cannot be estimated.
     pub fn estimate_execution_fee(&self, program_source: &str, function_name: &str) -> Result<u64> {
         let engine = ExecutionEngine::new()?;
         let program = Program::<TestnetV0>::from_str(program_source)?;
@@ -687,6 +798,11 @@ impl AleoClient {
 
     /// Price an existing [`Authorization`] —
     /// the JS `ProgramManager.estimateFeeForAuthorization()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the authorization's program cannot be resolved, or when the fee
+    /// cannot be estimated.
     pub fn estimate_fee_for_authorization(
         &self,
         authorization: &snarkvm::prelude::Authorization<TestnetV0>,
@@ -704,6 +820,11 @@ impl AleoClient {
     /// `ProgramManager.estimateFinalizeFee()`. 0 for a function without a
     /// finalize step. See
     /// [`ExecutionEngine::estimate_finalize_fee`](crate::ExecutionEngine::estimate_finalize_fee).
+    ///
+    /// # Errors
+    ///
+    /// Fails when `program_source` does not parse, when `function_name` is not in it,
+    /// or when the finalize fee cannot be estimated.
     pub fn estimate_finalize_fee(&self, program_source: &str, function_name: &str) -> Result<u64> {
         let engine = ExecutionEngine::new()?;
         let program = Program::<TestnetV0>::from_str(program_source)?;
@@ -720,6 +841,11 @@ impl AleoClient {
     /// `priority_fee_in_microcredits` adds priority over the minimum deployment cost.
     ///
     /// Returns the transaction ID on success.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the source does not parse, when the deployment cost cannot be
+    /// covered, or when proving or broadcast fails.
     pub async fn deploy_program(
         &self,
         program_source: &str,
@@ -746,6 +872,11 @@ impl AleoClient {
     /// > [`ExecutionEngine::add_program_with_edition`].
     ///
     /// Returns the transaction ID on success.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the source does not parse, when the deployment cost cannot be
+    /// covered, or when proving or broadcast fails.
     pub async fn upgrade_program(
         &self,
         program_source: &str,
@@ -845,12 +976,22 @@ impl AleoClient {
     /// as a "JSON-RPC fallback" — same URL, same 404 handling — which bought an
     /// extra round trip on every empty account and turned a parse failure that
     /// the first call logged as `None` into a hard error on the second.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, or when the `credits.aleo/account` mapping cannot
+    /// be read. `Ok(None)` means the account has no mapping entry yet (balance 0), not
+    /// that the read failed; those two must stay distinguishable.
     pub async fn get_balance(&self) -> Result<Option<u64>> {
         let addr = self.require_account()?.address_str();
         self.network.fetch_mapping_value_rest("credits.aleo", "account", &addr).await
     }
 
     /// Fetch unspent records for the current account's view key.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, or when the record query fails.
     pub async fn fetch_unspent_records(&self) -> Result<String> {
         let account = self.require_account()?;
         self.network.fetch_records(&account.view_key.to_string()).await
@@ -865,6 +1006,11 @@ impl AleoClient {
     /// which is the single implementation of "decrypt a ciphertext and check
     /// whether it is mine". Keeping a second copy here (or in the HTTP client)
     /// is how the two versions drift apart on edge cases like private owners.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no account is set, when the scan fails, or when a returned
+    /// ciphertext cannot be decrypted under this account's view key.
     pub async fn find_private_credits_records(&self) -> Result<Vec<(String, u64)>> {
         use crate::record::RecordScanner;
 
@@ -882,11 +1028,21 @@ impl AleoClient {
     }
 
     /// Fetch the current block height.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the height endpoint fails; see
+    /// [`AleoHttpClient::fetch_block_height`](crate::network::AleoHttpClient::fetch_block_height).
     pub async fn get_block_height(&self) -> Result<u32> {
         self.network.fetch_block_height().await
     }
 
     /// Fetch latest state root.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the state-root endpoint fails; see
+    /// [`AleoHttpClient::fetch_state_root_only`](crate::network::AleoHttpClient::fetch_state_root_only).
     pub async fn get_state_root(&self) -> Result<<TestnetV0 as Network>::StateRoot> {
         self.network.fetch_state_root_only().await
     }
@@ -904,6 +1060,12 @@ impl AleoClient {
     /// The consensus version is taken from the **latest** block height. That is
     /// only correct for transactions mined under the current consensus rules;
     /// for anything older use [`verify_execution_at`](Self::verify_execution_at).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the transaction cannot be fetched, when the proof does not verify,
+    /// or when a program it calls cannot be loaded. A proof that verifies returns a
+    /// human-readable summary, not a `bool`.
     pub async fn verify_execution(&self, tx_id: &str) -> Result<String> {
         self.verify_transaction(tx_id, None).await
     }
@@ -916,6 +1078,11 @@ impl AleoClient {
     /// VarunaVersion` is not backward compatible (V4..=V20 → V2, V21.. → V3),
     /// so checking an old transaction against today's height reports
     /// `verification FAILED` for a perfectly valid proof.
+    ///
+    /// # Errors
+    ///
+    /// Same failures as [`Self::verify_execution`], plus a `block_height` with no
+    /// consensus version.
     pub async fn verify_execution_at(&self, tx_id: &str, block_height: u32) -> Result<String> {
         self.verify_transaction(tx_id, Some(block_height)).await
     }

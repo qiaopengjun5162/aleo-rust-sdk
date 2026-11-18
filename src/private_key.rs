@@ -112,6 +112,12 @@ const PRIVATE_KEY_DOMAIN: &str = "private_key";
 /// * `private_key` - The key to encrypt.
 /// * `secret` - The passphrase; domain-separated into a field element.
 /// * `rng` - Randomness source for the blinding nonce.
+///
+/// # Errors
+///
+/// Fails when the blinding factor cannot be hashed out of `(domain, nonce, secret)` or
+/// when the symmetric encryption itself fails. No passphrase is rejected — including
+/// the empty one — because the passphrase only enters as hash input.
 pub fn encrypt_private_key<N: Network, R: Rng + CryptoRng>(
     private_key: &PrivateKey<N>,
     secret: &str,
@@ -153,6 +159,11 @@ pub fn encrypt_private_key<N: Network, R: Rng + CryptoRng>(
 /// # Arguments
 /// * `ciphertext` - The `Ciphertext<N>` (parse with `Ciphertext::from_str`).
 /// * `secret` - The passphrase used at encryption time.
+///
+/// # Errors
+///
+/// Fails when the symmetric decryption fails, or when the recovered seed does not form
+/// a valid private key. Both are the normal outcome of a wrong `secret`.
 pub fn decrypt_private_key<N: Network>(
     ciphertext: &Ciphertext<N>,
     secret: &str,
@@ -196,6 +207,11 @@ fn extract_field<N: Network>(plaintext: &Plaintext<N>, member: &str) -> Result<F
 /// # Arguments
 /// * `secret` - The passphrase for the ciphertext.
 /// * `rng` - Randomness source for both key generation and the nonce.
+///
+/// # Errors
+///
+/// Fails when key generation fails, or when the encryption fails — see
+/// [`encrypt_private_key`].
 pub fn new_encrypted<N: Network, R: Rng + CryptoRng>(
     secret: &str,
     rng: &mut R,
@@ -214,6 +230,11 @@ pub fn new_encrypted<N: Network, R: Rng + CryptoRng>(
 ///
 /// # Arguments
 /// * `seed` - Exactly 32 bytes.
+///
+/// # Errors
+///
+/// Fails when `seed` is not exactly 32 bytes, or when the derived field element is not
+/// an acceptable seed (snarkVM rejects zero).
 pub fn from_seed_unchecked<N: Network>(seed: &[u8]) -> Result<PrivateKey<N>> {
     let bytes: [u8; 32] = seed
         .try_into()

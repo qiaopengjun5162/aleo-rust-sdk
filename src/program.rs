@@ -28,6 +28,11 @@ pub struct AleoProgram {
 
 impl AleoProgram {
     /// Load a program from a `.aleo` file on disk.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the file cannot be read (missing, unreadable, not UTF-8) or when its
+    /// contents are not a valid program.
     pub fn from_local_file(path: &str) -> Result<Self> {
         let source = std::fs::read_to_string(path).context(format!("Failed to read {path}"))?;
         let program = Program::<TestnetV0>::from_str(&source).context("Failed to parse program")?;
@@ -35,12 +40,21 @@ impl AleoProgram {
     }
 
     /// Parse a program from its source string.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `source` is not a syntactically valid program.
     pub fn from_source(source: &str) -> Result<Self> {
         let program = Program::<TestnetV0>::from_str(source).context("Failed to parse program")?;
         Ok(Self { program })
     }
 
     /// Load the credits program (built-in).
+    ///
+    /// # Errors
+    ///
+    /// Fails if snarkVM cannot build its built-in credits program — a library invariant
+    /// rather than an input error.
     pub fn credits() -> Result<Self> {
         let program = Program::<TestnetV0>::credits()?;
         Ok(Self { program })
@@ -55,6 +69,10 @@ impl AleoProgram {
     ///
     /// Equivalent to the JS `Address.fromProgramId(programId)` for this
     /// program's ID; see [`crate::address::from_program_id`].
+    ///
+    /// # Errors
+    ///
+    /// Fails when the program ID cannot be hashed to a group element.
     pub fn address(&self) -> Result<Address<TestnetV0>> {
         self.program.id().to_address().context("Failed to derive the program address")
     }

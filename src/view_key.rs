@@ -97,6 +97,11 @@ use snarkvm::prelude::{
 ///
 /// # Arguments
 /// * `private_key` - The private key to derive from.
+///
+/// # Errors
+///
+/// Fails only on a malformed private key. Deriving the view key from a valid one
+/// cannot fail.
 pub fn from_private_key<N: Network>(private_key: &PrivateKey<N>) -> Result<ViewKey<N>> {
     ViewKey::try_from(private_key)
 }
@@ -105,6 +110,10 @@ pub fn from_private_key<N: Network>(private_key: &PrivateKey<N>) -> Result<ViewK
 ///
 /// # Arguments
 /// * `s` - A string like `AViewKey1…`.
+///
+/// # Errors
+///
+/// Fails when `s` is not a bech32m `AViewKey1…` encoding for this network.
 pub fn from_string<N: Network>(s: &str) -> Result<ViewKey<N>> {
     ViewKey::from_str(s)
 }
@@ -141,6 +150,10 @@ pub fn to_scalar<N: Network>(view_key: &ViewKey<N>) -> Scalar<N> {
 ///
 /// # Arguments
 /// * `view_key` - The view key.
+///
+/// # Errors
+///
+/// Fails when the view key's scalar cannot be re-encoded into the base field.
 pub fn to_field<N: Network>(view_key: &ViewKey<N>) -> Result<Field<N>> {
     view_key.to_field()
 }
@@ -149,6 +162,10 @@ pub fn to_field<N: Network>(view_key: &ViewKey<N>) -> Result<Field<N>> {
 ///
 /// # Arguments
 /// * `view_key` - The view key.
+///
+/// # Errors
+///
+/// Fails if the native serialization fails.
 pub fn to_bytes_le<N: Network>(view_key: &ViewKey<N>) -> Result<Vec<u8>> {
     view_key.to_bytes_le()
 }
@@ -157,6 +174,10 @@ pub fn to_bytes_le<N: Network>(view_key: &ViewKey<N>) -> Result<Vec<u8>> {
 ///
 /// # Arguments
 /// * `bytes` - The little-endian byte slice produced by [`to_bytes_le`].
+///
+/// # Errors
+///
+/// Fails when `bytes` is truncated or does not decode to a view key.
 pub fn from_bytes_le<N: Network>(bytes: &[u8]) -> Result<ViewKey<N>> {
     Ok(ViewKey::read_le(bytes)?)
 }

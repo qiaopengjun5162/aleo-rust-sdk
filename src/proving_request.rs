@@ -286,6 +286,12 @@ impl<N: Network> ProvingRequest<N> {
     ///
     /// Exposed separately from `Display` so a caller can embed the request in a
     /// larger payload without stringifying and re-parsing it.
+    ///
+    /// # Errors
+    ///
+    /// Fails when one of the embedded payloads — the authorization, the optional fee
+    /// authorization, the request or the optional fee request — cannot be serialized to a
+    /// JSON value.
     pub fn to_json_value(&self) -> Result<Value> {
         Ok(match self {
             Self::Authorization {

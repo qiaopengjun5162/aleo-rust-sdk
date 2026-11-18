@@ -209,6 +209,16 @@ impl RecordScanner {
     /// Scan a block range and decrypt all records owned by the given view key.
     ///
     /// Returns records sorted by amount (descending).
+    ///
+    /// # Errors
+    ///
+    /// Fails when `view_key` is not a valid view key, or when a records page cannot
+    /// be fetched. Ciphertexts this key cannot decrypt are skipped, not reported — a
+    /// block holds other people's records by design.
+    ///
+    /// Scanning stops after 100 pages (50 000 records) with a warning and returns
+    /// what it has: a range that dense comes back **partial**, and the returned
+    /// vector cannot tell you that. Narrow the range if that matters.
     pub async fn scan_blocks(
         &self,
         view_key: &str,
@@ -269,6 +279,11 @@ impl RecordScanner {
     }
 
     /// Scan the last `num_blocks` blocks (default 5_000) for records owned by the given view key.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the current height cannot be fetched, or for the same reasons as
+    /// [`Self::scan_blocks`] — including its 100-page ceiling.
     pub async fn scan_recent(&self, view_key: &str, num_blocks: u32) -> Result<Vec<AleoRecord>> {
         let height = self.client.fetch_block_height().await?;
         let start = height.saturating_sub(num_blocks);
@@ -693,6 +708,10 @@ pub struct RecordManager {
 
 impl RecordManager {
     /// Create a manager that finds records by scanning blocks locally.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `view_key` is not a valid view key.
     pub fn new(client: AleoHttpClient, view_key: &str) -> Result<Self> {
         Self::with_source(RecordSource::Local(RecordScanner::new(client)), view_key)
     }
@@ -702,6 +721,10 @@ impl RecordManager {
     /// Everything downstream is source-agnostic: coin selection, dedupe,
     /// balance, and `spent` bookkeeping all live here, and run the same way
     /// whichever source filled the cache.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `view_key` is not a valid view key.
     pub fn with_source(source: RecordSource, view_key: &str) -> Result<Self> {
         let vk = ViewKey::<TestnetV0>::from_str(view_key)
             .map_err(|e| anyhow::anyhow!("Invalid view key: {e}"))?;
@@ -729,6 +752,11 @@ impl RecordManager {
 
     /// Scan the latest blocks (up to 100K locally, everything the service has
     /// when hosted) and update the internal cache.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the underlying source cannot produce records — a network error for
+    /// a local scan, an API error for a hosted one.
     pub async fn scan(&mut self) -> Result<&[AleoRecord]> {
         let fetched = self.source.fetch(&self.view_key, ScanWindow::All).await?;
         self.merge_records(fetched);
@@ -741,6 +769,12 @@ impl RecordManager {
     /// fixed `start_block` — so it returns every record it indexed instead of
     /// narrowing to `num_blocks`. That is more than asked, never less; use
     /// [`Self::scan_range`] when a specific window matters.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the underlying source cannot produce records. A hosted source
+    /// returns everything it indexed rather than narrowing, so this rarely fails for
+    /// a window that is merely too new.
     pub async fn scan_recent(&mut self, num_blocks: u32) -> Result<&[AleoRecord]> {
         let fetched = self.source.fetch(&self.view_key, ScanWindow::Recent(num_blocks)).await?;
         self.merge_records(fetched);
@@ -748,6 +782,12 @@ impl RecordManager {
     }
 
     /// Scan a specific block range and update the cache.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the underlying source cannot produce records for `start..end`.
+    /// The cache is only updated on success, so a failed scan leaves the previous
+    /// records in place.
     pub async fn scan_range(&mut self, start: u32, end: u32) -> Result<&[AleoRecord]> {
         let fetched = self
             .source
@@ -785,6 +825,11 @@ impl RecordManager {
     }
 
     /// Get balance, automatically scanning if the cache is empty.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the cache is empty and the follow-up scan fails; see
+    /// [`Self::scan`]. A populated cache never touches the network.
     pub async fn get_balance(&mut self) -> Result<u64> {
         if self.records.is_empty() {
             self.scan().await?;
@@ -797,6 +842,12 @@ impl RecordManager {
     /// Uses largest-first strategy. Only considers unspent `credits.aleo` records.
     ///
     /// Returns an error if the total balance is insufficient.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the unspent `credits.aleo` records do not add up to
+    /// `amount_microcredits`. The message reports both totals, so a caller can tell
+    /// "not enough" from "not scanned yet".
     pub fn select_records(&self, amount_microcredits: u64) -> Result<SelectedRecords> {
         let mut selected = Vec::new();
         let mut total = 0u64;
@@ -831,6 +882,11 @@ impl RecordManager {
     ///
     /// The JS `findRecord` rejects when nothing matches; an empty `Vec` would
     /// let a caller treat "no record" as "zero-value record".
+    ///
+    /// # Errors
+    ///
+    /// Fails when nothing matches `params`. This is the point of the method: an
+    /// empty result must not look like a zero-value record.
     pub fn find_record(&self, params: &RecordSearchParams) -> Result<AleoRecord> {
         self.find_records(params)
             .into_iter()
@@ -845,6 +901,10 @@ impl RecordManager {
     /// needs a single record of a specific denomination (fee records are the
     /// usual reason). `params` may add exclusions and spent handling;
     /// `program` and an exact-amount filter set on it are overridden here.
+    ///
+    /// # Errors
+    ///
+    /// Fails when no unspent `credits.aleo` record holds exactly `microcredits`.
     pub fn find_credits_record(
         &self,
         microcredits: u64,
@@ -862,6 +922,11 @@ impl RecordManager {
     /// batch can never return the same ciphertext twice. Fails as a whole if
     /// any amount has no exact match — a partial list would be easy to spend
     /// by accident.
+    ///
+    /// # Errors
+    ///
+    /// Fails as a whole when any requested amount has no exact match — a partial
+    /// list would be easy to spend by accident.
     pub fn find_credits_records(
         &self,
         amounts: &[u64],
@@ -888,6 +953,11 @@ impl RecordManager {
     /// decrypted under the old key belong to the old address, and carrying
     /// them over would offer another account's spendable records to this one.
     /// An invalid key leaves the manager untouched.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `view_key` is not a valid view key. On failure the cache is **not**
+    /// cleared and the old key stays in effect, so a typo cannot wipe loaded records.
     pub fn set_view_key(&mut self, view_key: &str) -> Result<()> {
         let vk = ViewKey::<TestnetV0>::from_str(view_key)
             .map_err(|e| anyhow::anyhow!("Invalid view key: {e}"))?;

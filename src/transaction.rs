@@ -142,11 +142,19 @@ impl<N: Network> Transaction<N> {
     /// Build a transaction from its string form — the JS `Transaction.fromString(s)`.
     ///
     /// Accepts the same canonical JSON the JS SDK emits and consumes.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `transaction` is not a valid transaction JSON string.
     pub fn from_string(transaction: &str) -> Result<Self> {
         Self::from_str(transaction)
     }
 
     /// Build a transaction from left-endian bytes — the JS `Transaction.fromBytesLe(b)`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `bytes` is truncated or does not decode to a transaction.
     pub fn from_bytes_le(bytes: &[u8]) -> Result<Self> {
         let transaction = TransactionNative::<N>::from_bytes_le(bytes)
             .map_err(|e| anyhow!("invalid transaction bytes: {e}"))?;
@@ -154,6 +162,10 @@ impl<N: Network> Transaction<N> {
     }
 
     /// Serialize the transaction to left-endian bytes — the JS `Transaction.toBytesLe()`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the native serialization fails.
     pub fn to_bytes_le(&self) -> Result<Vec<u8>> {
         self.0
             .to_bytes_le()

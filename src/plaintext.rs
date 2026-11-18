@@ -166,18 +166,21 @@ fn literal_to_json<N: Network>(literal: &Literal<N>) -> Value {
 ///
 /// 🔴 A trailing short chunk is **zero-padded**, not rejected:
 /// `U8::from_bits_le` accepts fewer than 8 bits, so a `Boolean` (1 raw bit)
-/// yields `[1]` (or `[0]`), never an error. The `Result` is kept only to
-/// mirror the upstream wasm signature.
+/// yields `[1]` (or `[0]`), never an error.
 ///
 /// # Arguments
 /// * `plaintext` - The plaintext to encode.
 ///
+/// # Errors
+///
+/// Never fails. The bit iterator cannot produce a chunk that does not fit in a
+/// `U8`, so the error path is unreachable; the `Result` mirrors the upstream
+/// wasm signature and lets callers use `?` uniformly next to [`to_bytes_raw_be`].
+///
 /// # Panics
 ///
 /// In practice: never. The one `expect` covers `U8::from_bits_le` on a chunk of
-/// at most 8 bits, which cannot fail by construction. It is documented here
-/// because readers of a `Result`-returning function deserve to know that the
-/// error path never carries a panic.
+/// at most 8 bits, which cannot fail by construction.
 pub fn to_bytes_raw_le<N: Network>(plaintext: &Plaintext<N>) -> anyhow::Result<Vec<u8>> {
     // `from_bits_le` cannot fail for a chunk of at most 8 bits, so there is no
     // real error path — dereferencing the `U8` to its `u8` avoids both the
@@ -200,6 +203,10 @@ pub fn to_bytes_raw_le<N: Network>(plaintext: &Plaintext<N>) -> anyhow::Result<V
 ///
 /// # Arguments
 /// * `plaintext` - The plaintext to encode.
+///
+/// # Errors
+///
+/// Never fails — the same unreachable error path as [`to_bytes_raw_le`].
 ///
 /// # Panics
 ///

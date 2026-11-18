@@ -142,6 +142,11 @@ pub struct Registration {
 ///
 /// The two buffers that hold the view key are zeroized before returning, so a
 /// core dump or a swapped-out page cannot leak the key after the call.
+///
+/// # Errors
+///
+/// Fails when `recipient_public_key_b64` is not a valid base64-encoded group
+/// element, or when the plaintext cannot be sealed to it.
 pub fn seal_registration(
     recipient_public_key_b64: &str,
     view_key: &ViewKey<TestnetV0>,
@@ -649,6 +654,11 @@ pub struct RecordScanService {
 impl RecordScanService {
     /// Build a client for `network` (`"testnet"` or `"mainnet"`) against
     /// Provable's hosted scanner.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `network` is empty, or when the default HTTP client cannot be
+    /// built; see [`Self::with_endpoints_and_http`].
     pub fn new(network: &str, auth: ApiAuth) -> Result<Self> {
         if network.is_empty() {
             bail!("Network name must not be empty");
@@ -664,6 +674,12 @@ impl RecordScanService {
     ///
     /// `scanner_base` must already include the network segment. Useful for a
     /// self-hosted scanner and for tests.
+    ///
+    /// # Errors
+    ///
+    /// Fails only when the default HTTP client cannot be built. The endpoints
+    /// themselves are not validated — a wrong base shows up as a failed request
+    /// later, not here.
     pub fn with_endpoints(
         scanner_base: impl Into<String>,
         api_origin: impl Into<String>,
@@ -679,6 +695,11 @@ impl RecordScanService {
     /// `Some` uses the supplied client verbatim, which is how
     /// [`AleoNetworkOptions`](crate::AleoNetworkOptions) gives proving and
     /// scanning one shared connection pool.
+    ///
+    /// # Errors
+    ///
+    /// Fails when `http` is `None` and the hosted HTTP client cannot be built. A
+    /// supplied client is used verbatim, so nothing else here can fail.
     pub fn with_endpoints_and_http(
         scanner_base: impl Into<String>,
         api_origin: impl Into<String>,
@@ -705,6 +726,13 @@ impl RecordScanService {
     ///
     /// `start_block` bounds how far back the scanner looks; `0` means genesis.
     /// A later `start_block` registers faster but misses older records.
+    ///
+    /// # Errors
+    ///
+    /// Fails when auth headers cannot be minted, when the ephemeral key cannot be
+    /// fetched, when sealing fails (see [`seal_registration`]), when
+    /// `/register/encrypted` rejects the request, or when its body is not a
+    /// [`Registration`].
     pub async fn register(
         &self,
         view_key: &ViewKey<TestnetV0>,
@@ -839,6 +867,12 @@ impl RecordScanService {
     }
 
     /// Ask how far the scan for `uuid` has progressed.
+    ///
+    /// # Errors
+    ///
+    /// Fails when auth headers cannot be minted, when the request fails, or when
+    /// the body is not a [`ScanStatus`]. A 422 downcasts to [`StaleRegistration`]:
+    /// the service dropped this `uuid`, so re-register rather than retrying.
     pub async fn status(&self, uuid: &str) -> Result<ScanStatus> {
         let headers = self.auth.headers().await?;
         // Bare JSON string, *not* `{"uuid": ...}` — the guide is wrong here.
@@ -851,6 +885,12 @@ impl RecordScanService {
     ///
     /// Worth calling when an account is retired: the scanner discards the
     /// decrypted view key on revocation.
+    ///
+    /// # Errors
+    ///
+    /// Fails when auth headers cannot be minted, or when the request fails. A 422
+    /// downcasts to [`StaleRegistration`] — the registration was already gone,
+    /// which for a revoke is arguably the desired end state.
     pub async fn revoke(&self, uuid: &str) -> Result<()> {
         let headers = self.auth.headers().await?;
         let payload = serde_json::Value::String(uuid.to_string());
@@ -920,6 +960,10 @@ impl RecordScanService {
     /// The second return value is the `Set-Cookie` value when the scanner sent
     /// one; it must be echoed on the follow-up POST so the scanner can pair the
     /// two calls.
+    ///
+    /// # Errors
+    ///
+    /// Fails when auth headers cannot be minted, or when the key endpoint fails.
     pub async fn fetch_pubkey(&self) -> Result<(EphemeralKey, Option<String>)> {
         let headers = self.auth.headers().await?;
         self.fetch_pubkey_with(&headers).await
