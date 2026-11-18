@@ -474,12 +474,12 @@ fn credits_staking_authorized_from_planned_inputs() {
     let ten_million_credits = 10_000_000_000_000u64;
     let calls = [
         // Delegator path: bond_public asserts caller != validator.
-        plan_bond_public(&other, &staker, ten_million_credits).unwrap(),
+        plan_bond_public(&other, &staker, ten_million_credits),
         // Validator path: bond_validator asserts signer != withdrawal.
-        plan_bond_validator(&other, ten_million_credits, 25).unwrap(),
-        plan_unbond_public(&staker, 1_000_000).unwrap(),
-        plan_claim_unbond_public(&staker).unwrap(),
-        plan_set_validator_state(true).unwrap(),
+        plan_bond_validator(&other, ten_million_credits, 25),
+        plan_unbond_public(&staker, 1_000_000),
+        plan_claim_unbond_public(&staker),
+        plan_set_validator_state(true),
     ];
 
     let engine = ExecutionEngine::new().unwrap();
