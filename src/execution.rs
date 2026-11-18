@@ -1046,12 +1046,22 @@ impl ExecutionEngine {
     }
 
     /// Compute the minimum deployment cost for a deployment at the given consensus version.
+    ///
+    /// The consensus version is not decoration: it selects the fee schedule, so
+    /// the same deployment costs different amounts across Varuna releases. It
+    /// used to be named `_consensus_version` while still being forwarded, which
+    /// read as "ignored" at every call site.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the deployment cost cannot be computed for this
+    /// process and consensus version.
     pub fn deployment_cost_minimum(
         &self,
         deployment: &Deployment<TestnetV0>,
-        _consensus_version: ConsensusVersion,
+        consensus_version: ConsensusVersion,
     ) -> Result<u64> {
-        let (min_cost, _details) = deployment_cost(&self.process, deployment, _consensus_version)?;
+        let (min_cost, _details) = deployment_cost(&self.process, deployment, consensus_version)?;
         Ok(min_cost)
     }
 

@@ -45,7 +45,7 @@ mod chain;
 mod client;
 mod query;
 
-pub use chain::MAX_BLOCKS_PER_REQUEST;
+pub use chain::{MAX_BLOCKS_PER_REQUEST, MAX_CONCURRENT_BLOCK_REQUESTS};
 pub use client::{AleoHttpClient, ConfirmationPoll};
 pub use query::{FixedStateRootQuery, ProvableQuery};
 

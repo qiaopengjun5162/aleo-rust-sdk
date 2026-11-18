@@ -130,6 +130,11 @@ impl SealanceMerkleTree {
     ///
     /// # Returns
     /// A vector of `Field<N>` ready for Merkle tree construction.
+    ///
+    /// # Errors
+    ///
+    /// Rejects `max_tree_depth` outside `1..=32`, and rejects more than
+    /// `2^(max_tree_depth - 1)` non-zero addresses.
     pub fn generate_leaves<N: Network>(
         addresses: &[String],
         max_tree_depth: u32,
@@ -138,7 +143,17 @@ impl SealanceMerkleTree {
             // `1 << (0 - 1)` used to underflow and panic.
             return Err(anyhow::anyhow!("max_tree_depth must be at least 1"));
         }
-        let max_num_leaves = 1 << (max_tree_depth - 1);
+        // Without this bound `1 << (max_tree_depth - 1)` panics once the shift
+        // reaches the width of the counter. 32 is the natural ceiling: it is the
+        // widest shift a `u32` depth can ask for, and no real cohort has 2^31
+        // addresses. Rejecting it here keeps the failure a returned error — a
+        // panic inside leaf generation aborts a proving run with no context.
+        if max_tree_depth > 32 {
+            return Err(anyhow::anyhow!(
+                "max_tree_depth must be at most 32, got {max_tree_depth}"
+            ));
+        }
+        let max_num_leaves = 1usize << (max_tree_depth - 1);
 
         // Filter out zero addresses
         let addresses: Vec<&String> = addresses
@@ -148,13 +163,9 @@ impl SealanceMerkleTree {
             })
             .collect();
 
-        let num_leaves = if addresses.len() <= 1 {
-            2
-        } else {
-            let next_pow2 = (addresses.len() as f64).log2().ceil() as u32;
-            1 << next_pow2
-        };
-
+        // Checked *before* padding is computed: the old order derived the padded
+        // size first, so an oversized input could overflow the shift below
+        // before the limit that was supposed to catch it ran.
         if addresses.len() > max_num_leaves {
             return Err(anyhow::anyhow!(
                 "Leaves limit exceeded. Max: {}, provided: {}",
@@ -162,6 +173,11 @@ impl SealanceMerkleTree {
                 addresses.len()
             ));
         }
+
+        // `next_power_of_two` instead of `ceil(log2(n))`: the float route rounds
+        // through `f64` and can answer `2^k + 1` for an exact power of two once
+        // the mantissa runs out, which would silently double the tree.
+        let num_leaves = addresses.len().max(2).next_power_of_two();
 
         // Convert addresses to fields and sort
         let mut address_fields: Vec<Field<N>> = Vec::with_capacity(addresses.len());
@@ -661,6 +677,25 @@ mod tests {
             format!("{err}").contains("Leaves limit exceeded"),
             "expected a leaves-limit error, got: {err}"
         );
+    }
+
+    #[test]
+    fn test_generate_leaves_rejects_a_depth_that_would_overflow_the_shift() {
+        // `1 << (max_tree_depth - 1)` panicked here before the bound existed:
+        // depth 33 asks for a 32-bit shift, which is out of range for the
+        // counter. The point of the test is that this is an `Err`, not a panic.
+        let one =
+            vec!["aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px".to_string()];
+
+        let err = SealanceMerkleTree::generate_leaves::<N>(&one, 33).unwrap_err();
+        assert!(
+            format!("{err}").contains("at most 32"),
+            "expected a depth-bound error, got: {err}"
+        );
+
+        // 32 itself must stay accepted — it is the largest shift that fits.
+        let leaves = SealanceMerkleTree::generate_leaves::<N>(&one, 32).unwrap();
+        assert_eq!(leaves.len(), 2, "a single address pads to two leaves");
     }
 
     // ── build_tree validation ───────────────────────────────────────────

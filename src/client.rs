@@ -990,7 +990,14 @@ impl AleoClient {
                     deployment.program_id(),
                 ))
             }
-            _ => Ok("⚠️  Transaction type does not contain a proof to verify".to_string()),
+            // Spelled out instead of `_ =>`: `Transaction` has exactly three
+            // variants today (`Deploy`, `Execute`, `Fee`) and no
+            // `#[non_exhaustive]`, so naming `Fee` means a snarkVM release that
+            // adds a variant fails to compile here rather than silently falling
+            // into "does not contain a proof" for a transaction type that does.
+            Transaction::Fee(ref _id, ref _fee) => {
+                Ok("⚠️  Transaction type does not contain a proof to verify".to_string())
+            }
         }
     }
 }
