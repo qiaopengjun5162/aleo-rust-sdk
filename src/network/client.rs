@@ -106,11 +106,19 @@ pub(crate) fn default_http_client() -> Result<reqwest::Client> {
 
 impl AleoHttpClient {
     /// Create a new client pointing at an Aleo node (default RPC endpoint).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the default HTTP client cannot be built.
     pub fn new(base_url: &str) -> Result<Self> {
         Self::new_with_rpc(base_url, TESTNET_JSON_RPC_URL)
     }
 
     /// Create a client with a custom RPC URL (useful for testing with wiremock).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the default HTTP client cannot be built.
     pub fn new_with_rpc(base_url: &str, rpc_url: &str) -> Result<Self> {
         Ok(Self::with_http(base_url, rpc_url, default_http_client()?))
     }
@@ -220,6 +228,11 @@ impl AleoHttpClient {
     }
 
     /// Fetch a program from the network (REST GET).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the request fails, or when the body is not a valid program. An
+    /// unknown id is an error, never an empty program.
     pub async fn fetch_program(&self, program_id: &str) -> Result<Program<TestnetV0>> {
         self.fetch_program_edition(program_id, None).await
     }
@@ -228,6 +241,12 @@ impl AleoHttpClient {
     ///
     /// The node serves `program/{id}/{edition}` for a pinned edition and
     /// `program/{id}` for the latest; both answer with the same program text.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the request fails, or when the body is not a valid program. A
+    /// pinned `edition` the node does not have is an error; pass `None` for the
+    /// latest.
     pub async fn fetch_program_edition(
         &self,
         program_id: &str,
@@ -260,6 +279,12 @@ impl AleoHttpClient {
     /// Reading `H` first and then `root@H` instead gives a pair that is always
     /// internally consistent; a block mined in between only makes it one block
     /// stale, which is what a "latest" query means anyway.
+    ///
+    /// # Errors
+    ///
+    /// Fails when either the height or the root cannot be fetched. The pair is
+    /// always internally consistent: the root is read at the height just returned,
+    /// so a block mined in between only makes the answer one block stale.
     pub async fn fetch_state_root(&self) -> Result<(<TestnetV0 as Network>::StateRoot, u32)> {
         let height = self.fetch_block_height().await?;
         let state_root = self.fetch_state_root_at(height).await?;
@@ -274,6 +299,12 @@ impl AleoHttpClient {
     ///
     /// The Cloud API at `api.explorer.provable.com/v2/testnet/transaction/broadcast` (singular)
     /// matches the snarkOS node REST route definition in `node/rest/src/lib.rs:337`.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the node rejects the transaction, or when the body cannot be read.
+    /// `check_transaction=true` makes the node run full validation first, so a
+    /// rejection here is the verdict rather than a transport hiccup.
     pub async fn broadcast_transaction(&self, tx_json: String) -> Result<String> {
         let url = format!(
             "{}/transaction/broadcast?check_transaction=true",
@@ -305,6 +336,11 @@ impl AleoHttpClient {
     /// does not know, and handing that error body back as if it were a
     /// transaction only moves the failure into the deserializer, where it reads
     /// as "malformed transaction" instead of "unknown transaction".
+    ///
+    /// # Errors
+    ///
+    /// Fails for an unknown id (the route 404s) and for any other non-2xx. The body
+    /// is returned verbatim, so an error page is never handed back as a transaction.
     pub async fn fetch_transaction(&self, tx_id: &str) -> Result<String> {
         let url = format!("{}/transaction/{tx_id}", self.base_url);
         self.get_text_checked(&url).await
@@ -313,6 +349,11 @@ impl AleoHttpClient {
     /// Poll for confirmation with the production schedule (30 attempts, 5s apart).
     ///
     /// See [`Self::wait_for_confirmation_with`] for what counts as confirmed.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the status endpoint errors, when the transaction is reported
+    /// `rejected`, or when the schedule runs out (30 attempts, ~145 s).
     pub async fn wait_for_confirmation(&self, tx_id: &str) -> Result<()> {
         self.wait_for_confirmation_with(tx_id, ConfirmationPoll::default()).await
     }
@@ -335,6 +376,13 @@ impl AleoHttpClient {
     /// because the timeout path otherwise takes 150 seconds and cannot run in
     /// CI, which is how the previous version ended up `#[ignore]`d — present
     /// but never executed.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the status endpoint errors, when the transaction is reported
+    /// `rejected`, or when `poll.attempts` is exhausted. A 2xx without a `status`
+    /// string keeps polling rather than reporting a false confirmation: a false
+    /// positive cannot be undone by waiting, a false negative can.
     pub async fn wait_for_confirmation_with(
         &self,
         tx_id: &str,
@@ -413,6 +461,11 @@ impl AleoHttpClient {
     /// Returns `None` if the key does not exist (404), or if the body is not a
     /// `u64` — the latter is logged, because a value that does not parse means
     /// the response format changed, not that the account is empty.
+    ///
+    /// # Errors
+    ///
+    /// Fails on any non-2xx other than 404. A 404 is `Ok(None)` by design — a missing
+    /// key is not an error.
     pub async fn fetch_mapping_value_rest(
         &self,
         program_id: &str,
@@ -436,6 +489,10 @@ impl AleoHttpClient {
     ///
     /// Use this for mappings whose values are not `u64` (structs, addresses,
     /// other plaintext literals). Returns `None` on 404.
+    ///
+    /// # Errors
+    ///
+    /// Fails on any non-2xx other than 404. A 404 is `Ok(None)` by design.
     pub async fn fetch_mapping_value(
         &self,
         program_id: &str,
@@ -450,6 +507,11 @@ impl AleoHttpClient {
     /// The body is a bare JSON integer (`23688766`), not a quoted string and not
     /// an object — see [`Self::fetch_state_root_only`] for the neighbouring
     /// endpoint that answers in a different shape.
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not a bare integer. The parse is
+    /// strict for that reason: a proxy's 200 error page must not become height 0.
     pub async fn fetch_block_height(&self) -> Result<u32> {
         let url = format!("{}/block/height/latest", self.base_url);
         let text = self.get_text_checked(&url).await?;
@@ -463,6 +525,10 @@ impl AleoHttpClient {
     /// Answers with a quoted JSON string (`"sr1…"`), so the quotes are stripped
     /// before parsing. Use [`Self::fetch_state_root_at`] when the root has to
     /// pair with a specific height.
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the unquoted body is not a `StateRoot`.
     pub async fn fetch_state_root_only(&self) -> Result<<TestnetV0 as Network>::StateRoot> {
         let url = format!("{}/stateRoot/latest", self.base_url);
         let text = self.get_text_checked(&url).await?;
@@ -476,6 +542,12 @@ impl AleoHttpClient {
     /// `latest` caches: it is indexed by height, so a height read from
     /// [`Self::fetch_block_height`] yields a pair that really existed. Heights
     /// past the node's tip answer 404; a non-numeric height answers 400.
+    ///
+    /// # Errors
+    ///
+    /// Fails with a 404 for a height past the node's tip and a 400 for a non-numeric
+    /// one. Unlike the `statePath` family this endpoint does distinguish them, so the
+    /// error text is worth reading rather than treating every failure as retryable.
     pub async fn fetch_state_root_at(
         &self,
         height: u32,
@@ -487,6 +559,11 @@ impl AleoHttpClient {
     }
 
     /// Fetch unspent records by view key via JSON-RPC.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the current height cannot be read, or when the JSON-RPC call fails.
+    /// The window is the last 1 000 blocks from that height.
     pub async fn fetch_records(&self, view_key: &str) -> Result<String> {
         let height = self.fetch_block_height().await?;
         let start = height.saturating_sub(1000);
@@ -509,6 +586,12 @@ impl AleoHttpClient {
     ///
     /// Returns raw record ciphertexts that must be decrypted with a view key —
     /// see [`RecordScanner`](crate::record::RecordScanner) for that half.
+    ///
+    /// # Errors
+    ///
+    /// Fails when a page cannot be fetched, or when the body is not an array. An
+    /// empty array is a legitimate answer, so `Ok(vec![])` and a failure stay
+    /// distinguishable.
     pub async fn fetch_all_records(
         &self,
         start: u32,
@@ -553,6 +636,10 @@ impl AleoHttpClient {
     ///
     /// Returns the freeze list as an array of decimal strings representing U256 values,
     /// which can be converted to `Field` via `SealanceMerkleTree::convert_tree_to_fields`.
+    ///
+    /// # Errors
+    ///
+    /// Fails on a non-2xx, or when the body is not an array of decimal strings.
     pub async fn fetch_stablecoin_merkle_tree(&self, stablecoin: &str) -> Result<Vec<String>> {
         let url = format!("{}/stablecoin/{}/merkle-tree", self.base_url, stablecoin);
         tracing::info!("GET {url}");
