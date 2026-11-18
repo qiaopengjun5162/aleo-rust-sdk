@@ -16,7 +16,7 @@
 
 ## 目录
 
-- [程序包](#程序包)
+- [一个 crate](#一个-crate)
 - [模块地图](#模块地图)
 - [功能特性](#功能特性)
 - [架构](#架构)
@@ -32,21 +32,11 @@
 - [如何贡献](#如何贡献)
 - [许可](#许可)
 
-## 程序包
+## 一个 crate
 
-| 包 | crates.io | docs.rs | 说明 |
-|------|-----------|---------|------|
-| aleo-rust-sdk | [crates.io](https://crates.io/crates/aleo-rust-sdk) | [docs.rs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/) | 单一 crate — 下列模块全部在它内部 |
-| aleo-rust-sdk (account) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/account/index.html) | 密钥链：`PrivateKey → ViewKey → ComputeKey → Address` |
-| aleo-rust-sdk (program) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/program/index.html) | 程序加载、解析、检查 |
-| aleo-rust-sdk (execution) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/execution/index.html) | 授权、执行、证明、打包交易 |
-| aleo-rust-sdk (network) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/network/index.html) | v2 JSON-RPC + REST HTTP 客户端 + **ProvableQuery**（实时状态路径） |
-| aleo-rust-sdk (record) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/record/index.html) | 记录发现、解密和币选择 |
-| aleo-rust-sdk (delegated) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/delegated/index.html) | 委托证明：交给 Provable 的 TEE（DPS） |
-| aleo-rust-sdk (scanner) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/scanner/index.html) | 记录扫描：交给 Provable 的 TEE（RSS） |
-| aleo-rust-sdk (client) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/client/index.html) | 高层 `AleoClient` 编排器 |
-
-CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个独立的 crate，构建在本 SDK 之上。
+这一页上的所有东西都是**一个 crate：`aleo-rust-sdk`**——不需要再加伴生 crate，没有要打开的
+feature，也没有要跑的 Node.js 侧车。命令行工具
+[`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是另一个 crate，构建在本 SDK 之上。
 
 ## 模块地图
 
@@ -113,6 +103,12 @@ aleo-rust-sdk = "0.11"
 tokio = { version = "1", features = ["full"] }
 ```
 
+依赖就这两条。下面的示例还会用到 snarkVM 的类型（`Value`、`ProgramID`、
+`TestnetV0`、`ViewKey`），请通过 `aleo_rust_sdk::snarkvm` 导入，**不要**自己再加一条
+`snarkvm` 依赖。本 crate 已经重新导出了它编译时所用的那份 snarkVM，构建里只有一份拷贝，
+类型永远对得上；手动加一个版本不同的 `snarkvm`，你得到的是两个互不兼容的 `Value` 类型，
+而报错信息里两个版本号都不会出现。
+
 **要求：**
 - Rust **1.96+**（snarkVM 4.12.0 本身要求）
 - snarkVM **4.12.0**（自动解析）
@@ -141,8 +137,8 @@ async fn main() -> anyhow::Result<()> {
 ### 生成账户 + 查询余额
 
 ```rust
+use aleo_rust_sdk::snarkvm::prelude::TestRng;
 use aleo_rust_sdk::{AleoClient, AleoAccount};
-use snarkvm::prelude::TestRng;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -175,7 +171,7 @@ async fn main() -> anyhow::Result<()> {
 
 ```rust
 use aleo_rust_sdk::AleoClient;
-use snarkvm::console::program::ProgramID;
+use aleo_rust_sdk::snarkvm::console::program::ProgramID;
 use std::str::FromStr;
 
 #[tokio::main]
@@ -202,9 +198,9 @@ async fn main() -> anyhow::Result<()> {
 私密转账需要提供**解密的记录值**，而非原始 `&str` 参数。使用 `execute_and_broadcast_with_values`（v0.5.0+）传入预先解析的 `Vec<Value>`：
 
 ```rust
-use aleo_rust_sdk::record_ciphertext::RecordCiphertext;
 use aleo_rust_sdk::AleoClient;
-use snarkvm::{
+use aleo_rust_sdk::record_ciphertext::RecordCiphertext;
+use aleo_rust_sdk::snarkvm::{
     console::program::{ProgramID, Value},
     prelude::{FromStr, TestnetV0, ViewKey},
 };

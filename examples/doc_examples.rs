@@ -11,9 +11,9 @@
 //! cargo check --example doc_examples
 //! ```
 
+use aleo_rust_sdk::snarkvm::console::program::ProgramID;
+use aleo_rust_sdk::snarkvm::prelude::TestRng;
 use aleo_rust_sdk::{AleoAccount, AleoClient, AleoNetworkOptions, ApiAuth};
-use snarkvm::console::program::ProgramID;
-use snarkvm::prelude::TestRng;
 use std::str::FromStr;
 
 #[tokio::main]

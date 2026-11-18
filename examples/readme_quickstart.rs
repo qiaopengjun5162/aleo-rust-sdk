@@ -46,8 +46,8 @@ mod query_testnet {
 
 /// README: "Generate an account and fetch balance"
 mod generate_account {
+    use aleo_rust_sdk::snarkvm::prelude::TestRng;
     use aleo_rust_sdk::{AleoAccount, AleoClient};
-    use snarkvm::prelude::TestRng;
 
     async fn run() -> anyhow::Result<()> {
         let mut rng = TestRng::default();
@@ -78,7 +78,7 @@ mod generate_account {
 /// README: "Public transfer (simple string inputs)"
 mod public_transfer {
     use aleo_rust_sdk::AleoClient;
-    use snarkvm::console::program::ProgramID;
+    use aleo_rust_sdk::snarkvm::console::program::ProgramID;
     use std::str::FromStr;
 
     async fn run() -> anyhow::Result<()> {
@@ -105,7 +105,7 @@ mod public_transfer {
 mod private_transfer {
     use aleo_rust_sdk::AleoClient;
     use aleo_rust_sdk::record_ciphertext::RecordCiphertext;
-    use snarkvm::{
+    use aleo_rust_sdk::snarkvm::{
         console::program::{ProgramID, Value},
         prelude::{FromStr, TestnetV0, ViewKey},
     };

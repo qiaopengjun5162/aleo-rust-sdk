@@ -16,7 +16,7 @@
 
 ## Table of Contents
 
-- [Packages](#packages)
+- [One crate](#one-crate)
 - [Module Map](#module-map)
 - [Features](#features)
 - [Architecture](#architecture)
@@ -32,21 +32,12 @@
 - [Contributing](#contributing)
 - [License](#license)
 
-## Packages
+## One crate
 
-| Package | crates.io | docs.rs | Description |
-|---------|-----------|---------|-------------|
-| aleo-rust-sdk | [crates.io](https://crates.io/crates/aleo-rust-sdk) | [docs.rs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/) | Single crate — every module below lives in it |
-| aleo-rust-sdk (account) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/account/index.html) | Key chain: `PrivateKey → ViewKey → ComputeKey → Address` |
-| aleo-rust-sdk (program) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/program/index.html) | Program loading, parsing, inspection |
-| aleo-rust-sdk (execution) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/execution/index.html) | Authorize, execute, prove, package transactions |
-| aleo-rust-sdk (network) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/network/index.html) | v2 JSON-RPC + REST HTTP client + **ProvableQuery** (live state path) |
-| aleo-rust-sdk (record) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/record/index.html) | Record discovery, decryption, and coin selection |
-| aleo-rust-sdk (delegated) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/delegated/index.html) | Delegated proving via Provable's TEE (DPS) |
-| aleo-rust-sdk (scanner) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/scanner/index.html) | Record scanning via Provable's TEE (RSS) |
-| aleo-rust-sdk (client) | — | [docs](https://docs.rs/aleo-rust-sdk/latest/aleo_rust_sdk/client/index.html) | High-level `AleoClient` orchestrator |
-
-The CLI tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a separate crate that consumes this SDK.
+Everything on this page ships as **one crate, `aleo-rust-sdk`**: no companion
+crate to add, nothing to enable, no Node.js sidecar to run. The command-line
+tool [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) is a separate
+crate that consumes this one.
 
 ## Module Map
 
@@ -114,6 +105,14 @@ aleo-rust-sdk = "0.11"
 tokio = { version = "1", features = ["full"] }
 ```
 
+That is the whole dependency list. The snippets below also use snarkVM types
+(`Value`, `ProgramID`, `TestnetV0`, `ViewKey`) — import them through
+`aleo_rust_sdk::snarkvm`, **not** through a second `snarkvm` entry of your own.
+The crate re-exports the exact snarkVM it was built against, so there is only
+one copy in the build and the types always match; a hand-added `snarkvm` at a
+different version gives you two incompatible `Value` types and an error message
+naming neither.
+
 **Requirements:**
 - Rust **1.96+** (snarkVM 4.12.0 requires it)
 - snarkVM **4.12.0** (automatically resolved)
@@ -142,8 +141,8 @@ async fn main() -> anyhow::Result<()> {
 ### Generate an account and fetch balance
 
 ```rust
+use aleo_rust_sdk::snarkvm::prelude::TestRng;
 use aleo_rust_sdk::{AleoClient, AleoAccount};
-use snarkvm::prelude::TestRng;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -176,7 +175,7 @@ async fn main() -> anyhow::Result<()> {
 
 ```rust
 use aleo_rust_sdk::AleoClient;
-use snarkvm::console::program::ProgramID;
+use aleo_rust_sdk::snarkvm::console::program::ProgramID;
 use std::str::FromStr;
 
 #[tokio::main]
@@ -203,9 +202,9 @@ async fn main() -> anyhow::Result<()> {
 For private transfers, you must provide **decrypted record values** rather than raw `&str` arguments. Use `execute_and_broadcast_with_values` (v0.5.0+) to pass pre-parsed `Vec<Value>`:
 
 ```rust
-use aleo_rust_sdk::record_ciphertext::RecordCiphertext;
 use aleo_rust_sdk::AleoClient;
-use snarkvm::{
+use aleo_rust_sdk::record_ciphertext::RecordCiphertext;
+use aleo_rust_sdk::snarkvm::{
     console::program::{ProgramID, Value},
     prelude::{FromStr, TestnetV0, ViewKey},
 };

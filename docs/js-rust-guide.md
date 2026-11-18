@@ -67,7 +67,7 @@ exists in this crate (all `pub`). `cargo doc --open` has the full signatures.
 | `getFunctions` / `getMappings` / `getImports` and 10 more | `program_parity::{get_functions, get_function_inputs, get_mappings, get_record_members, get_struct_members, get_imports, has_function, is_equal, ...}` | 🔴 Five methods from the full upstream manual are **not** implemented: `isArc20`, `isArc22`, `getCallGraph`, `nameToField`, `toChecksum` — see §6 |
 | `Transaction` parsing and queries | `Transaction::{from_string, from_bytes_le, to_bytes_le, id, transaction_type, transitions, execution, deployed_program, is_deploy, is_execute, is_fee, fee_amount, base_fee_amount, priority_fee_amount, find_record, contains_serial_number, contains_commitment, owned_records, records, summary}` | `transaction.rs` |
 | `Execution` / `ExecutionRequest` / `ExecutionResponse` | `execution.rs`, `execution_request.rs`, `execution_response.rs` | `ExecutionResponse` is a new generic container |
-| `ProvingKey` / `VerifyingKey` | Same-named modules, with bech32m `prover1…` / `verifier1…` `Display` / `FromStr` / `ToBytes` | `VerifyingKey::from_bytes_le` comes from the **`FromBytes`** trait — `use snarkvm::prelude::FromBytes` |
+| `ProvingKey` / `VerifyingKey` | Same-named modules, with bech32m `prover1…` / `verifier1…` `Display` / `FromStr` / `ToBytes` | `VerifyingKey::from_bytes_le` comes from the **`FromBytes`** trait — `use aleo_rust_sdk::snarkvm::prelude::FromBytes` |
 | `Metadata` (parameter URL catalogue) | `metadata::{base_url, transfer_public, fee_public, bond_public, to_json_value, ...}` | Static URLs; nothing is downloaded |
 
 ### Hashes, integers, utilities
@@ -102,8 +102,8 @@ async fn main() -> anyhow::Result<()> {
 ### Create an account and read its balance
 
 ```rust
+use aleo_rust_sdk::snarkvm::prelude::TestRng;
 use aleo_rust_sdk::{AleoAccount, AleoClient};
-use snarkvm::prelude::TestRng;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -121,7 +121,7 @@ async fn main() -> anyhow::Result<()> {
 
 ```rust
 use aleo_rust_sdk::AleoClient;
-use snarkvm::console::program::ProgramID;
+use aleo_rust_sdk::snarkvm::console::program::ProgramID;
 use std::str::FromStr;
 
 #[tokio::main]
