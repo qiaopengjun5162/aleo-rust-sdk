@@ -1275,6 +1275,7 @@ mod record_scan {
 mod chain_reads {
     use super::*;
     use aleo_rust_sdk::network::MAX_BLOCKS_PER_REQUEST;
+    use wiremock::matchers::query_param;
     use wiremock::{Request, Respond};
 
     /// `/blocks` answered the way the live Cloud API does: one object per
@@ -1374,17 +1375,60 @@ mod chain_reads {
         );
 
         let requests = server.received_requests().await.unwrap();
+        // Windows are issued concurrently, so arrival order is not fixed; sort
+        // before comparing. What matters is the content of each query, and that
+        // there are exactly two of them.
+        let mut seen = query_strings(&requests);
+        seen.sort();
+        let mut expected = vec![
+            format!("start=100&end={}", 100 + MAX_BLOCKS_PER_REQUEST - 1),
+            format!(
+                "start={}&end={}",
+                100 + MAX_BLOCKS_PER_REQUEST,
+                100 + span - 1
+            ),
+        ];
+        expected.sort();
         assert_eq!(
-            query_strings(&requests),
-            vec![
-                format!("start=100&end={}", 100 + MAX_BLOCKS_PER_REQUEST - 1),
-                format!(
-                    "start={}&end={}",
-                    100 + MAX_BLOCKS_PER_REQUEST,
-                    100 + span - 1
-                ),
-            ],
+            seen, expected,
             "each request carries an inclusive end one below the half-open bound"
+        );
+    }
+
+    /// Concurrency must not reorder the answer. Each window is given a delay
+    /// that shrinks as the start height grows, so the windows complete in
+    /// exactly the reverse of the order they were requested in; the heights must
+    /// still come back ascending and gap-free.
+    #[tokio::test]
+    async fn block_range_stays_in_order_when_windows_complete_out_of_order() {
+        let server = MockServer::start().await;
+
+        // Three windows: 100..150, 150..200, 200..250.
+        for (start, count, delay_ms) in [(100u32, 50u32, 300u64), (150, 50, 150), (200, 50, 0)] {
+            let body: Vec<serde_json::Value> = (start..start + count)
+                .map(|height| serde_json::json!({ "height": height, "by": "range" }))
+                .collect();
+            Mock::given(method("GET"))
+                .and(path("/blocks"))
+                .and(query_param("start", start.to_string()))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(body)
+                        .set_delay(std::time::Duration::from_millis(delay_ms)),
+                )
+                .mount(&server)
+                .await;
+        }
+
+        let client = mock_client(&server.uri());
+        let blocks = client.fetch_block_range(100, 250).await.unwrap();
+
+        let heights: Vec<u64> =
+            blocks.iter().map(|b| b["height"].as_u64().expect("height")).collect();
+        assert_eq!(
+            heights,
+            (100u64..250).collect::<Vec<_>>(),
+            "a completed-late window must still land in chain order"
         );
     }
 

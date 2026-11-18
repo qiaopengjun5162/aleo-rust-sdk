@@ -28,6 +28,17 @@ use super::AleoHttpClient;
 /// never depends on which reading is right.
 pub const MAX_BLOCKS_PER_REQUEST: u32 = 50;
 
+/// How many `/blocks` windows [`AleoHttpClient::fetch_block_range`] keeps in
+/// flight at once.
+///
+/// Four is a deliberate middle ground. The work is pure I/O, so a handful of
+/// overlapping requests turns a 500-block read from ten sequential round trips
+/// into three; going much wider starts looking like a scraper to the gateway,
+/// and a 429 in the middle of a range read fails the whole call. Callers who
+/// own their node can raise it by looping over [`AleoHttpClient::fetch_block_range`]
+/// themselves with windows of their own size.
+pub const MAX_CONCURRENT_BLOCK_REQUESTS: usize = 4;
+
 impl AleoHttpClient {
     // ── Blocks ──────────────────────────────────────────────────────────
 
@@ -143,9 +154,15 @@ impl AleoHttpClient {
     /// ## Chunking
     ///
     /// The API refuses ranges wider than [`MAX_BLOCKS_PER_REQUEST`]. Longer
-    /// ranges are fetched in windows of that size, and a window that comes back
-    /// short is an error: a node that is behind would otherwise turn "give me
-    /// 500 blocks" into a silently truncated answer.
+    /// ranges are fetched in windows of that size, up to
+    /// [`MAX_CONCURRENT_BLOCK_REQUESTS`] windows at a time, and a window that
+    /// comes back short is an error: a node that is behind would otherwise turn
+    /// "give me 500 blocks" into a silently truncated answer.
+    ///
+    /// Windows are issued concurrently but the result is always returned in
+    /// ascending, gap-free order — the order requests complete in is not the
+    /// order the caller asked for. Concurrency uses `tokio` tasks, which is the
+    /// runtime `reqwest` already requires.
     ///
     /// `end <= start` is an empty range and performs no request.
     pub async fn fetch_block_range(&self, start: u32, end: u32) -> Result<Vec<Value>> {
@@ -153,29 +170,71 @@ impl AleoHttpClient {
             return Ok(Vec::new());
         }
 
-        let mut blocks = Vec::new();
+        // Build the window list first, so the single-window case can skip the
+        // task machinery entirely — most calls ask for one page.
+        let mut windows = Vec::new();
         let mut cursor = start;
         while cursor < end {
             let chunk_end = end.min(cursor.saturating_add(MAX_BLOCKS_PER_REQUEST));
-            let wire_end = chunk_end - 1;
-            let url = format!("{}/blocks?start={cursor}&end={wire_end}", self.base_url);
-
-            let page: Vec<Value> = serde_json::from_str(&self.get_text_checked(&url).await?)
-                .with_context(|| format!("GET {url} did not return an array of blocks"))?;
-
-            let expected = (chunk_end - cursor) as usize;
-            if page.len() != expected {
-                anyhow::bail!(
-                    "GET {url} returned {} blocks for a {expected}-block range; \
-                     the node is behind the requested range",
-                    page.len()
-                );
-            }
-
-            blocks.extend(page);
+            windows.push((cursor, chunk_end));
             cursor = chunk_end;
         }
+
+        if let [(from, to)] = windows[..] {
+            return self.fetch_block_window(from, to).await;
+        }
+
+        // `(window index, page)` pairs: `JoinSet` yields in completion order, so
+        // the index is what puts them back in chain order afterwards.
+        let mut collected: Vec<(usize, Vec<Value>)> = Vec::with_capacity(windows.len());
+
+        for (batch_index, batch) in windows.chunks(MAX_CONCURRENT_BLOCK_REQUESTS).enumerate() {
+            let mut set = tokio::task::JoinSet::new();
+            for (offset, &(from, to)) in batch.iter().enumerate() {
+                let index = batch_index * MAX_CONCURRENT_BLOCK_REQUESTS + offset;
+                // `AleoHttpClient` is cheap to clone (the HTTP client is shared
+                // behind an `Arc`), and a task needs an owned value rather than
+                // a borrow of `self`.
+                let client = self.clone();
+                set.spawn(async move { (index, client.fetch_block_window(from, to).await) });
+            }
+            while let Some(joined) = set.join_next().await {
+                let (index, page) = joined.context("a block-range request task failed")?;
+                // Returning early on a bad window drops `set`, which aborts the
+                // rest of the batch instead of letting them run for nothing.
+                collected.push((index, page?));
+            }
+        }
+
+        collected.sort_unstable_by_key(|(index, _)| *index);
+        let mut blocks = Vec::new();
+        for (_, page) in collected {
+            blocks.extend(page);
+        }
         Ok(blocks)
+    }
+
+    /// Fetch one window `from..to` (half-open), sending `end - 1`.
+    ///
+    /// Shared by the sequential and concurrent paths so there is exactly one
+    /// place that knows the inclusive/half-open translation and the
+    /// short-page check.
+    async fn fetch_block_window(&self, from: u32, to: u32) -> Result<Vec<Value>> {
+        let wire_end = to - 1;
+        let url = format!("{}/blocks?start={from}&end={wire_end}", self.base_url);
+
+        let page: Vec<Value> = serde_json::from_str(&self.get_text_checked(&url).await?)
+            .with_context(|| format!("GET {url} did not return an array of blocks"))?;
+
+        let expected = (to - from) as usize;
+        if page.len() != expected {
+            bail!(
+                "GET {url} returned {} blocks for a {expected}-block range; \
+                 the node is behind the requested range",
+                page.len()
+            );
+        }
+        Ok(page)
     }
 
     // ── Programs ────────────────────────────────────────────────────────
