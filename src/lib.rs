@@ -1,8 +1,21 @@
 //! # Aleo Rust SDK
 //!
-//! A comprehensive **Rust SDK** for interacting with the [Aleo](https://aleo.org) blockchain.
-//! Provides tools for account management, program loading, local zero-knowledge execution,
-//! proof generation, network querying, and transaction broadcasting.
+//! **The Rust SDK for [Aleo](https://aleo.org)** — accounts, transfers, and
+//! zero-knowledge proofs, from Rust, with no Node.js in the loop.
+//!
+//! ```no_run
+//! use aleo_rust_sdk::AleoClient;
+//!
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     let client = AleoClient::new("https://api.explorer.provable.com/v2/testnet")?;
+//!     println!("block height = {}", client.get_block_height().await?);
+//!     Ok(())
+//! }
+//! ```
+//!
+//! That is the whole entry fee: one URL, one call. Everything below is what
+//! that URL unlocks — the rest of this page is a map, not a prerequisite.
 //!
 //! Built on top of [snarkVM 4.12.0](https://crates.io/crates/snarkvm) for
 //! zero-knowledge proving, [reqwest](https://crates.io/crates/reqwest) for async
