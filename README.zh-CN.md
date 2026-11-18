@@ -73,7 +73,7 @@ CLI 工具 [`aleo-cli`](https://github.com/qiaopengjun5162/aleo-cli) 是一个�
 | **🛡️ 委托证明** (v0.10.0+) | 把证明交给 Provable 的 TEE 证明服务（DPS）。授权用 libsodium sealed box 加密传输，返回可直接广播的交易——15–60 秒本地 CPU 换成一次网络往返。 |
 | **🔍 记录扫描** (v0.10.0+) | 把 view key 加密注册给 Provable 的记录扫描服务（RSS），由 TEE 一次性索引，之后按 `uuid` 查询，不必再翻 `records/all`。返回的密文仍在本地解密，伪造响应造不出可花的记录。 |
 | **🌐 网络查询** | 区块高度、最新区块、按高度**或**哈希取块、区块区间、单块交易列表、交易查询、委员会与内存池、程序源码与映射值、状态根（最新**与**按高度）、以及从状态根反查所属高度。 |
-| **🔗 实时状态路径** (v0.5.0+) | `ProvableQuery` 从 `api.provable.com/v2/testnet/statePath/{commitment}` 实时获取 Merkle 路径——不再有哑查询或 502 错误。 |
+| **🔗 实时状态路径** (v0.5.0+) | `ProvableQuery` 从 `api.provable.com/v2/testnet/statePath/{commitment}` 实时获取 Merkle 路径，并缓存该路径构建时对应的状态根——证明与它验证所依据的根不会对不上。不在链上的 commitment 会被回 **502**，没有 not-found 码：要读成「没有这条路径」，而不是「再试一次」。 |
 | **📋 记录管理** | 按 Owner 取出、解密、过滤私密 `credits.aleo` 记录。跨区块范围扫描记录密文。 |
 | **🚀 交易广播** | 提交序列化交易并等待上链。确认走 `/transaction/confirmed/{id}`：未上链 404，已上链 200 + `status` 字段——节点只是收进内存池，绝不会被当成最终确认。 |
 | **🏗️ 高层客户端** | `AleoClient` 一站式编排完整生命周期：账户 → 程序 → 执行 → 证明 → 广播。 |
