@@ -1830,6 +1830,12 @@ mod chain_reads {
     /// A block hash on this route is a 400 in production
     /// (`height must be an integer number`), which is why the parameter is a
     /// `u32` and not the `height_or_hash` string its sibling `/block/{x}` uses.
+    ///
+    /// The fixture below is the *live* shape, not a convenient one: the
+    /// transaction sits under a `transaction` key and its id is
+    /// `transaction.id`. An earlier version of this test mocked
+    /// `[{ "id": "at1byheight" }]`, a shape the API never returns — which
+    /// taught the wrong path and would have kept passing forever.
     #[tokio::test]
     async fn block_transactions_take_a_height() {
         let server = MockServer::start().await;
@@ -1838,16 +1844,75 @@ mod chain_reads {
         Mock::given(method("GET"))
             .and(path("/block/1234/transactions"))
             .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!([{ "id": "at1byheight", "index": 0 }])),
+                ResponseTemplate::new(200).set_body_json(serde_json::json!([{
+                    "type": "execute",
+                    "index": 0,
+                    "status": "accepted",
+                    "finalize": [],
+                    "transaction": { "type": "execute", "id": "at1byheight" }
+                }])),
             )
             .mount(&server)
             .await;
 
-        assert_eq!(
-            client.fetch_block_transactions(1234).await.unwrap()[0]["id"],
-            "at1byheight"
+        let txs = client.fetch_block_transactions(1234).await.unwrap();
+        assert_eq!(txs[0]["transaction"]["id"], "at1byheight");
+        assert!(
+            txs[0].get("id").is_none(),
+            "the live API has no top-level `id`; a fixture that adds one hides the real path"
         );
+    }
+
+    /// Live shape check, kept out of the PR gate:
+    ///
+    /// ```bash
+    /// ALEO_REST_URL=https://api.explorer.provable.com/v2/testnet \
+    /// ALEO_BLOCK_HEIGHT=21638997 \
+    /// cargo test --test network_coverage -- --ignored live_block_transaction_shape
+    /// ```
+    ///
+    /// Without both variables the test prints why and returns instead of failing,
+    /// so a run that reports `ok` but no assertion is a skipped one.
+    ///
+    /// Most blocks on testnet carry no transactions, so any nearby height is a
+    /// coin flip. To find one that does — note `block/height/latest` answers with
+    /// a bare integer, while `latest/height` is a 404:
+    ///
+    /// ```bash
+    /// H=$(curl -s https://api.explorer.provable.com/v2/testnet/block/height/latest)
+    /// for d in $(seq 1 60); do
+    ///   n=$(curl -s "https://api.explorer.provable.com/v2/testnet/block/$((H-d))/transactions" | jq length)
+    ///   [ "$n" -gt 0 ] && { echo "$((H-d)) has $n"; break; }
+    /// done
+    /// ```
+    #[tokio::test]
+    #[ignore = "live: needs ALEO_REST_URL and a block that contains a transaction"]
+    async fn live_block_transaction_shape() {
+        let Ok(base) = std::env::var("ALEO_REST_URL") else {
+            eprintln!("ALEO_REST_URL not set — skipping");
+            return;
+        };
+        let Ok(height) = std::env::var("ALEO_BLOCK_HEIGHT") else {
+            eprintln!("ALEO_BLOCK_HEIGHT not set — skipping");
+            return;
+        };
+        let client = AleoHttpClient::new(&base).unwrap();
+        let height: u32 = height.parse().unwrap();
+        let txs = client.fetch_block_transactions(height).await.unwrap();
+        let arr = txs.as_array().expect("the route returns an array");
+        assert!(!arr.is_empty(), "pick a block that has transactions");
+        for t in arr {
+            assert!(
+                t.get("transaction").and_then(|v| v.get("id")).is_some(),
+                "no transaction.id in {t}"
+            );
+            assert!(t.get("id").is_none(), "unexpected top-level id in {t}");
+            assert!(
+                t.get("transaction_id").is_none(),
+                "unexpected transaction_id in {t}"
+            );
+            assert!(t.get("index").is_some(), "no index to sort by in {t}");
+        }
     }
 
     /// `/find/blockHash/{tx_id}` answers with a quoted JSON string, exactly like
