@@ -158,12 +158,18 @@ async fn fetch_stablecoin_merkle_tree_reports_the_http_status() {
     let client = mock_client(&mock_server.uri());
 
     Mock::given(method("GET"))
-        .and(path("/stablecoin/usdcx/merkle-tree"))
+        .and(path(
+            "/programs/test_usdcx_freezelist.aleo/compliance/freeze-list",
+        ))
         .respond_with(ResponseTemplate::new(403).set_body_string("forbidden"))
         .mount(&mock_server)
         .await;
 
-    let err = client.fetch_stablecoin_merkle_tree("usdcx").await.unwrap_err().to_string();
+    let err = client
+        .fetch_stablecoin_merkle_tree("test_usdcx_freezelist.aleo")
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("403"), "status missing from error: {err}");
 }
 
@@ -723,20 +729,37 @@ async fn test_fetch_all_records_error_bails() {
     );
 }
 
-/// Covers L420-428: `fetch_stablecoin_merkle_tree` parses the freeze list.
+/// `fetch_stablecoin_merkle_tree` parses the freeze list from the route the
+/// gateway actually serves.
+///
+/// The body is the real one measured on testnet (2026-11-19). Its last element
+/// is the Merkle root — the same value the freeze-list program's
+/// `freeze_list_root` mapping returns, which is how a caller decides whether a
+/// cached exclusion proof is still valid.
 #[tokio::test]
 async fn test_fetch_stablecoin_merkle_tree() {
     let mock_server = MockServer::start().await;
     let client = mock_client(&mock_server.uri());
 
+    let root = "3642222252059314292809609689035560016959342421640560347114299934615987159853";
     Mock::given(method("GET"))
-        .and(path("/stablecoin/usdcx/merkle-tree"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!(["123", "456"])))
+        .and(path(
+            "/programs/test_usdcx_freezelist.aleo/compliance/freeze-list",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!(["0", "0", root])))
         .mount(&mock_server)
         .await;
 
-    let tree = client.fetch_stablecoin_merkle_tree("usdcx").await.unwrap();
-    assert_eq!(tree, vec!["123".to_string(), "456".to_string()]);
+    let tree = client.fetch_stablecoin_merkle_tree("test_usdcx_freezelist.aleo").await.unwrap();
+    assert_eq!(
+        tree,
+        vec!["0".to_string(), "0".to_string(), root.to_string()]
+    );
+    assert_eq!(
+        tree.last().map(String::as_str),
+        Some(root),
+        "the Merkle root is the last element"
+    );
 }
 
 // ── Delegated proving (Provable DPS) ──────────────────────────────────
