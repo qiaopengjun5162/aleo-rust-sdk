@@ -12,6 +12,8 @@
 
 > **为什么需要这个 SDK？** 官方 [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) 已经**存档废弃**，不再维护。本 SDK 基于 snarkVM 4.12.0 和当前 Aleo 测试网端点提供了最新的实现。
 
+> **从 0.11 升级？** 0.12 改了三处 API 签名（五个质押 planner、记录扫描器、`CreditsFunction`）。具体怎么改见 [`docs/upgrading-0.12.md`](docs/upgrading-0.12.md)。
+
 ---
 
 ## 目录
