@@ -742,23 +742,53 @@ impl AleoHttpClient {
 
     // ── Stablecoin API methods ──────────────────────────────────────────
 
-    /// Fetch the Merkle tree for a compliant stablecoin (USAD/USDCx) from the Provable API.
+    /// Fetch the freeze list for a compliant stablecoin from the Provable API.
     ///
-    /// Endpoint: `GET /v2/{network}/stablecoin/{stablecoin}/merkle-tree`
+    /// Endpoint: `GET /v2/{network}/programs/{freeze_list_program_id}/compliance/freeze-list`
     ///
-    /// Returns the freeze list as an array of decimal strings representing U256 values,
-    /// which can be converted to `Field` via `SealanceMerkleTree::convert_tree_to_fields`.
+    /// `freeze_list_program_id` is the **freeze-list program**, not the token:
+    /// `test_usdcx_freezelist.aleo` / `test_usad_freezelist.aleo` on testnet,
+    /// `usdcx_freezelist.aleo` / `usad_freezelist.aleo` on mainnet. The route
+    /// segment is `programs` (plural); the singular `/program/…` route has no
+    /// `compliance` sub-resource and answers 404.
+    ///
+    /// The body is an array of decimal strings. The **last** element is the
+    /// Merkle root — compare it against
+    /// `/program/{freeze_list_program_id}/mapping/freeze_list_root/1u8` to tell
+    /// whether the tree changed, which is how a cached exclusion proof is
+    /// invalidated. Every element goes through
+    /// `SealanceMerkleTree::convert_tree_to_fields`.
+    ///
+    /// Measured on both networks, 2026-11-19:
+    ///
+    /// ```text
+    /// /v2/testnet/programs/test_usdcx_freezelist.aleo/compliance/freeze-list
+    /// /v2/mainnet/programs/usdcx_freezelist.aleo/compliance/freeze-list
+    ///   -> 200 ["0","0","3642222252059314292809609689035560016959342421640560347114299934615987159853"]
+    /// /v2/testnet/program/test_usdcx_freezelist.aleo/mapping/freeze_list_root/1u8
+    ///   -> 200 "3642222252059314292809609689035560016959342421640560347114299934615987159853field"
+    /// ```
+    ///
+    /// This replaces `/stablecoin/{stablecoin}/merkle-tree`, which the published
+    /// guide describes but the gateway does not serve: it answers
+    /// `404 Cannot GET` on both networks, for every spelling of the name.
     ///
     /// # Errors
     ///
     /// Fails on a non-2xx, or when the body is not an array of decimal strings.
-    pub async fn fetch_stablecoin_merkle_tree(&self, stablecoin: &str) -> Result<Vec<String>> {
-        let url = format!("{}/stablecoin/{}/merkle-tree", self.base_url, stablecoin);
+    pub async fn fetch_stablecoin_merkle_tree(
+        &self,
+        freeze_list_program_id: &str,
+    ) -> Result<Vec<String>> {
+        let url = format!(
+            "{}/programs/{freeze_list_program_id}/compliance/freeze-list",
+            self.base_url
+        );
         tracing::info!("GET {url}");
         let text = self.get_text_checked(&url).await?;
 
         let tree: Vec<String> = serde_json::from_str(&text)
-            .context("Failed to parse stablecoin Merkle tree response")?;
+            .with_context(|| format!("GET {url}: body is not an array of decimal strings"))?;
         Ok(tree)
     }
 }
