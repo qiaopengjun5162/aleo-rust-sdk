@@ -12,6 +12,10 @@
 
 > **Why this SDK?** The official [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) has been **archived** and is no longer maintained. This SDK provides an up-to-date implementation using snarkVM 4.12.0 and the current Aleo testnet endpoints.
 
+> **Upgrading from 0.11?** Three API signatures changed in 0.12 (five staking
+> planners, record scanners, and `CreditsFunction`). See
+> [`docs/upgrading-0.12.md`](docs/upgrading-0.12.md) for the exact edits.
+
 ---
 
 ## Table of Contents
