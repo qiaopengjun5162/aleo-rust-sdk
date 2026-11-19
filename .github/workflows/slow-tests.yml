@@ -10,6 +10,10 @@ name: Slow tests
 # so a regression there ships silently. This workflow is the middle ground: the
 # ignored tests still run automatically, just on a schedule instead of per PR.
 #
+# The second job, `fresh-resolve`, is unrelated to proving. It covers a gap the
+# PR gate structurally cannot: CI tests `Cargo.lock`, and nobody who depends on
+# this crate ever sees that lock.
+#
 # Run it on demand:
 #   gh workflow run slow-tests.yml
 
@@ -64,3 +68,50 @@ jobs:
 
       - name: The fixture still verifies
         run: cargo test --test client_async_test verify_execution
+
+  # `Cargo.lock` is committed and every gate job runs `--locked`, so CI tests the
+  # versions pinned the day the lock was written. A consumer never sees that
+  # lock: a fresh `cargo add` resolves the newest semver-compatible versions
+  # instead. At 0.12.0 the crate declares `snarkvm = "4.12.0"` and locks
+  # 4.12.0, while a clean consumer resolves 4.13.1 — a combination no job had
+  # ever run.
+  #
+  # This job resolves the graph the way a new user's cargo does and runs the
+  # same suite over it. On the day it was added the resolution moved snarkVM
+  # 4.12.0 -> 4.13.1 and the suite passed 779/779, so it starts from green
+  # rather than from an excuse.
+  #
+  # Scheduled rather than per-PR on purpose: an upstream release that breaks us
+  # is news, not a reason to hold up someone else's unrelated pull request.
+  fresh-resolve:
+    name: fresh dependency resolution
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Install Rust
+        run: rustup toolchain install stable
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - uses: Swatinem/rust-cache@v2
+
+      # `cargo update` prints every move it makes, which is most of the
+      # diagnosis when this job goes red.
+      - name: Resolve the newest semver-compatible versions
+        run: cargo update
+
+      - name: Record the versions that resolve to
+        run: |
+          cargo tree -p snarkvm --depth 0
+          cargo tree -p snarkvm-parameters --depth 0
+
+      - name: Execute rust tests
+        run: cargo nextest run --all-features
+
+      - name: Execute doc-tests
+        run: cargo test --doc --all-features
