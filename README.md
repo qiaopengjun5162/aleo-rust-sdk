@@ -49,7 +49,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-aleo-rust-sdk = "0.11"
+aleo-rust-sdk = "0.12"
 tokio = { version = "1", features = ["full"] }
 ```
 
