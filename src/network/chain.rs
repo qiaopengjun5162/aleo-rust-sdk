@@ -55,12 +55,16 @@ impl AleoHttpClient {
     /// Fetch a block by height **or** by hash — the node serves both from one
     /// route, so there is no separate `fetch_block_by_hash`.
     ///
+    /// The body is the node's JSON verbatim. The height is **not** a top-level
+    /// key: it lives at `header.metadata.height`, and `block["height"]` is
+    /// `null` for both forms. Verified against the live API on 2026-11-19 —
+    /// fetching the same block by height and by hash returned the same
+    /// top-level key set, neither of them containing `height`.
     ///
     /// # Errors
     ///
     /// Fails on a non-2xx, or when the body is not a JSON object. A height the node
     /// does not have yet is an error, never an empty block.
-    /// A height the node does not have yet is an error, not an empty block.
     pub async fn fetch_block(&self, height_or_hash: &str) -> Result<Value> {
         let url = format!("{}/block/{height_or_hash}", self.base_url);
         self.get_json(&url).await
