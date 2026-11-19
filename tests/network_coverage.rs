@@ -1866,7 +1866,24 @@ mod chain_reads {
     /// Live shape check, kept out of the PR gate:
     ///
     /// ```bash
+    /// ALEO_REST_URL=https://api.explorer.provable.com/v2/testnet \
+    /// ALEO_BLOCK_HEIGHT=21638997 \
     /// cargo test --test network_coverage -- --ignored live_block_transaction_shape
+    /// ```
+    ///
+    /// Without both variables the test prints why and returns instead of failing,
+    /// so a run that reports `ok` but no assertion is a skipped one.
+    ///
+    /// Most blocks on testnet carry no transactions, so any nearby height is a
+    /// coin flip. To find one that does — note `block/height/latest` answers with
+    /// a bare integer, while `latest/height` is a 404:
+    ///
+    /// ```bash
+    /// H=$(curl -s https://api.explorer.provable.com/v2/testnet/block/height/latest)
+    /// for d in $(seq 1 60); do
+    ///   n=$(curl -s "https://api.explorer.provable.com/v2/testnet/block/$((H-d))/transactions" | jq length)
+    ///   [ "$n" -gt 0 ] && { echo "$((H-d)) has $n"; break; }
+    /// done
     /// ```
     #[tokio::test]
     #[ignore = "live: needs ALEO_REST_URL and a block that contains a transaction"]
