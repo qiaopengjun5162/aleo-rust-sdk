@@ -69,6 +69,19 @@ across upgrades.
 
 ---
 
-Nothing else in the public API changed. See the [0.12.0 release
+## What does *not* require a code change
+
+Everything else is additive or internal, so you can ignore it:
+
+- `ScanOutcome` is new, and `RecordManager` gained `last_scan_truncated()`.
+- Two new constants: `record::MAX_SCAN_PAGES` and
+  `network::MAX_CONCURRENT_BLOCK_REQUESTS`.
+- `ExecutionEngine::deployment_cost_minimum` renamed its `_consensus_version`
+  parameter to `consensus_version` (the underscore was a lie — the value is
+  used). Parameter names are not part of the call contract, so no call site
+  changes.
+
+The three sections above are the only edits a build will force on you. See the
+[0.12.0 release
 notes](https://github.com/qiaopengjun5162/aleo-rust-sdk/releases/tag/aleo-rust-sdk-v0.12.0)
-for the full list.
+for the full diff.
