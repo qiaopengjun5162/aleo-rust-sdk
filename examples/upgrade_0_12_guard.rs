@@ -49,4 +49,15 @@ fn credits_function_match_needs_wildcard(function: CreditsFunction) -> &'static 
     }
 }
 
+// §"What does not require a code change" — the new items must exist where the
+// doc says they do, and the renamed parameter stayed only a parameter name.
+#[allow(dead_code)]
+fn additive_items_exist() {
+    let _: u32 = aleo_rust_sdk::record::MAX_SCAN_PAGES;
+    let _: usize = aleo_rust_sdk::network::MAX_CONCURRENT_BLOCK_REQUESTS;
+    // Renamed `_consensus_version` -> `consensus_version`; still callable the
+    // same way (positional).
+    let _f = aleo_rust_sdk::ExecutionEngine::deployment_cost_minimum;
+}
+
 fn main() {}
