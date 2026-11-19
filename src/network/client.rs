@@ -590,6 +590,24 @@ impl AleoHttpClient {
     /// [`Self::fetch_block_height`] yields a pair that really existed. Heights
     /// past the node's tip answer 404; a non-numeric height answers 400.
     ///
+    /// ## Which side of the block
+    ///
+    /// The root is the state **after** the block at that height executed, not
+    /// the state it started from. Measured on the live testnet API over four
+    /// consecutive heights:
+    ///
+    /// ```text
+    /// /stateRoot/21637802  ==  block 21637803's header.previous_state_root
+    /// /stateRoot/21637801  ==  block 21637802's header.previous_state_root
+    /// /stateRoot/21637800  ==  block 21637801's header.previous_state_root
+    /// /stateRoot/21637799  ==  block 21637800's header.previous_state_root
+    /// ```
+    ///
+    /// So the "state root at height `h`" and block `h`'s own
+    /// `header.previous_state_root` are different roots, one block apart. Read
+    /// "committed at height `h`" as *produced by* block `h`; anything that means
+    /// the pre-block state is block `h`'s `previous_state_root`.
+    ///
     /// # Errors
     ///
     /// Fails with a 404 for a height past the node's tip and a 400 for a non-numeric

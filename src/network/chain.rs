@@ -141,6 +141,38 @@ impl AleoHttpClient {
     /// by `index` before pairing the result with anything positional; this
     /// method returns the node's order unchanged.
     ///
+    /// ## Where the transaction id lives
+    ///
+    /// Each element wraps the transaction under a `transaction` key, so the id
+    /// is at `element["transaction"]["id"]`. There is **no** top-level `id` and
+    /// no `transaction_id`; a lookup for either yields `null`, and the usual
+    /// `["transaction_id"].as_str().unwrap_or_default()` then produces an empty
+    /// string instead of an error.
+    ///
+    /// Abridged shape, captured from the live testnet API at height 21 620 441
+    /// (one `execute` transaction; the block's own `transactions` array carries
+    /// the same per-entry shape). Nested proofs and transition bodies are
+    /// elided — the keys are exact, the inner values are not:
+    ///
+    /// ```text
+    /// {
+    ///   "type": "execute",
+    ///   "index": 0,
+    ///   "status": "accepted",
+    ///   "finalize": [ { "type": "update_key_value", "key_id": "5653…field", "value_id": "3447…field" } ],
+    ///   "transaction": {
+    ///     "type": "execute",
+    ///     "id": "at1gvw6lgx4fmh7js9qpvq4twyd8au8y6nvw0tpcm4kdkf8u2mcwy8qwhr3vr",
+    ///     "execution": { "proof": "proof1…", "transitions": [ … ], "global_state_root": "sr1…" },
+    ///     "fee":       { "proof": "proof1…", "transition": { … }, "global_state_root": "sr1…" }
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// `status` is `"accepted"` or `"rejected"`; a rejected transaction is
+    /// present in the array, so filter on it rather than assuming every entry
+    /// took effect.
+    ///
     /// # Errors
     ///
     /// Fails on a non-2xx, or when the body is not an array. The node's order is
