@@ -315,6 +315,27 @@ async fn test_fetch_program_not_found() {
     assert!(client.fetch_program("nonexistent.aleo").await.is_err());
 }
 
+/// A bare (non-JSON-string) body is still accepted.
+///
+/// The live node wraps the program in a JSON string; a plain-text body is what
+/// a different node implementation would return. Decoding the JSON string must
+/// not turn a working bare body into an error.
+#[tokio::test]
+async fn test_fetch_program_accepts_a_bare_body() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    let source = "program bare.aleo;\n\nfunction noop:\n    input r0 as u8.public;\n    output r0 as u8.public;\n";
+    Mock::given(method("GET"))
+        .and(path_regex(r"/program/.+"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(source))
+        .mount(&mock_server)
+        .await;
+
+    let program = client.fetch_program("bare.aleo").await.unwrap();
+    assert_eq!(program.id().to_string(), "bare.aleo");
+}
+
 // ── fetch_mapping_value ──────────────────────────────────────────────
 
 #[tokio::test]
@@ -686,10 +707,13 @@ async fn test_json_rpc_error_bails() {
     );
 }
 
-/// Covers L316-320: a mapping value that is not a `u64` must yield `None`
-/// (logged), not panic or coerce to zero.
+/// A mapping body that is not a `u64` must be an error, not `None`.
+///
+/// The route answers 2xx only for a key that exists, so a 2xx body that does
+/// not parse means the response format changed. Returning `None` there would
+/// report "no balance" for a balance that does exist.
 #[tokio::test]
-async fn test_fetch_mapping_value_rest_non_u64_is_none() {
+async fn test_fetch_mapping_value_rest_non_u64_is_an_error() {
     let mock_server = MockServer::start().await;
     let client = mock_client(&mock_server.uri());
 
@@ -699,11 +723,33 @@ async fn test_fetch_mapping_value_rest_non_u64_is_none() {
         .mount(&mock_server)
         .await;
 
+    let res = client.fetch_mapping_value_rest("credits.aleo", "account", "anykey").await;
+    let err = res.expect_err("a non-u64 body must not read as a missing key");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("u64"),
+        "error must name the expected literal: {msg}"
+    );
+}
+
+/// The live shape for a key that exists is `"6630224u64"` (measured
+/// 2026-11-19). The suffix is stripped, not the first `u64` substring found.
+#[tokio::test]
+async fn test_fetch_mapping_value_rest_strips_the_u64_suffix() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"/program/.+"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#""6630224u64""#))
+        .mount(&mock_server)
+        .await;
+
     let val = client
         .fetch_mapping_value_rest("credits.aleo", "account", "anykey")
         .await
         .unwrap();
-    assert_eq!(val, None);
+    assert_eq!(val, Some(6_630_224));
 }
 
 /// Covers L406-407: `records/all` returning an `error` field must bail.

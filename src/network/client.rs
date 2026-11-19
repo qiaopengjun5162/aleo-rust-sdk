@@ -272,8 +272,20 @@ impl AleoHttpClient {
         tracing::info!("GET {url}");
         let text = self.get_text_checked(&url).await?;
 
-        let clean = text.trim_matches('"').replace("\\n", "\n");
-        Program::<TestnetV0>::from_str(&clean).context("Failed to parse program")
+        // The node answers with a JSON string — `"program credits.aleo;\n…"` —
+        // so the escapes have to be decoded exactly once. Hand-rolled
+        // `trim_matches('"')` plus `replace("\\n", "\n")` decodes one escape
+        // and silently leaves `\"`, `\\` and `\t` in place, which turns into a
+        // parse error that names the program rather than the response.
+        // A bare body is still accepted: that is what a plain-text node would
+        // return, and refusing it would be a regression for no gain.
+        let program_text = if text.trim_start().starts_with('"') {
+            serde_json::from_str::<String>(&text)
+                .with_context(|| format!("GET {url}: body is not a valid JSON string"))?
+        } else {
+            text
+        };
+        Program::<TestnetV0>::from_str(&program_text).context("Failed to parse program")
     }
 
     /// Fetch the latest block height together with the state root committed at
@@ -505,14 +517,20 @@ impl AleoHttpClient {
 
     /// Query a numeric mapping value (`credits.aleo/account`).
     ///
-    /// Returns `None` if the key does not exist (404), or if the body is not a
-    /// `u64` — the latter is logged, because a value that does not parse means
-    /// the response format changed, not that the account is empty.
+    /// A key that exists answers with a JSON string holding an Aleo literal —
+    /// `"6630224u64"` — so the `u64` suffix is stripped and the remainder parsed
+    /// as a [`u64`].
     ///
     /// # Errors
     ///
-    /// Fails on any non-2xx other than 404. A 404 is `Ok(None)` by design — a missing
-    /// key is not an error.
+    /// Fails on any non-2xx other than 404, and when a 2xx body is not a `u64`
+    /// literal. A 404 is `Ok(None)` by design — a missing key is not an error.
+    ///
+    /// A body that does not parse is **an error, not `Ok(None)`**. This route
+    /// answers 2xx only for a key that exists, so a 2xx body that is not a
+    /// `u64` means the response format changed. Reporting `None` there would
+    /// answer "no balance" for a balance that does exist — the one failure mode
+    /// a balance query must not have.
     pub async fn fetch_mapping_value_rest(
         &self,
         program_id: &str,
@@ -522,14 +540,14 @@ impl AleoHttpClient {
         let Some(text) = self.mapping_value_raw(program_id, mapping_name, key).await? else {
             return Ok(None);
         };
-        let cleaned = text.trim().trim_matches('"').replace("u64", "");
-        match cleaned.parse::<u64>() {
-            Ok(v) => Ok(Some(v)),
-            Err(e) => {
-                tracing::warn!("Failed to parse REST mapping value '{text}': {e}");
-                Ok(None)
-            }
-        }
+        let literal = text.trim().trim_matches('"');
+        let digits = literal.strip_suffix("u64").unwrap_or(literal);
+        digits.parse::<u64>().map(Some).with_context(|| {
+            format!(
+                "GET {program_id}/mapping/{mapping_name}: expected a u64 literal, got {literal} \
+                 — the response format changed; a missing key is a 404, not this"
+            )
+        })
     }
 
     /// Query a mapping value as its raw serialized string.
