@@ -3,7 +3,7 @@
 A mapping guide for developers who know the JavaScript/TypeScript SDK and want
 to do the same things in Rust.
 
-- **Version:** `aleo-rust-sdk` 0.11.x (published on crates.io).
+- **Version:** `aleo-rust-sdk` 0.12.x (published on crates.io).
 - **Scope:** the 32 pages of the `@provablehq/sdk` **WASM API Reference** site —
   the surface this crate ported in #51–#79. Wallet adapters, the Leo language
   and on-chain standards are out of scope.

@@ -46,7 +46,7 @@ feature，也没有要跑的 Node.js 侧车。命令行工具
 
 ```toml
 [dependencies]
-aleo-rust-sdk = "0.11"
+aleo-rust-sdk = "0.12"
 tokio = { version = "1", features = ["full"] }
 ```
 
