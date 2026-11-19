@@ -235,6 +235,20 @@ async fn rejected_status_is_an_error_not_a_success() {
 }
 
 #[tokio::test]
+async fn unrecognised_status_keeps_polling_instead_of_confirming() {
+    // `ConfirmedTransaction` serialises only `accepted`/`rejected` and its
+    // deserialiser rejects every other value, so a healthy node cannot emit a
+    // third status. If one ever does, "not rejected" must not be read as
+    // success: a false positive cannot be undone by waiting.
+    let server = MockServer::start().await;
+    mount_confirmed(&server, 200, r#"{"status":"aborted","type":"execute"}"#).await;
+    let c = AleoHttpClient::new_with_rpc(&server.uri(), &server.uri()).unwrap();
+
+    let err = c.wait_for_confirmation_with("tx1", fast_poll(2)).await.unwrap_err().to_string();
+    assert!(err.contains("Timed out"), "{err}");
+}
+
+#[tokio::test]
 async fn one_attempt_means_one_request_and_no_trailing_sleep() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
