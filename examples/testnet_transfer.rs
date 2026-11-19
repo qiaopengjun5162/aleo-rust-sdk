@@ -20,8 +20,8 @@
 use aleo_rust_sdk::AleoAccount;
 use aleo_rust_sdk::AleoClient;
 use aleo_rust_sdk::AleoProgram;
-use snarkvm::console::program::ProgramID;
-use snarkvm::prelude::PrivateKey;
+use aleo_rust_sdk::snarkvm::console::program::ProgramID;
+use aleo_rust_sdk::snarkvm::prelude::PrivateKey;
 use std::str::FromStr;
 
 #[tokio::main]
