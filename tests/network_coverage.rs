@@ -1688,6 +1688,31 @@ mod chain_reads {
         assert_eq!(program.id().to_string(), "hello_hello.aleo");
     }
 
+    /// `credits.aleo` exists from genesis and was never deployed, so the route
+    /// answers `200` with `""` (measured 2026-11-19). That must read as "no
+    /// deployment transaction", not as "expected a JSON string, got \"\"".
+    #[tokio::test]
+    async fn a_genesis_program_has_no_deployment_transaction() {
+        let server = MockServer::start().await;
+        let client = mock_client(&server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/find/transactionID/deployment/credits.aleo"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#""""#))
+            .mount(&server)
+            .await;
+
+        let err = client
+            .fetch_deployment_transaction_id("credits.aleo")
+            .await
+            .expect_err("an empty id must not pass as a deployment transaction");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("no deployment transaction"),
+            "the error must name the real cause, got: {msg}"
+        );
+    }
+
     #[tokio::test]
     async fn find_routes_resolve_a_program_and_an_input() {
         let server = MockServer::start().await;
