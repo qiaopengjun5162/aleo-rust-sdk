@@ -192,6 +192,14 @@ impl AleoHttpClient {
     /// Without this check a failed request surfaces as whatever the parser
     /// makes of the error body — `fetch_block_height` on a 404 reports a
     /// `ParseIntError`, which points at the wrong layer.
+    ///
+    /// The same reasoning applies to the body itself, which is why a body that
+    /// cannot be read and a body that arrives empty are both reported here
+    /// rather than downstream. Reading the body used to swallow its error with
+    /// `unwrap_or_default()`, so a dropped connection mid-body reached the
+    /// caller as "did not return JSON" — an error naming the parser while the
+    /// fault was in the transport. Both are errors to every caller of this
+    /// function; the only question is which layer to blame.
     pub(crate) async fn get_text_checked(&self, url: &str) -> Result<String> {
         let resp = self
             .inner
@@ -201,9 +209,14 @@ impl AleoHttpClient {
             .await
             .with_context(|| format!("GET {url} failed"))?;
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp.text().await.with_context(|| {
+            format!("GET {url} -> {status}: the response body could not be read")
+        })?;
         if !status.is_success() {
             anyhow::bail!("GET {url} -> {status}: {}", crate::hosted::truncate(&body));
+        }
+        if body.trim().is_empty() {
+            anyhow::bail!("GET {url} -> {status} with a 0-byte body; nothing to parse");
         }
         Ok(body)
     }
@@ -322,10 +335,23 @@ impl AleoHttpClient {
 
         let resp = self.inner.post(&url).headers(headers).body(tx_json).send().await?;
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
+        // The body is the node's verdict and, on success, the transaction id —
+        // so it is read with its error intact. `unwrap_or_default()` here used
+        // to turn "the connection dropped mid-body" into `Ok("")`: a caller
+        // would get an empty string where it expected an id, and a rejection
+        // would report `400: ` with the reason silently blanked out.
+        let body = resp.text().await.with_context(|| {
+            format!("Broadcast to {url} -> {status}: the response body could not be read")
+        })?;
 
         if !status.is_success() {
             anyhow::bail!("Broadcast rejected ({status}): {body}");
+        }
+        if body.trim().is_empty() {
+            anyhow::bail!(
+                "Broadcast to {url} -> {status} with a 0-byte body; \
+                 the node accepted nothing and returned no transaction id"
+            );
         }
         Ok(body)
     }
@@ -395,25 +421,40 @@ impl AleoHttpClient {
             poll.interval
         );
 
+        // A body that cannot be read is treated as "no status yet" and the loop
+        // keeps polling, matching the policy above for a 2xx without a status
+        // string. It is remembered, though: if every attempt dies in the
+        // transport, the terminal error must not read as a plain timeout.
+        let mut unreadable_body: Option<String> = None;
+
         for attempt in 1..=poll.attempts {
             match self.inner.get(&check_url).headers(Self::headers()).send().await {
                 Ok(res) if res.status().is_success() => {
-                    let body = res.text().await.unwrap_or_default();
-                    if let Some(status) = confirmation_status(&body) {
-                        if status == "rejected" {
-                            anyhow::bail!(
-                                "Transaction {tx_id} is on chain but was rejected (status: rejected)"
-                            );
+                    match res.text().await {
+                        Ok(body) => {
+                            if let Some(status) = confirmation_status(&body) {
+                                if status == "rejected" {
+                                    anyhow::bail!(
+                                        "Transaction {tx_id} is on chain but was rejected (status: rejected)"
+                                    );
+                                }
+                                tracing::info!("Confirmed on chain (status: {status})!");
+                                tracing::info!(
+                                    "🔗 https://testnet.explorer.provable.com/transaction/{tx_id}"
+                                );
+                                return Ok(());
+                            }
+                            // A 200 whose body is not a confirmed-transaction wrapper:
+                            // keep polling rather than trusting the status code alone.
+                            tracing::debug!("200 without a status field (attempt {attempt})");
                         }
-                        tracing::info!("Confirmed on chain (status: {status})!");
-                        tracing::info!(
-                            "🔗 https://testnet.explorer.provable.com/transaction/{tx_id}"
-                        );
-                        return Ok(());
+                        Err(error) => {
+                            tracing::debug!(
+                                "confirmation body unreadable (attempt {attempt}): {error}"
+                            );
+                            unreadable_body = Some(error.to_string());
+                        }
                     }
-                    // A 200 whose body is not a confirmed-transaction wrapper:
-                    // keep polling rather than trusting the status code alone.
-                    tracing::debug!("200 without a status field (attempt {attempt})");
                 }
                 Ok(res) => {
                     // 404 is the normal "not mined yet" answer.
@@ -427,7 +468,13 @@ impl AleoHttpClient {
                 tokio::time::sleep(poll.interval).await;
             }
         }
-        anyhow::bail!("Timed out waiting for confirmation of {tx_id}")
+        match unreadable_body {
+            Some(error) => anyhow::bail!(
+                "Timed out waiting for confirmation of {tx_id}; \
+                 the last status response arrived but its body could not be read: {error}"
+            ),
+            None => anyhow::bail!("Timed out waiting for confirmation of {tx_id}"),
+        }
     }
 
     // ── On-chain state queries ──────────────────────────────────────────

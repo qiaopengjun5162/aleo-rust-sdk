@@ -219,6 +219,80 @@ async fn fetch_state_root_at_propagates_a_missing_height() {
     assert!(err.contains("404"), "status missing from error: {err}");
 }
 
+// ── A 2xx with an empty body is not a parse failure ───────────────────
+//
+// Found against the live gateway: `GET /blocks?start&end` intermittently
+// answers 200 with a 0-byte (or unreadable) body. The body read used to be
+// `resp.text().await.unwrap_or_default()`, so that reached the caller as
+// "did not return an array of blocks: EOF while parsing a value at line 1
+// column 0" — an error naming the parser while the fault was in the
+// transport. It also made "the body was empty" and "the body could not be
+// read" the same event.
+
+#[tokio::test]
+async fn an_empty_200_body_is_reported_as_an_empty_body() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path("/block/height/latest"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(""))
+        .mount(&mock_server)
+        .await;
+
+    let err = client.fetch_block_height().await.unwrap_err().to_string();
+    assert!(
+        err.contains("0-byte"),
+        "empty body should be named, got: {err}"
+    );
+    assert!(
+        !err.contains("ParseIntError") && !err.contains("invalid digit"),
+        "empty body must not be blamed on the parser: {err}"
+    );
+}
+
+#[tokio::test]
+async fn an_empty_body_error_still_names_the_status_when_it_is_not_2xx() {
+    // Order matters: a 404 with no body must report the status, not "0-byte".
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path("/block/height/latest"))
+        .respond_with(ResponseTemplate::new(503).set_body_string(""))
+        .mount(&mock_server)
+        .await;
+
+    let err = client.fetch_block_height().await.unwrap_err().to_string();
+    assert!(err.contains("503"), "status missing from error: {err}");
+    assert!(
+        !err.contains("0-byte"),
+        "a non-2xx body should be reported as a status failure: {err}"
+    );
+}
+
+#[tokio::test]
+async fn an_empty_broadcast_body_is_not_a_transaction_id() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("POST"))
+        .and(path_regex(r"/transaction/broadcast.*"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(""))
+        .mount(&mock_server)
+        .await;
+
+    let err = client
+        .broadcast_transaction(r#"{"mock": "tx"}"#.to_string())
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("0-byte"),
+        "an empty body is not a transaction id, got: {err}"
+    );
+}
+
 // ── fetch_program ─────────────────────────────────────────────────────
 
 #[tokio::test]
