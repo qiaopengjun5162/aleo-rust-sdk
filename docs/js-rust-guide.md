@@ -39,17 +39,24 @@ treat it as an ordinary getter.
 The left column is the JS capability; the right column is the entry point that
 exists in this crate (all `pub`). `cargo doc --open` has the full signatures.
 
+🔴 **Read the path form, not just the name.** A lowercase path is a **module**:
+`address::verify(...)`. A capitalised path is a **type**: `AleoProgram::from_source(...)`.
+They are not interchangeable — several helpers here are free functions in a
+module rather than methods, because the underlying snarkVM type is used directly
+and cannot grow a parallel `impl`. Copying `Address::verify(...)` out of a JS
+habit gives a "no function or associated item named" error, not a hint.
+
 ### Accounts and keys
 
 | JS capability | Rust entry point | Notes |
 |---|---|---|
 | `new Account()` / restore from a private key | `AleoAccount::{new_random, from_private_key_str, from_seed}` | `account.rs`; also `address_str` / `private_key_str` / `view_key_str` |
-| Address validation, address from a ProgramID | `Address::{verify, from_program_id, to_plaintext}` | `address.rs` |
+| Address validation, address from a ProgramID | `address::{verify, from_program_id, to_plaintext}` | `address.rs`; free functions taking `&Address<N>`, not methods — snarkVM's `Address` cannot be extended here |
 | `PrivateKey.encrypt` / decrypt | `private_key::{encrypt_private_key, decrypt_private_key, new_encrypted}` | 🔴 **Two incompatible wire formats**: `account.rs` uses `aleo-enc-v1:` (AES-GCM); only `private_key.rs` matches the JS SDK |
-| `ViewKey` decrypt / to address | `ViewKey::{from_private_key, decrypt, to_address, to_scalar, to_field}` | `view_key.rs`; `to_bytes_le` / `from_bytes_le` too |
-| Sign / verify message bytes | `AleoAccount::{sign, verify}` | 🔴 **Not** `Signature::{sign_value, verify_value}` — that pair matches wasm's `Signature.signValue`, and the two paths do not accept each other's signatures |
+| `ViewKey` decrypt / to address | `view_key::{from_private_key, decrypt, to_address, to_scalar, to_field}` | `view_key.rs`; `to_bytes_le` / `from_bytes_le` too. All free functions — there is no `impl ViewKey` in this crate, and `to_scalar` is a **different value** from `to_field` |
+| Sign / verify message bytes | `AleoAccount::{sign, verify}` | 🔴 **Not** `signature::{sign_value, verify_value}` — that pair matches wasm's `Signature.signValue`, and the two paths do not accept each other's signatures |
 | Record / transition view keys | `AleoAccount::{generate_record_view_key, generate_transition_view_key, decrypt_record, decrypt_records, owns_record_ciphertext}` | `account.rs` |
-| Record scanner helpers | `scanner::RecordScanService`, `encryption::{decrypt_owned_records, decrypt_record_with_rvk, decrypt_sender, decrypt_transition_with_tvk}` | see §4 |
+| Record scanner helpers | `scanner::RecordScanService`, `encryption::{decrypt_owned_records, decrypt_record_with_rvk, decrypt_sender, decrypt_transition_with_tvk}` | See the `scanner` and `encryption` module docs for the state machine and the RVK/TVK split; §6 lists what is out of scope |
 
 ### Records
 
@@ -63,12 +70,12 @@ exists in this crate (all `pub`). `cargo doc --open` has the full signatures.
 
 | JS capability | Rust entry point | Notes |
 |---|---|---|
-| `Program` source / id | `Program::{from_source, from_local_file, credits, id, address, inner, into_inner}` | `program.rs` |
-| `getFunctions` / `getMappings` / `getImports` and 10 more | `program_parity::{get_functions, get_function_inputs, get_mappings, get_record_members, get_struct_members, get_imports, has_function, is_equal, ...}` | 🔴 Five methods from the full upstream manual are **not** implemented: `isArc20`, `isArc22`, `getCallGraph`, `nameToField`, `toChecksum` — see §6 |
+| `Program` source / id | `AleoProgram::{from_source, from_local_file, credits, id, address, inner, into_inner}` | `program.rs`. **The crate type is `AleoProgram`**, not `Program` — `Program` unqualified is snarkVM's type, which has none of these constructors |
+| `getFunctions` / `getMappings` / `getImports` and 10 more | `Program::{get_functions, get_function_inputs, get_mappings, get_record_members, get_struct_members, get_imports, has_function, is_equal, ...}` | Inherent methods this crate adds to snarkVM's `Program<N>` in `program_parity.rs` — so here the capitalised path *is* right. 🔴 Five methods from the full upstream manual are **not** implemented: `isArc20`, `isArc22`, `getCallGraph`, `nameToField`, `toChecksum` — see §6 |
 | `Transaction` parsing and queries | `Transaction::{from_string, from_bytes_le, to_bytes_le, id, transaction_type, transitions, execution, deployed_program, is_deploy, is_execute, is_fee, fee_amount, base_fee_amount, priority_fee_amount, find_record, contains_serial_number, contains_commitment, owned_records, records, summary}` | `transaction.rs` |
 | `Execution` / `ExecutionRequest` / `ExecutionResponse` | `execution.rs`, `execution_request.rs`, `execution_response.rs` | `ExecutionResponse` is a new generic container |
 | `ProvingKey` / `VerifyingKey` | Same-named modules, with bech32m `prover1…` / `verifier1…` `Display` / `FromStr` / `ToBytes` | `VerifyingKey::from_bytes_le` comes from the **`FromBytes`** trait — `use aleo_rust_sdk::snarkvm::prelude::FromBytes` |
-| `Metadata` (parameter URL catalogue) | `metadata::{base_url, transfer_public, fee_public, bond_public, to_json_value, ...}` | Static URLs; nothing is downloaded |
+| `Metadata` (parameter URL catalogue) | `Metadata::{base_url, transfer_public, fee_public, bond_public, to_json_value}` | Associated functions on the type, not module functions; static URLs, nothing is downloaded |
 
 ### Hashes, integers, utilities
 
