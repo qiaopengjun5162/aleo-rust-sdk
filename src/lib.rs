@@ -255,6 +255,10 @@ pub use keys::{
 pub use network::{AleoHttpClient, ConfirmationPoll, FixedStateRootQuery, ProvableQuery};
 pub use options::AleoNetworkOptions;
 pub use program::AleoProgram;
+pub use record::{
+    AleoRecord, HostedScanner, RecordManager, RecordScanner, RecordSearchParams, RecordSource,
+    ScanOutcome,
+};
 pub use scanner::{
     EncryptedRecord, EncryptedRecordsFilter, OwnedFilter, OwnedRecord, OwnedRecordsResponseFilter,
     RecordScanService, RecordsResponseFilter, Registration, compute_uuid,
