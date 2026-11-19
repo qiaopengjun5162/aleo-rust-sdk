@@ -3,6 +3,30 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.12.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.11.1...aleo-rust-sdk-v0.12.0) (2026-11-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* report scan truncation and drop five results that cannot fail ([#92](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/92))
+
+### Features
+
+* **examples:** add generate_account demo (offline key lifecycle) ([#86](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/86)) ([6b6337b](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/6b6337b4c8ed4e61e35731c2ddfa9e3e2c9011d4))
+
+
+### Bug Fixes
+
+* do not report an unreadable response body as a parse error ([#99](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/99)) ([11a0594](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/11a0594da1c24d6599d69d646ca38091cf1b6e4a))
+* let the batched state-path fetch update the cached root ([#95](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/95)) ([e99be22](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/e99be22c7ca223167601d4dac88f5fe5a549761f))
+* reject oversized proving requests instead of wrapping the offset ([#93](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/93)) ([7a0705b](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/7a0705b3cf02860df86d147805d914b4c55990aa))
+* sealance depth overflow, misleading underscore names, bounded-concurrent block ranges ([#90](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/90)) ([faa9932](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/faa993287292b2d72cd5a3d0fe6834283948d11c))
+
+
+### Code Refactoring
+
+* report scan truncation and drop five results that cannot fail ([#92](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/92)) ([2116a57](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/2116a5768d02001cad2348f95ec34c3b6e671404))
+
 ## [0.11.1](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.11.0...aleo-rust-sdk-v0.11.1) (2026-11-12)
 
 
