@@ -1,6 +1,6 @@
 [package]
 name = "aleo-rust-sdk"
-version = "0.12.0"
+version = "0.12.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "The Rust SDK for the Aleo blockchain — accounts, private transfers, and zero-knowledge proofs, with no Node.js in the loop"
