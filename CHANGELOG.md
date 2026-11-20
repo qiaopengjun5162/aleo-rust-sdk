@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.12.1](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.0...aleo-rust-sdk-v0.12.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **examples:** import snarkVM through the re-export, and stop hand-parsing u64 ([#110](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/110)) ([1e709a3](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/1e709a31aff5a7f3f412f10ea3aa0d1d91290c73))
+* **network:** require an explicit `accepted` before reporting confirmation ([#108](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/108)) ([881177d](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/881177d4a0c2ff76a3a3007c255bb106fd8550dd))
+* point the freeze-list fetch at the route the gateway serves ([#106](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/106)) ([b0019fc](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/b0019fca8751b9955889c293e5e0ae10736028e5))
+* say a genesis program has no deployment, not "expected a JSON string" ([#105](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/105)) ([1507412](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/1507412dbe1b07c95149a46c056a5e60d2eda907))
+* stop reporting an unparsable mapping value as an empty account ([#103](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/103)) ([05682af](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/05682af6d90e790af98c0b996bc453afcfc86c5f))
+
 ## [0.12.0](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.11.1...aleo-rust-sdk-v0.12.0) (2026-11-19)
 
 
