@@ -41,6 +41,8 @@ use crate::execution::ExecutionEngine;
 /// > which surfaces an invalid list as `RuntimeError: unreachable`. The schedule
 /// > must contain exactly one height per consensus version, be strictly
 /// > increasing, and start at height `0`. Validate input before passing it in.
+/// > The panic names the offending token (1-based position and value) or the
+/// > offending pair of heights, so a bad CSV can be fixed without guesswork.
 ///
 /// > **Note.** The wasm SDK's default returns a *devnet test* schedule (via a
 /// > wasm-gated global). A native target has no such global, so the canonical
@@ -62,28 +64,44 @@ pub fn consensus_version_test_heights(heights: Option<&str>) -> Vec<(ConsensusVe
 fn parse_consensus_heights(csv: &str) -> Vec<(ConsensusVersion, u32)> {
     let heights: Vec<u32> = csv
         .split(',')
-        .map(str::trim)
-        .map(|s| s.parse::<u32>())
-        .collect::<Result<_, _>>()
-        .expect("consensus version heights must be a CSV list of u32 block heights");
-    let versions = TestnetV0::CONSENSUS_VERSION_HEIGHTS().iter().map(|(v, _)| *v);
-    let pairs: Vec<(ConsensusVersion, u32)> = versions.zip(heights).collect();
+        .enumerate()
+        .map(|(index, token)| {
+            let token = token.trim();
+            token.parse::<u32>().unwrap_or_else(|_| {
+                panic!(
+                    "consensus version heights must be a CSV of u32 block heights; token {} is not a u32: {:?}",
+                    index + 1,
+                    token
+                )
+            })
+        })
+        .collect();
+
+    let schedule = TestnetV0::CONSENSUS_VERSION_HEIGHTS();
     assert_eq!(
-        pairs.len(),
-        TestnetV0::CONSENSUS_VERSION_HEIGHTS().len(),
-        "expected exactly one height per consensus version"
+        heights.len(),
+        schedule.len(),
+        "expected exactly one height per consensus version: {} expected, got {}",
+        schedule.len(),
+        heights.len()
     );
     assert_eq!(
-        pairs[0].1, 0,
-        "the first consensus version height must be 0"
+        heights[0], 0,
+        "the first consensus version height must be 0, got {}",
+        heights[0]
     );
-    for w in pairs.windows(2) {
+    for index in 1..heights.len() {
         assert!(
-            w[0].1 < w[1].1,
-            "consensus version heights must be strictly increasing"
+            heights[index - 1] < heights[index],
+            "consensus version heights must be strictly increasing: position {} ({}) is not less than position {} ({})",
+            index,
+            heights[index - 1],
+            index + 1,
+            heights[index]
         );
     }
-    pairs
+
+    schedule.iter().map(|(version, _)| *version).zip(heights).collect()
 }
 
 /// JS `initThreadPool(num_threads)` — wasm-rayon thread-pool initializer.
@@ -188,6 +206,43 @@ mod tests {
         assert_eq!(heights.len(), 22);
         assert_eq!(heights[0].1, 0);
         assert_eq!(heights[21].1, 210);
+    }
+
+    #[test]
+    #[should_panic(expected = "token 3 is not a u32: \"oops\"")]
+    fn consensus_version_test_heights_reports_offending_token() {
+        let csv = "0,10,oops,30";
+        consensus_version_test_heights(Some(csv));
+    }
+
+    #[test]
+    #[should_panic(expected = "expected, got 2")]
+    fn consensus_version_test_heights_reports_wrong_count() {
+        consensus_version_test_heights(Some("0,10"));
+    }
+
+    #[test]
+    #[should_panic(expected = "first consensus version height must be 0, got 1")]
+    fn consensus_version_test_heights_reports_nonzero_first_height() {
+        let csv = (1u32..)
+            .take(TestnetV0::CONSENSUS_VERSION_HEIGHTS().len())
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        consensus_version_test_heights(Some(&csv));
+    }
+
+    #[test]
+    #[should_panic(expected = "position 2 (20) is not less than position 3 (10)")]
+    fn consensus_version_test_heights_reports_first_decreasing_pair() {
+        let mut heights = (0u32..)
+            .map(|i| i * 10)
+            .take(TestnetV0::CONSENSUS_VERSION_HEIGHTS().len())
+            .collect::<Vec<_>>();
+        heights[1] = 20;
+        heights[2] = 10;
+        let csv = heights.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+        consensus_version_test_heights(Some(&csv));
     }
 
     #[test]
