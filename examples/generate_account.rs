@@ -12,7 +12,9 @@
 /// cargo run --example generate_account
 /// ```
 use aleo_rust_sdk::AleoAccount;
-use snarkvm::prelude::TestRng;
+// Import snarkVM through the re-export, never through a `snarkvm` dependency of
+// your own: two copies in the build produce two incompatible `TestRng` types.
+use aleo_rust_sdk::snarkvm::prelude::TestRng;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

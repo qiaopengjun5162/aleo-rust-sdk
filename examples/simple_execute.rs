@@ -1,3 +1,4 @@
+use aleo_rust_sdk::snarkvm::prelude::TestRng;
 /// Simple Aleo Program Execution Demo
 ///
 /// Demonstrates the minimal SDK workflow: load a program, execute it locally (dry-run).
@@ -8,7 +9,6 @@
 /// cargo run --example simple_execute
 /// ```
 use aleo_rust_sdk::{AleoAccount, AleoClient};
-use snarkvm::prelude::TestRng;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

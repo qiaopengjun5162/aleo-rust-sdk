@@ -11,28 +11,12 @@
 //! cargo run --example sdk_v2_broadcast_test
 //! ```
 
+use aleo_rust_sdk::snarkvm::prelude::{PrivateKey, ProgramID, TestnetV0};
 use aleo_rust_sdk::{AleoAccount, AleoClient, AleoProgram};
 use anyhow::Context;
-use snarkvm::prelude::{PrivateKey, ProgramID, TestnetV0};
 use std::str::FromStr;
 
 const V2_API: &str = "https://api.explorer.provable.com/v2/testnet";
-
-/// `credits.aleo/account` values arrive as a quoted `"<n>u64"` string.
-///
-/// A parse failure is surfaced instead of being reported as a zero balance:
-/// silently swallowing it would make a REST format change look like an empty
-/// account, which is exactly the kind of drift this example is meant to catch.
-fn parse_microcredits(raw: Option<String>) -> anyhow::Result<u64> {
-    match raw {
-        Some(s) => s
-            .trim_matches('"')
-            .trim_end_matches("u64")
-            .parse()
-            .context("unexpected credits.aleo/account value"),
-        None => Ok(0),
-    }
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -49,14 +33,17 @@ async fn main() -> anyhow::Result<()> {
     client.set_program(AleoProgram::credits()?);
 
     // 1. Check current balance
-    let balance_raw = client
+    //
+    // `fetch_mapping_value_rest` is the numeric helper: it strips the `u64`
+    // suffix and fails loudly when the body stops being a u64 literal, instead
+    // of letting a format change read as an empty account. A 404 (no entry yet)
+    // is a genuine zero.
+    let balance_before = client
         .network
-        .fetch_mapping_value("credits.aleo", "account", &self_addr)
-        .await?;
-    println!(
-        "Balance before: {} microcredits",
-        parse_microcredits(balance_raw)?
-    );
+        .fetch_mapping_value_rest("credits.aleo", "account", &self_addr)
+        .await?
+        .unwrap_or(0);
+    println!("Balance before: {balance_before} microcredits");
 
     // 2. Transfer to self
     let amount = 1u64; // 1 microcredit
@@ -85,14 +72,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // 4. Verify final balance
-    let balance_raw2 = client
+    let balance_after = client
         .network
-        .fetch_mapping_value("credits.aleo", "account", &self_addr)
-        .await?;
-    println!(
-        "Balance after: {} microcredits",
-        parse_microcredits(balance_raw2)?
-    );
+        .fetch_mapping_value_rest("credits.aleo", "account", &self_addr)
+        .await?
+        .unwrap_or(0);
+    println!("Balance after: {balance_after} microcredits");
 
     Ok(())
 }
