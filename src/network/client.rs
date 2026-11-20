@@ -39,6 +39,13 @@ impl Default for ConfirmationPoll {
 /// transaction. A false positive here cannot be undone by waiting, a false
 /// negative can.
 ///
+/// # The status domain
+///
+/// `snarkvm-ledger-block`'s `ConfirmedTransaction` serialiser emits only
+/// `accepted` or `rejected`, and its deserialiser fails on every other value, so
+/// a node cannot produce a third status. Callers nevertheless match `accepted`
+/// explicitly instead of treating "not `rejected`" as success.
+///
 /// # Why not `block_hash`
 ///
 /// Until 0.11.x this looked for a top-level `block_hash` on `/transaction/{id}`.
@@ -408,6 +415,9 @@ impl AleoHttpClient {
     /// A transaction that is on chain but `rejected` by its finalize block is an
     /// error, not a success: the transfer did not happen, and reporting
     /// otherwise would send the caller on to spend records that no longer exist.
+    /// Success requires the status to be exactly `accepted`; see
+    /// `confirmation_status` for why no other value can appear today, and why
+    /// the match is a whitelist regardless.
     ///
     /// The first check happens immediately; the interval only separates
     /// attempts. [`ConfirmationPoll`] is a parameter rather than a constant
@@ -419,8 +429,9 @@ impl AleoHttpClient {
     ///
     /// Fails when the status endpoint errors, when the transaction is reported
     /// `rejected`, or when `poll.attempts` is exhausted. A 2xx without a `status`
-    /// string keeps polling rather than reporting a false confirmation: a false
-    /// positive cannot be undone by waiting, a false negative can.
+    /// string, and a 2xx with any status other than `accepted`, keep polling
+    /// rather than reporting a false confirmation: a false positive cannot be
+    /// undone by waiting, a false negative can.
     pub async fn wait_for_confirmation_with(
         &self,
         tx_id: &str,
@@ -444,21 +455,39 @@ impl AleoHttpClient {
                 Ok(res) if res.status().is_success() => {
                     match res.text().await {
                         Ok(body) => {
-                            if let Some(status) = confirmation_status(&body) {
-                                if status == "rejected" {
-                                    anyhow::bail!(
-                                        "Transaction {tx_id} is on chain but was rejected (status: rejected)"
+                            match confirmation_status(&body).as_deref() {
+                                Some("accepted") => {
+                                    tracing::info!("Confirmed on chain (status: accepted)!");
+                                    tracing::info!(
+                                        "🔗 https://testnet.explorer.provable.com/transaction/{tx_id}"
+                                    );
+                                    return Ok(());
+                                }
+                                Some("rejected") => anyhow::bail!(
+                                    "Transaction {tx_id} is on chain but was rejected (status: rejected)"
+                                ),
+                                Some(other) => {
+                                    // `ConfirmedTransaction` serialises only `accepted`
+                                    // or `rejected`, and its deserialiser rejects every
+                                    // other value, so this branch is unreachable
+                                    // against a healthy node. It exists so that a future
+                                    // third status reads as "not confirmed yet": a false
+                                    // positive cannot be undone by waiting, a false
+                                    // negative can.
+                                    tracing::warn!(
+                                        "unrecognised confirmation status `{other}` \
+                                         (attempt {attempt}); still polling"
                                     );
                                 }
-                                tracing::info!("Confirmed on chain (status: {status})!");
-                                tracing::info!(
-                                    "🔗 https://testnet.explorer.provable.com/transaction/{tx_id}"
-                                );
-                                return Ok(());
+                                None => {
+                                    // A 200 whose body is not a confirmed-transaction
+                                    // wrapper: keep polling rather than trusting the
+                                    // status code alone.
+                                    tracing::debug!(
+                                        "200 without a status field (attempt {attempt})"
+                                    );
+                                }
                             }
-                            // A 200 whose body is not a confirmed-transaction wrapper:
-                            // keep polling rather than trusting the status code alone.
-                            tracing::debug!("200 without a status field (attempt {attempt})");
                         }
                         Err(error) => {
                             tracing::debug!(
