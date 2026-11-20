@@ -362,14 +362,30 @@ impl AleoHttpClient {
     ///
     /// # Errors
     ///
-    /// Fails when the program is not on chain (404), or when the body is not a JSON
-    /// string.
+    /// Fails when the program is not on chain (404), when the body is not a JSON
+    /// string, and when the program has **no** deployment transaction.
+    ///
+    /// `credits.aleo` is the case worth knowing: it exists from the genesis
+    /// block and was never deployed by a transaction, so the route answers
+    /// `200` with an empty string (measured 2026-11-19). A live deployment
+    /// answers `"at1…"` and an unknown id answers 404, so `""` is the node
+    /// saying "this program has no deployment" — not a malformed response, and
+    /// not something to report as "expected a JSON string, got \"\"".
     pub async fn fetch_deployment_transaction_id(&self, program_id: &str) -> Result<String> {
         let url = format!(
             "{}/find/transactionID/deployment/{program_id}",
             self.base_url
         );
-        self.get_json_string(&url).await
+        let text = self.get_text_checked(&url).await?;
+        match serde_json::from_str::<String>(&text) {
+            Ok(id) if id.is_empty() => bail!(
+                "{program_id} has no deployment transaction: the node answered 200 with an \
+                 empty string, which is how it describes a program that exists from the \
+                 genesis block instead of being deployed by a transaction"
+            ),
+            Ok(id) => Ok(id),
+            Err(_) => bail!("GET {url}: expected a JSON string, got {text}"),
+        }
     }
 
     // ── Transactions ────────────────────────────────────────────────────
