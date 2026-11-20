@@ -10,7 +10,7 @@
 
 **[Aleo](https://aleo.org) 的 Rust SDK** —— 建账户、私密转账、生成零知识证明，不用碰 Node.js。
 
-> **为什么需要这个 SDK？** 官方 [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) 已经**存档废弃**，不再维护。本 SDK 基于 snarkVM 4.12.0 和当前 Aleo 测试网端点提供了最新的实现。
+> **为什么需要这个 SDK？** 官方 [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) 已经**存档废弃**，不再维护。本 SDK 声明依赖 snarkVM 4.12.0，并对接当前 Aleo 测试网端点。
 
 > **从 0.11 升级？** 0.12 改了三处 API 签名（五个质押 planner、记录扫描器、`CreditsFunction`）。具体怎么改见 [`docs/upgrading-0.12.md`](docs/upgrading-0.12.md)。
 
@@ -57,8 +57,8 @@ tokio = { version = "1", features = ["full"] }
 而报错信息里两个版本号都不会出现。
 
 **要求：**
-- Rust **1.96+**（snarkVM 4.12.0 本身要求）
-- snarkVM **4.12.0**（自动解析）
+- Rust **1.96+**（snarkVM 4.12.0 的最低版本要求）
+- snarkVM **4.12.0 或 4.x 更新版本**——依赖使用 Cargo 的 caret 规则，全新项目可能解析到更新的 4.x；夜间 `fresh-resolve` 作业会覆盖这条路径
 - 证明生成：推荐 ~16 GB RAM
 
 ## 快速开始
@@ -240,7 +240,7 @@ CLI 工具会自动处理这个流程——参见下面 `aleo-cli transfer --mod
 │  record                                                │
 │  AleoRecord · RecordScanner · RecordManager · 币选择   │
 ├────────────────────────────────────────────────────────┤
-│            snarkVM 4.12.0 (Process<TestnetV0>)         │
+│            snarkVM 4.12+ (Process<TestnetV0>)          │
 │          reqwest (异步 HTTP) — tokio 运行时           │
 └──────────────────────────────────────────────────────┘
 ```

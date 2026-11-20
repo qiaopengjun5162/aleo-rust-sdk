@@ -17,9 +17,9 @@
 //! That is the whole entry fee: one URL, one call. Everything below is what
 //! that URL unlocks — the rest of this page is a map, not a prerequisite.
 //!
-//! Built on top of [snarkVM 4.12.0](https://crates.io/crates/snarkvm) for
-//! zero-knowledge proving, [reqwest](https://crates.io/crates/reqwest) for async
-//! HTTP, and [ureq](https://crates.io/crates/ureq) for the synchronous
+//! Declares [snarkVM 4.12.0](https://crates.io/crates/snarkvm) for
+//! zero-knowledge proving (Cargo may resolve a newer 4.x), [reqwest](https://crates.io/crates/reqwest)
+//! for async HTTP, and [ureq](https://crates.io/crates/ureq) for the synchronous
 //! `ProvableQuery` state-path fetches.
 //!
 //! ## Architecture

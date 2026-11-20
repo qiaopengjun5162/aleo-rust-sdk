@@ -10,7 +10,7 @@
 
 **The Rust SDK for [Aleo](https://aleo.org)** — accounts, private transfers, and zero-knowledge proofs, with no Node.js in the loop.
 
-> **Why this SDK?** The official [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) has been **archived** and is no longer maintained. This SDK provides an up-to-date implementation using snarkVM 4.12.0 and the current Aleo testnet endpoints.
+> **Why this SDK?** The official [ProvableHQ/aleo-rust](https://github.com/ProvableHQ/aleo-rust) has been **archived** and is no longer maintained. This SDK declares snarkVM 4.12.0 and targets the current Aleo testnet endpoints.
 
 > **Upgrading from 0.11?** Three API signatures changed in 0.12 (five staking
 > planners, record scanners, and `CreditsFunction`). See
@@ -62,8 +62,8 @@ different version gives you two incompatible `Value` types and an error message
 naming neither.
 
 **Requirements:**
-- Rust **1.96+** (snarkVM 4.12.0 requires it)
-- snarkVM **4.12.0** (automatically resolved)
+- Rust **1.96+** (snarkVM 4.12.0's MSRV)
+- snarkVM **4.12.0 or newer in 4.x** — the dependency is a Cargo caret requirement, so a fresh project may resolve a newer 4.x; the nightly `fresh-resolve` job tests that path
 - For proving: ~16 GB RAM recommended
 
 ## Quick Start
@@ -246,7 +246,7 @@ The rustdoc front page has the full one-line description of all 46 modules.
 │  record                                                │
 │  AleoRecord · RecordScanner · RecordManager · CoinSel  │
 ├────────────────────────────────────────────────────────┤
-│              snarkVM 4.12.0 (Process<TestnetV0>)       │
+│              snarkVM 4.12+ (Process<TestnetV0>)        │
 │          reqwest (async HTTP) — tokio runtime         │
 └──────────────────────────────────────────────────────┘
 ```
