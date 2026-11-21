@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.12.2](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.1...aleo-rust-sdk-v0.12.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* **utility:** identify the bad consensus-height entry ([#111](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/111)) ([2de2a15](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/2de2a156b9f2e296f078d49b5938b062328099dc))
+
 ## [0.12.1](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.0...aleo-rust-sdk-v0.12.1) (2026-11-20)
 
 
