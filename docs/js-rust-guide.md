@@ -12,7 +12,8 @@ to do the same things in Rust.
 cargo add aleo-rust-sdk
 ```
 
-Requires Rust **1.96+** (snarkVM 4.12.0's MSRV).
+Requires Rust **1.96+** (snarkVM 4.12.0's MSRV). A fresh Cargo resolve can pick a
+newer 4.x; the nightly `fresh-resolve` job tests that path.
 
 ---
 
