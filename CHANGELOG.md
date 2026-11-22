@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.12.3](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.2...aleo-rust-sdk-v0.12.3) (2026-11-22)
+
+
+### Bug Fixes
+
+* **network:** read a null mapping value as no entry ([#114](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/114)) ([f137ea7](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/f137ea7e2100352d5a7647df27c813050e7d7e1d))
+
 ## [0.12.2](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.1...aleo-rust-sdk-v0.12.2) (2026-11-21)
 
 
