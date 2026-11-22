@@ -265,3 +265,28 @@ async fn the_freeze_list_ends_with_a_decimal_root() {
         "the last element is documented as the Merkle root, a decimal string; got {last:?}"
     );
 }
+
+/// A fresh address has no `credits.aleo/account` entry.
+///
+/// Measured 2026-11-22: the gateway answers `200` with a bare `null` for this
+/// case, not a 404. `fetch_mapping_value_rest` must read both as `None`; an
+/// error here breaks the README's second Quick Start snippet, which generates
+/// a random account and asks for its balance immediately.
+#[tokio::test]
+#[ignore = "live testnet call; needs ALEO_REST_URL"]
+async fn a_fresh_address_answers_null_not_an_error() {
+    let Some(client) = live_client() else { return };
+
+    let mut rng = aleo_rust_sdk::snarkvm::prelude::TestRng::default();
+    let account = aleo_rust_sdk::AleoAccount::new_random(&mut rng)
+        .expect("generate a fresh address with no on-chain entry");
+    let balance = client
+        .fetch_mapping_value_rest("credits.aleo", "account", &account.address_str())
+        .await
+        .expect("a fresh address must read as 'no entry', not a format-change error");
+    assert_eq!(
+        balance, None,
+        "a randomly generated address unexpectedly has an account entry; \
+         if this is no longer reliable, use a fixed known-empty address"
+    );
+}

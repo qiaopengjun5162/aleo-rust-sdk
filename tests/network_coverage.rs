@@ -707,11 +707,31 @@ async fn test_json_rpc_error_bails() {
     );
 }
 
-/// A mapping body that is not a `u64` must be an error, not `None`.
+/// A missing account was measured on 2026-11-22 as `200` with a bare `null`,
+/// not a 404. It must read as "no entry" so a fresh account has a zero balance
+/// instead of a format-change error.
+#[tokio::test]
+async fn test_fetch_mapping_value_rest_null_body_is_no_entry() {
+    let mock_server = MockServer::start().await;
+    let client = mock_client(&mock_server.uri());
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"/program/.+"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("null"))
+        .mount(&mock_server)
+        .await;
+
+    let val = client
+        .fetch_mapping_value_rest("credits.aleo", "account", "anykey")
+        .await
+        .unwrap();
+    assert_eq!(val, None);
+}
+
+/// A non-null body that is not a `u64` must be an error, not `None`.
 ///
-/// The route answers 2xx only for a key that exists, so a 2xx body that does
-/// not parse means the response format changed. Returning `None` there would
-/// report "no balance" for a balance that does exist.
+/// Returning `None` there would report "no balance" for a balance that does
+/// exist — the one failure mode a balance query must not have.
 #[tokio::test]
 async fn test_fetch_mapping_value_rest_non_u64_is_an_error() {
     let mock_server = MockServer::start().await;

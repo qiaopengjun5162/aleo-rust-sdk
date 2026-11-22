@@ -520,13 +520,16 @@ impl AleoHttpClient {
 
     // ── On-chain state queries ──────────────────────────────────────────
 
-    /// GET a mapping entry and return the raw body, or `None` when the key is
-    /// absent (the API answers 404).
+    /// GET a mapping entry and return the raw body, or `None` on 4xx.
     ///
-    /// Both public mapping helpers below resolve to the *same* REST route and
-    /// the same "4xx means absent" rule; the only difference between them is
-    /// whether the body is parsed as a `u64`. This is the single place that
-    /// knows the route, so the two cannot drift.
+    /// A missing key can also arrive as `200` with a bare `null` body (measured
+    /// 2026-11-22 for a fresh address); that is returned verbatim as
+    /// `Some("null")` and interpreted by the typed helper below.
+    ///
+    /// Both public mapping helpers below resolve to the *same* REST route;
+    /// the only difference between them is whether the body is parsed as a
+    /// `u64`. This is the single place that knows the route, so the two cannot
+    /// drift.
     pub(crate) async fn mapping_value_raw(
         &self,
         program_id: &str,
@@ -548,18 +551,15 @@ impl AleoHttpClient {
     ///
     /// A key that exists answers with a JSON string holding an Aleo literal —
     /// `"6630224u64"` — so the `u64` suffix is stripped and the remainder parsed
-    /// as a [`u64`].
+    /// as a [`u64`]. A key that does not exist answers either `404` or a bare
+    /// JSON `null` with `200`; both mean "no entry" and return `Ok(None)`.
     ///
     /// # Errors
     ///
-    /// Fails on any non-2xx other than 404, and when a 2xx body is not a `u64`
-    /// literal. A 404 is `Ok(None)` by design — a missing key is not an error.
-    ///
-    /// A body that does not parse is **an error, not `Ok(None)`**. This route
-    /// answers 2xx only for a key that exists, so a 2xx body that is not a
-    /// `u64` means the response format changed. Reporting `None` there would
-    /// answer "no balance" for a balance that does exist — the one failure mode
-    /// a balance query must not have.
+    /// Fails on any non-2xx other than 404, and when a 2xx body is neither
+    /// `null` nor a `u64` literal. A body that does not parse is **an error, not
+    /// `Ok(None)`**: reporting "no balance" for a balance that does exist is
+    /// the one failure mode a balance query must not have.
     pub async fn fetch_mapping_value_rest(
         &self,
         program_id: &str,
@@ -569,12 +569,18 @@ impl AleoHttpClient {
         let Some(text) = self.mapping_value_raw(program_id, mapping_name, key).await? else {
             return Ok(None);
         };
-        let literal = text.trim().trim_matches('"');
+        let body = text.trim();
+        // Measured 2026-11-22: a fresh address answers 200 with a bare `null`,
+        // not a 404. Both mean "this key has no entry".
+        if body == "null" {
+            return Ok(None);
+        }
+        let literal = body.trim_matches('"');
         let digits = literal.strip_suffix("u64").unwrap_or(literal);
         digits.parse::<u64>().map(Some).with_context(|| {
             format!(
-                "GET {program_id}/mapping/{mapping_name}: expected a u64 literal, got {literal} \
-                 — the response format changed; a missing key is a 404, not this"
+                "GET {program_id}/mapping/{mapping_name}: expected a u64 literal or null, got {literal} \
+                 — the response format changed"
             )
         })
     }
@@ -582,7 +588,8 @@ impl AleoHttpClient {
     /// Query a mapping value as its raw serialized string.
     ///
     /// Use this for mappings whose values are not `u64` (structs, addresses,
-    /// other plaintext literals). Returns `None` on 404.
+    /// other plaintext literals). Returns `None` on 404; a 200 body of `null`
+    /// is returned verbatim as `Some("null".to_string())`.
     ///
     /// # Errors
     ///
