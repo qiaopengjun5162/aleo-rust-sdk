@@ -211,9 +211,10 @@ async fn a_transaction_has_a_top_level_id_inside_a_block_it_does_not() {
 /// `/transaction/confirmed/{id}` reports a `status` string, and `accepted` means
 /// what it says.
 ///
-/// `wait_for_confirmation_with` treats any non-`rejected` status as confirmed.
-/// This pins the two values that were actually observed, so a new status value
-/// shows up here before it silently reads as success in the poll loop.
+/// `wait_for_confirmation_with` confirms only on an exact `accepted` status;
+/// `rejected` is an error and any other value keeps polling. This pins the two
+/// values that were actually observed, so a new status value shows up here
+/// before it is mistaken for confirmation in the poll loop.
 #[tokio::test]
 #[ignore = "live testnet call; needs ALEO_REST_URL"]
 async fn a_confirmed_transaction_reports_an_accepted_status() {
@@ -232,8 +233,8 @@ async fn a_confirmed_transaction_reports_an_accepted_status() {
         return;
     };
 
-    // The client's own poll loop, with a single attempt: it returns Ok when it
-    // sees a non-rejected status, which is the fact under test.
+    // The client's own poll loop, with a single attempt: it returns Ok only on
+    // an exact `accepted` status, which is the fact under test.
     let poll = aleo_rust_sdk::ConfirmationPoll {
         attempts: 1,
         interval: std::time::Duration::from_millis(0),
