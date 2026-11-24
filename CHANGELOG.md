@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.12.4](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.3...aleo-rust-sdk-v0.12.4) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** bump snarkVM to 4.13.1 ([#116](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/116)) ([fb9b294](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/fb9b294ae6ed30fb1249275b84a7c861798f0cac))
+
 ## [0.12.3](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.2...aleo-rust-sdk-v0.12.3) (2026-11-22)
 
 
