@@ -23,6 +23,7 @@
 - [One crate](#one-crate)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Error handling](#error-handling)
 - [Module Map](#module-map)
 - [Features](#features)
 - [Architecture](#architecture)
@@ -65,6 +66,11 @@ naming neither.
 - Rust **1.96+** (snarkVM 4.12.0's MSRV)
 - snarkVM **4.12.0 or newer in 4.x** — the dependency is a Cargo caret requirement, so a fresh project may resolve a newer 4.x; the nightly `fresh-resolve` job tests that path
 - For proving: ~16 GB RAM recommended
+
+> ⚠️ **Testnet only.** Proving, record decryption and verification are typed to
+> `TestnetV0`. `AleoNetworkOptions::new("mainnet")` derives mainnet service URLs,
+> but that does **not** make this crate a mainnet client. Do not use it to hold
+> or move mainnet funds. See [Roadmap](#roadmap).
 
 ## Quick Start
 
@@ -197,6 +203,48 @@ async fn main() -> anyhow::Result<()> {
 
 The CLI tool handles this automatically — see the `aleo-cli transfer --mode private` command below.
 
+## Error handling
+
+Every fallible public function returns `anyhow::Result<T>`. That keeps the
+source chain intact and makes CLI-style code (`main() -> anyhow::Result<()>`)
+short, but it also means **there is no error enum to match on**. Decide your
+policy at your own boundary:
+
+```rust
+match client.get_block_height().await {
+    Ok(height) => println!("{height}"),
+    Err(err) => eprintln!("chain query failed: {err:#}"),
+}
+```
+
+What this implies in practice:
+
+- **Do not match on error strings** to drive control flow. Message wording is
+  not a stable API — confirmation-polling diagnostics changed within 0.12.x
+  when the failure distinction was added.
+- **Network errors are not typed.** A transaction that is still pending (404),
+  an unreachable endpoint, and a response whose body cannot be read all arrive
+  as `Err`. Confirmation polling separates "endpoint could not be reached"
+  from "body could not be read" in its message; if your logic must branch on
+  that, convert once into your own error type at the call site.
+- **`Ok(None)` is not an error.** `get_balance()` returns `Ok(None)` when the
+  account has no `credits.aleo/account` entry. Reserve `Err` for real failures.
+- **Panics are for violated invariants.** Fallible public functions that can
+  panic document it under `# Panics` in rustdoc.
+
+If your application needs structured errors, convert at the boundary once
+rather than inspecting strings throughout:
+
+```rust
+#[derive(Debug)]
+struct AppError(String);
+
+let height = client
+    .get_block_height()
+    .await
+    .map_err(|err| AppError(format!("{err:#}")))?;
+```
+
 ## Module Map
 
 | Group | Modules | What it covers |
@@ -252,6 +300,8 @@ The rustdoc front page has the full one-line description of all 46 modules.
 ```
 
 **v0.5.0+ new:** `ProvableQuery` (in the network layer) replaces the dummy `FixedStateRootQuery`. It fetches live Merkle state paths from `api.provable.com/v2/testnet/statePath/{commitment}` using `ureq` (sync HTTP), caches the `global_state_root()` from the response, and returns it in `current_state_root()` — ensuring the state root used for verification matches the root the Merkle path was built against.
+
+**Why two HTTP stacks:** this crate uses `reqwest` 0.12 for async transport and `ureq` 2 for the synchronous `statePath` call. snarkVM 4.13 itself pulls `reqwest` 0.13 and `ureq` 3, so a build contains two HTTP/TLS stacks and two sets of proxy semantics. This is a known cost, left in place deliberately: moving the direct `reqwest` to 0.13 changes three public signatures (`AleoHttpClient::with_http`, `AleoNetworkOptions::with_http_client`, `AuthProvider::new`) and breaks downstream callers including `aleo-cli`. That upgrade is planned as a breaking change, not a patch.
 
 ## Coming from `@provablehq/sdk`
 

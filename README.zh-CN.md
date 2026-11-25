@@ -21,6 +21,7 @@
 - [一个 crate](#一个-crate)
 - [安装](#安装)
 - [快速开始](#快速开始)
+- [错误处理](#错误处理)
 - [模块地图](#模块地图)
 - [功能特性](#功能特性)
 - [架构](#架构)
@@ -60,6 +61,10 @@ tokio = { version = "1", features = ["full"] }
 - Rust **1.96+**（snarkVM 4.12.0 的最低版本要求）
 - snarkVM **4.12.0 或 4.x 更新版本**——依赖使用 Cargo 的 caret 规则，全新项目可能解析到更新的 4.x；夜间 `fresh-resolve` 作业会覆盖这条路径
 - 证明生成：推荐 ~16 GB RAM
+
+> ⚠️ **仅支持测试网。** 证明生成、记录解密与验证的类型都固定为 `TestnetV0`。
+> `AleoNetworkOptions::new("mainnet")` 能推导出主网服务地址，但**不会**让本 crate
+> 变成主网客户端。请勿用它持有或转移主网资金。参见[路线图](#路线图)。
 
 ## 快速开始
 
@@ -192,6 +197,43 @@ async fn main() -> anyhow::Result<()> {
 
 CLI 工具会自动处理这个流程——参见下面 `aleo-cli transfer --mode private` 命令。
 
+## 错误处理
+
+所有可能失败的公开函数都返回 `anyhow::Result<T>`。这样错误链不会丢，写命令行风格的代码
+（`main() -> anyhow::Result<()>`）也很短；但代价是**没有可以 `match` 的错误枚举**。
+请在自己的应用边界上决定处理策略：
+
+```rust
+match client.get_block_height().await {
+    Ok(height) => println!("{height}"),
+    Err(err) => eprintln!("链上查询失败：{err:#}"),
+}
+```
+
+实际使用中要注意：
+
+- **不要匹配错误字符串**来做流程控制。错误文案不是稳定 API——0.12.x 增加失败原因区分时，
+  确认轮询的文案就改过。
+- **网络错误没有类型区分。** 交易还在等待（404）、端点连不上、响应体读不出来，拿到的都是
+  `Err`。确认轮询会在文案里区分「端点无法访问」和「响应体无法读取」；如果业务逻辑必须分支，
+  请在调用处把它转成你自己的错误类型。
+- **`Ok(None)` 不是错误。** 账户没有 `credits.aleo/account` 条目时，`get_balance()` 返回
+  `Ok(None)`。只有真正的失败才是 `Err`。
+- **panic 只用于不变量被破坏。** 可能 panic 的公开可失败函数会在 rustdoc 的 `# Panics`
+  小节里写明。
+
+如果应用需要结构化错误，在边界上转换一次，不要在各处检查字符串：
+
+```rust
+#[derive(Debug)]
+struct AppError(String);
+
+let height = client
+    .get_block_height()
+    .await
+    .map_err(|err| AppError(format!("{err:#}")))?;
+```
+
 ## 模块地图
 
 | 分组 | 模块 | 覆盖内容 |
@@ -246,6 +288,8 @@ CLI 工具会自动处理这个流程——参见下面 `aleo-cli transfer --mod
 ```
 
 **v0.5.0+ 新增：** `ProvableQuery`（位于 network 层）替代了哑实现 `FixedStateRootQuery`。它通过 `ureq` 从 `api.provable.com/v2/testnet/statePath/{commitment}` 实时获取 Merkle 状态路径，缓存响应中的 `global_state_root()`，并在 `current_state_root()` 中返回——确保证明验证所用的状态根与 Merkle 路径构建时的根一致。
+
+**为什么有两套 HTTP 栈：** 本 crate 用 `reqwest` 0.12 做异步传输，用 `ureq` 2 做同步的 `statePath` 调用；snarkVM 4.13 自身又依赖 `reqwest` 0.13 和 `ureq` 3，所以一次构建里会有两套 HTTP/TLS 栈和两套代理语义。这是已知代价，目前刻意保留：把直接依赖的 `reqwest` 升到 0.13 会改动三个公开签名（`AleoHttpClient::with_http`、`AleoNetworkOptions::with_http_client`、`AuthProvider::new`），并破坏包括 `aleo-cli` 在内的下游调用方。该升级会作为 breaking change 处理，不放进补丁版本。
 
 ## 从 `@provablehq/sdk` 迁移
 
