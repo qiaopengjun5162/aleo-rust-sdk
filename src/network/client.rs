@@ -65,6 +65,16 @@ fn confirmation_status(body: &str) -> Option<String> {
 }
 
 /// HTTP client with browser-like headers for Aleo network interaction.
+///
+/// # Proxy
+///
+/// A client from [`AleoHttpClient::new`] follows the proxy environment:
+/// `HTTP_PROXY` routes `http://` targets, `HTTPS_PROXY` routes `https://`
+/// targets (every Aleo endpoint is https), `ALL_PROXY` covers a scheme whose own
+/// variable is unset, and `NO_PROXY` lists hosts that must be reached directly.
+/// Both upper- and lower-case spellings are read. An injected client
+/// ([`AleoHttpClient::with_http`]) keeps whatever routing its own builder was
+/// given instead.
 #[derive(Clone, Debug)]
 pub struct AleoHttpClient {
     /// Base URL for REST endpoints (e.g. `https://api.explorer.provable.com/v2/testnet`)
@@ -74,6 +84,70 @@ pub struct AleoHttpClient {
     inner: reqwest::Client,
 }
 
+/// The scheme a proxy rule governs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProxyScope {
+    /// `http://` targets only.
+    Http,
+    /// `https://` targets only.
+    Https,
+}
+
+/// One proxy rule: which targets it governs, and how to reach the proxy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProxyRule {
+    scope: ProxyScope,
+    url: String,
+}
+
+/// Map proxy environment values onto rules, with curl's precedence.
+///
+/// `HTTP_PROXY` governs only `http://` targets and `HTTPS_PROXY` only
+/// `https://` ones; `ALL_PROXY` is the fallback for a scheme whose own variable
+/// is unset. Empty and whitespace-only values are ignored — a blank rule would
+/// send traffic nowhere while looking configured.
+///
+/// Kept apart from the builder so the mapping is testable without mutating
+/// process-global environment variables.
+fn proxy_rules(http: Option<&str>, https: Option<&str>, all: Option<&str>) -> Vec<ProxyRule> {
+    fn cleaned(value: Option<&str>) -> Option<String> {
+        value.map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned)
+    }
+
+    let http = cleaned(http);
+    let https = cleaned(https);
+    let all = cleaned(all);
+
+    let mut rules = Vec::new();
+    if let Some(url) = http.or(all.clone()) {
+        rules.push(ProxyRule {
+            scope: ProxyScope::Http,
+            url,
+        });
+    }
+    if let Some(url) = https.or(all) {
+        rules.push(ProxyRule {
+            scope: ProxyScope::Https,
+            url,
+        });
+    }
+    rules
+}
+
+/// First non-empty value among `names`, in the order given.
+fn first_env(names: &[&str]) -> Option<String> {
+    names
+        .iter()
+        .find_map(|name| std::env::var(name).ok())
+        .filter(|value| !value.trim().is_empty())
+}
+
+/// Whether certificate verification was explicitly disabled via `ALEO_INSECURE_TLS`.
+fn insecure_tls_enabled() -> bool {
+    std::env::var("ALEO_INSECURE_TLS")
+        .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+}
+
 /// Build the HTTP client every REST read uses.
 ///
 /// Extracted so that [`AleoNetworkOptions`](crate::AleoNetworkOptions) can hand
@@ -81,6 +155,30 @@ pub struct AleoHttpClient {
 /// re-implemented by a second constructor, because the copy that drifts is the
 /// one that keeps signing transactions while quietly skipping verification.
 pub(crate) fn default_http_client() -> Result<reqwest::Client> {
+    let http_proxy = first_env(&["HTTP_PROXY", "http_proxy"]);
+    let https_proxy = first_env(&["HTTPS_PROXY", "https_proxy"]);
+    let all_proxy = first_env(&["ALL_PROXY", "all_proxy"]);
+
+    build_http_client(
+        http_proxy.as_deref(),
+        https_proxy.as_deref(),
+        all_proxy.as_deref(),
+        reqwest::NoProxy::from_env(),
+    )
+}
+
+/// Assemble the client from already-resolved proxy inputs.
+///
+/// Registering any proxy rule disables reqwest's own environment handling, so
+/// this function has to be the single place that decides routing: `HTTP_PROXY`
+/// never governs `https://` (curl behaves the same), and `NO_PROXY` must be
+/// attached to every rule or the hosts it lists would be sent to the proxy.
+fn build_http_client(
+    http_proxy: Option<&str>,
+    https_proxy: Option<&str>,
+    all_proxy: Option<&str>,
+    no_proxy: Option<reqwest::NoProxy>,
+) -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         .http1_only()
         .timeout(std::time::Duration::from_secs(120));
@@ -89,23 +187,28 @@ pub(crate) fn default_http_client() -> Result<reqwest::Client> {
     // intercepting proxy you can opt out with ALEO_INSECURE_TLS=1 — but
     // never disable it silently: this client signs and broadcasts
     // transactions, so a MITM can steal funds.
-    if std::env::var("ALEO_INSECURE_TLS").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-    {
+    if insecure_tls_enabled() {
         tracing::warn!("ALEO_INSECURE_TLS is set — TLS certificate verification is DISABLED");
         builder = builder.danger_accept_invalid_certs(true);
     }
 
-    // Respect HTTP_PROXY / HTTPS_PROXY env vars (e.g. Clash at 127.0.0.1:7890).
-    // No manual proxy detection needed — reqwest 0.12 respects these by default
-    // when Proxy::system() is used. We set custom() to control exactly.
-    if let Ok(proxy_url) = std::env::var("HTTP_PROXY")
-        .or_else(|_| std::env::var("http_proxy"))
-        .or_else(|_| std::env::var("HTTPS_PROXY"))
-        .or_else(|_| std::env::var("https_proxy"))
-        && let Ok(proxy) =
-            reqwest::Proxy::http(&proxy_url).or_else(|_| reqwest::Proxy::all(&proxy_url))
-    {
-        builder = builder.proxy(proxy);
+    // Every Aleo endpoint is `https://`, so `Proxy::http` alone — which
+    // intercepts only `http://` — leaves proxy-configured users going direct
+    // without saying so. Each variable therefore gets the rule for its own
+    // scheme.
+    for rule in proxy_rules(http_proxy, https_proxy, all_proxy) {
+        let proxy = match rule.scope {
+            ProxyScope::Http => reqwest::Proxy::http(&rule.url),
+            ProxyScope::Https => reqwest::Proxy::https(&rule.url),
+        };
+        match proxy {
+            Ok(proxy) => builder = builder.proxy(proxy.no_proxy(no_proxy.clone())),
+            // A typo in the variable must not take the whole client down: warn
+            // and continue without that rule, the way curl ignores a bad proxy.
+            Err(error) => {
+                tracing::warn!(proxy = %rule.url, "ignoring an unusable proxy URL: {error}");
+            }
+        }
     }
 
     builder.build().context("Failed to build HTTP client")
@@ -808,5 +911,167 @@ impl AleoHttpClient {
         let tree: Vec<String> = serde_json::from_str(&text)
             .with_context(|| format!("GET {url}: body is not an array of decimal strings"))?;
         Ok(tree)
+    }
+}
+
+#[cfg(test)]
+mod proxy_tests {
+    use super::{ProxyScope, build_http_client, proxy_rules};
+    use std::time::Duration;
+
+    /// A stand-in proxy that records the first line of the first request it sees.
+    struct ProxyStub {
+        listener: tokio::net::TcpListener,
+        url: String,
+    }
+
+    impl ProxyStub {
+        async fn bind() -> Self {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind a loopback port");
+            let url = format!(
+                "http://{}",
+                listener.local_addr().expect("bound address is known")
+            );
+            Self { listener, url }
+        }
+
+        /// The first line the proxy received, or `None` if nothing connected in time.
+        async fn first_line(self, wait: Duration) -> Option<String> {
+            let accepted = tokio::time::timeout(wait, self.listener.accept()).await;
+            let Ok(Ok((mut stream, _))) = accepted else {
+                return None;
+            };
+            use tokio::io::AsyncReadExt;
+            let mut buffer = [0u8; 256];
+            let read = stream.read(&mut buffer).await.unwrap_or(0);
+            Some(String::from_utf8_lossy(&buffer[..read]).trim().to_string())
+        }
+    }
+
+    #[test]
+    fn each_variable_governs_its_own_scheme() {
+        let rules = proxy_rules(
+            Some("http://127.0.0.1:1001"),
+            Some("http://127.0.0.1:1002"),
+            None,
+        );
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].scope, ProxyScope::Http);
+        assert_eq!(rules[0].url, "http://127.0.0.1:1001");
+        assert_eq!(rules[1].scope, ProxyScope::Https);
+        assert_eq!(rules[1].url, "http://127.0.0.1:1002");
+    }
+
+    #[test]
+    fn all_proxy_fills_in_both_schemes() {
+        let rules = proxy_rules(None, None, Some("socks5://127.0.0.1:1080"));
+        assert_eq!(rules.len(), 2);
+        assert!(rules.iter().all(|rule| rule.url == "socks5://127.0.0.1:1080"));
+        assert_eq!(rules[0].scope, ProxyScope::Http);
+        assert_eq!(rules[1].scope, ProxyScope::Https);
+    }
+
+    #[test]
+    fn a_scheme_specific_variable_wins_over_all_proxy() {
+        let rules = proxy_rules(
+            None,
+            Some("http://127.0.0.1:1002"),
+            Some("http://127.0.0.1:9999"),
+        );
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].url, "http://127.0.0.1:9999");
+        assert_eq!(rules[1].url, "http://127.0.0.1:1002");
+    }
+
+    #[test]
+    fn blank_values_are_ignored() {
+        assert!(proxy_rules(Some(""), Some("   "), None).is_empty());
+        assert!(proxy_rules(None, None, None).is_empty());
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_trimmed() {
+        let rules = proxy_rules(Some("  http://127.0.0.1:1001  "), None, None);
+        assert_eq!(rules[0].url, "http://127.0.0.1:1001");
+    }
+
+    #[test]
+    fn an_unusable_proxy_url_does_not_stop_the_client() {
+        let client = build_http_client(Some("not a url"), None, None, None);
+        assert!(client.is_ok(), "a bad proxy URL must only cost that rule");
+    }
+
+    #[tokio::test]
+    async fn https_targets_are_sent_to_the_https_proxy() {
+        let stub = ProxyStub::bind().await;
+        let client = build_http_client(None, Some(&stub.url), None, None).expect("client builds");
+        let request = tokio::spawn(async move {
+            // `.invalid` never resolves, so anything the stub sees was routed by us.
+            let _ = client.get("https://aleo-proxy-probe.invalid/v2").send().await;
+        });
+
+        let line = stub
+            .first_line(Duration::from_secs(5))
+            .await
+            .expect("the https proxy saw no connection");
+        request.abort();
+        assert!(
+            line.starts_with("CONNECT "),
+            "expected a CONNECT tunnel, got {line:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn http_targets_are_sent_to_the_http_proxy() {
+        let stub = ProxyStub::bind().await;
+        let client = build_http_client(Some(&stub.url), None, None, None).expect("client builds");
+        let request = tokio::spawn(async move {
+            let _ = client.get("http://aleo-proxy-probe.invalid/v2").send().await;
+        });
+
+        let line = stub
+            .first_line(Duration::from_secs(5))
+            .await
+            .expect("the http proxy saw no connection");
+        request.abort();
+        assert!(
+            line.contains("aleo-proxy-probe.invalid"),
+            "expected an absolute-form request line, got {line:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn https_proxy_does_not_capture_http_targets() {
+        let stub = ProxyStub::bind().await;
+        let client = build_http_client(None, Some(&stub.url), None, None).expect("client builds");
+        let request = tokio::spawn(async move {
+            let _ = client.get("http://aleo-proxy-probe.invalid/v2").send().await;
+        });
+
+        // curl semantics: HTTPS_PROXY governs https:// only.
+        assert!(
+            stub.first_line(Duration::from_millis(500)).await.is_none(),
+            "an http:// target must not be routed through HTTPS_PROXY"
+        );
+        request.abort();
+    }
+
+    #[tokio::test]
+    async fn no_proxy_hosts_bypass_the_proxy() {
+        let stub = ProxyStub::bind().await;
+        let no_proxy = reqwest::NoProxy::from_string("aleo-proxy-probe.invalid");
+        let client =
+            build_http_client(None, Some(&stub.url), None, no_proxy).expect("client builds");
+        let request = tokio::spawn(async move {
+            let _ = client.get("https://aleo-proxy-probe.invalid/v2").send().await;
+        });
+
+        assert!(
+            stub.first_line(Duration::from_millis(500)).await.is_none(),
+            "a host listed in NO_PROXY must be reached directly"
+        );
+        request.abort();
     }
 }

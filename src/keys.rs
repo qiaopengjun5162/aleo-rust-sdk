@@ -713,9 +713,10 @@ pub trait KeyByteTransport: Send + Sync {
 
 /// Default [`KeyByteTransport`] backed by `reqwest`.
 ///
-/// Reuses the crate's shared HTTP client, which already honours proxy
-/// environment variables and sends the browser-like User-Agent some key
-/// hosts require.
+/// Reuses the crate's shared HTTP client, which honours the proxy environment
+/// variables `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` and `NO_PROXY` (each
+/// proxy applies only to its own scheme), and sends the browser-like
+/// User-Agent some key hosts require.
 pub struct ReqwestKeyTransport {
     client: reqwest::Client,
 }
