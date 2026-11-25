@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.12.5](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.4...aleo-rust-sdk-v0.12.5) (2026-11-25)
+
+
+### Bug Fixes
+
+* **network:** name transport cause in confirmation timeout ([#118](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/118)) ([b470a28](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/b470a28f4091b5db23f5df86ea5b87ade9fdfa41))
+
 ## [0.12.4](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.3...aleo-rust-sdk-v0.12.4) (2026-11-24)
 
 
