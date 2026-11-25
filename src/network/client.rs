@@ -444,11 +444,17 @@ impl AleoHttpClient {
             poll.interval
         );
 
-        // A body that cannot be read is treated as "no status yet" and the loop
-        // keeps polling, matching the policy above for a 2xx without a status
-        // string. It is remembered, though: if every attempt dies in the
-        // transport, the terminal error must not read as a plain timeout.
-        let mut unreadable_body: Option<String> = None;
+        // A failed poll — whether the request never reached the node or a 2xx
+        // arrived with an unreadable body — is treated as "no status yet" and
+        // the loop keeps polling, matching the policy above for a 2xx without
+        // a status string. The most recent failure is remembered, though: when
+        // no attempt ever confirms, the terminal error must name the cause
+        // instead of reading as a plain "not mined yet" timeout.
+        enum LastFailure {
+            UnreadableBody(String),
+            Transport(String),
+        }
+        let mut last_failure: Option<LastFailure> = None;
 
         for attempt in 1..=poll.attempts {
             match self.inner.get(&check_url).headers(Self::headers()).send().await {
@@ -493,7 +499,7 @@ impl AleoHttpClient {
                             tracing::debug!(
                                 "confirmation body unreadable (attempt {attempt}): {error}"
                             );
-                            unreadable_body = Some(error.to_string());
+                            last_failure = Some(LastFailure::UnreadableBody(error.to_string()));
                         }
                     }
                 }
@@ -503,16 +509,21 @@ impl AleoHttpClient {
                 }
                 Err(error) => {
                     tracing::debug!("confirmation poll failed (attempt {attempt}): {error}");
+                    last_failure = Some(LastFailure::Transport(error.to_string()));
                 }
             }
             if attempt < poll.attempts {
                 tokio::time::sleep(poll.interval).await;
             }
         }
-        match unreadable_body {
-            Some(error) => anyhow::bail!(
+        match last_failure {
+            Some(LastFailure::UnreadableBody(error)) => anyhow::bail!(
                 "Timed out waiting for confirmation of {tx_id}; \
                  the last status response arrived but its body could not be read: {error}"
+            ),
+            Some(LastFailure::Transport(error)) => anyhow::bail!(
+                "Timed out waiting for confirmation of {tx_id}; \
+                 the status endpoint could not be reached: {error}"
             ),
             None => anyhow::bail!("Timed out waiting for confirmation of {tx_id}"),
         }

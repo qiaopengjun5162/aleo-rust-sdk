@@ -301,3 +301,74 @@ async fn timeout_error_names_the_transaction() {
         .to_string();
     assert!(err.contains("at1distinctive"), "tx id not in error: {err}");
 }
+
+#[tokio::test]
+async fn unreachable_endpoint_error_names_the_transport_cause() {
+    // When every poll fails at `send()` (nothing listening on DEAD_BASE), the
+    // terminal error must say the endpoint could not be reached. It used to
+    // report only "Timed out", which reads as "the tx is not mined yet" and
+    // hides a dead node from the caller.
+    // Inject a no-proxy client so the loopback request cannot be captured by a
+    // proxy in the environment and turned into a 2xx error page.
+    let inner = reqwest::Client::builder().no_proxy().build().unwrap();
+    let c = AleoHttpClient::with_http(DEAD_BASE, DEAD_BASE, inner);
+
+    let err = c
+        .wait_for_confirmation_with("tx_unreachable", fast_poll(2))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Timed out"), "still a timeout at heart: {err}");
+    assert!(
+        err.contains("could not be reached"),
+        "transport cause missing from error: {err}"
+    );
+    assert!(
+        !err.contains("body could not be read"),
+        "no response ever arrived, so no body was read: {err}"
+    );
+}
+
+#[tokio::test]
+async fn unreadable_body_error_still_names_the_body_cause() {
+    // The other branch must keep its existing wording: a 2xx whose body is
+    // cut off is a different fault from an unreachable node, and callers may
+    // dispatch on the two messages. wiremock always sends a complete body, so
+    // a raw socket announces a longer body than it writes and closes early —
+    // `reqwest::text()` then fails while reading the response.
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        // Read the request so the peer's write completes, then reply with a
+        // truncated body: Content-Length promises 32 bytes, only 2 arrive.
+        let mut buf = [0u8; 1024];
+        let _ = socket.read(&mut buf).await;
+        let response =
+            b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 32\r\n\r\n{}";
+        socket.write_all(response).await.unwrap();
+        socket.shutdown().await.unwrap();
+    });
+    let inner = reqwest::Client::builder().no_proxy().build().unwrap();
+    let c = AleoHttpClient::with_http(&format!("http://{addr}"), &format!("http://{addr}"), inner);
+
+    // One attempt only: a second request would hit a closed listener and set
+    // a transport failure, overwriting the body failure under test.
+    let err = c
+        .wait_for_confirmation_with("tx_bad_body", fast_poll(1))
+        .await
+        .unwrap_err()
+        .to_string();
+    server.await.unwrap();
+    assert!(
+        err.contains("body could not be read"),
+        "body cause missing from error: {err}"
+    );
+    assert!(
+        !err.contains("could not be reached"),
+        "the node was reached; this is not a transport failure: {err}"
+    );
+}
