@@ -79,8 +79,8 @@
 //!
 //! Five services are involved: REST reads, JSON-RPC record queries, delegated
 //! proving, record scanning, and the JWT mint. [`AleoNetworkOptions`] states
-//! the network once and derives every service base from it, so switching to
-//! mainnet is one value rather than four call sites:
+//! the network once and derives every service base from it, so pointing every
+//! service at the same chain is one value rather than four call sites:
 //!
 //! ```no_run
 //! use aleo_rust_sdk::AleoNetworkOptions;
@@ -94,6 +94,11 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! **Mainnet is not supported yet.** `AleoNetworkOptions::new("mainnet")`
+//! derives mainnet service URLs, but the proving and verification types in
+//! this crate are fixed to `TestnetV0`. A mainnet URL alone does not make a
+//! mainnet client. Do not use it to hold or move mainnet funds.
 //!
 //! The individual constructors ([`AleoClient::new`], [`DelegatedProver::new`],
 //! [`RecordScanService::new`]) remain available; the options type is for when
