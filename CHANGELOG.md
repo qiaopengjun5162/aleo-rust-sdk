@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.12.6](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.5...aleo-rust-sdk-v0.12.6) (2026-11-25)
+
+
+### Bug Fixes
+
+* **network:** route https requests through HTTPS_PROXY ([#120](https://github.com/qiaopengjun5162/aleo-rust-sdk/issues/120)) ([c513387](https://github.com/qiaopengjun5162/aleo-rust-sdk/commit/c513387c6c418f157eea7abed151c124c34650f3))
+
 ## [0.12.5](https://github.com/qiaopengjun5162/aleo-rust-sdk/compare/aleo-rust-sdk-v0.12.4...aleo-rust-sdk-v0.12.5) (2026-11-25)
 
 
