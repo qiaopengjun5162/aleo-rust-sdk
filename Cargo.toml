@@ -9,6 +9,9 @@ description = "The Rust SDK for the Aleo blockchain — accounts, private transf
 repository = "https://github.com/qiaopengjun5162/aleo-rust-sdk"
 documentation = "https://docs.rs/aleo-rust-sdk"
 readme = "README.md"
+# Repo-only assets: the README never references these images, so shipping them
+# in every published crate only adds ~400 KB of dead weight.
+exclude = ["screenshots/"]
 keywords = ["aleo", "blockchain", "zero-knowledge", "sdk", "snarkvm"]
 categories = ["cryptography", "web-programming::http-client"]
 # snarkVM 4.12.0 itself declares rust-version = "1.96.0", so that — not 1.88 —
