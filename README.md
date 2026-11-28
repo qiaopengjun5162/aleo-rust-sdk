@@ -52,9 +52,12 @@ Add to your `Cargo.toml`:
 [dependencies]
 aleo-rust-sdk = "0.12"
 tokio = { version = "1", features = ["full"] }
+anyhow = "1"
 ```
 
-That is the whole dependency list. The snippets below also use snarkVM types
+That is the whole dependency list. `anyhow` is here because every fallible API
+returns `anyhow::Result` and the snippets use `?` in `main`; see
+[Error handling](#error-handling). The snippets below also use snarkVM types
 (`Value`, `ProgramID`, `TestnetV0`, `ViewKey`) — import them through
 `aleo_rust_sdk::snarkvm`, **not** through a second `snarkvm` entry of your own.
 The crate re-exports the exact snarkVM it was built against, so there is only
