@@ -49,9 +49,11 @@ feature，也没有要跑的 Node.js 侧车。命令行工具
 [dependencies]
 aleo-rust-sdk = "0.12"
 tokio = { version = "1", features = ["full"] }
+anyhow = "1"
 ```
 
-依赖就这两条。下面的示例还会用到 snarkVM 的类型（`Value`、`ProgramID`、
+依赖就这三条。示例里需要 `anyhow`，因为所有可失败的 API 都返回
+`anyhow::Result`，而 `main` 里用了 `?`；参见[错误处理](#错误处理)。下面的示例还会用到 snarkVM 的类型（`Value`、`ProgramID`、
 `TestnetV0`、`ViewKey`），请通过 `aleo_rust_sdk::snarkvm` 导入，**不要**自己再加一条
 `snarkvm` 依赖。本 crate 已经重新导出了它编译时所用的那份 snarkVM，构建里只有一份拷贝，
 类型永远对得上；手动加一个版本不同的 `snarkvm`，你得到的是两个互不兼容的 `Value` 类型，
